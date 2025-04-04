@@ -39,7 +39,6 @@ const errorHandler = (err, req, res, next) => {
       });
       break;
     default:
-      console.log('No error, all good');
       res.status(500).json({
         title: 'Unknown Error',
         message: err.message,
