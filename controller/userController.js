@@ -2,18 +2,17 @@ const asyncHandler = require('express-async-handler');
 const User = require('../model/userModel');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const throwError = require('../utils/throwError');
 
 const registerUser = asyncHandler(async (req, res) => {
   const { email, name, phone, password } = req.body || {};
   if (!email || !password || !name || !phone) {
-    res.status(400);
-    throw new Error('All fields are mandatory!');
+    throwError('Semua field harus di isi!', 400);
   }
 
   const userExist = await User.findOne({ email });
   if (userExist) {
-    res.status(400);
-    throw new Error('User already registered!');
+    throwError('Email tidak tersedia!', 400, 'email');
   }
 
   // Hashing password
@@ -50,19 +49,17 @@ const registerUser = asyncHandler(async (req, res) => {
       accessToken
     });
   } else {
-    res.status(400);
-    throw new Error('User data is not valid!');
+    throwError('User data tidak valid!', 400);
   }
 });
 
 const userLogin = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
-    return res.status(400).json({ message: 'All fields are mandatory!' });
+    return throwError('Semua field harus di isi!', 400);
   }
 
   const user = await User.findOne({ email });
-  console.log(user);
   // Compare password with hashedpassword
   const isPasswordValid =
     user && (await bcrypt.compare(password, user.password));
@@ -80,7 +77,7 @@ const userLogin = asyncHandler(async (req, res) => {
     );
     return res.status(200).json({ accessToken });
   } else {
-    return res.status(401).json({ message: 'Invalid credentials' });
+    throwError('Password invalid!', 401, 'password');
   }
 });
 
@@ -89,7 +86,7 @@ const getCurrentUser = asyncHandler(async (req, res) => {
   console.log(req.user);
 
   if (!user) {
-    return res.status(404).json({ message: 'User not found' });
+    return throwError('User tidak ditemukan!', 404);
   }
   res.status(200).json(user);
 });
@@ -98,14 +95,12 @@ const updateUser = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user.id).select('-password');
   if (!user) {
     res.status(404);
-    throw new Error('User not found!');
+    throwError('User data tidak valid!', 400);
   }
 
   const { name, email, phone } = req.body || {};
   if (!name && !email && !phone) {
-    return res
-      .status(400)
-      .json({ message: 'At least one field must be provided to update' });
+    return throwError('Isi setidaknya salah satu field!', 400);
   }
 
   // Build object update
@@ -117,8 +112,7 @@ const updateUser = asyncHandler(async (req, res) => {
   if (email) {
     const userExist = await User.findOne({ email });
     if (userExist && userExist.id !== user.id) {
-      res.status(400);
-      throw new Error('This email is not available!');
+      throwError('Email tidak tersedia!', 400, 'email');
     }
   }
 
@@ -127,7 +121,7 @@ const updateUser = asyncHandler(async (req, res) => {
     runValidators: true
   }).select('-password');
   res.status(200).json({
-    message: 'Sucessfully updated',
+    message: 'Berhasil di update!',
     user: updatedUser
   });
 });

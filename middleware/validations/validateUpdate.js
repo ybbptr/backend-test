@@ -1,33 +1,29 @@
 const Joi = require('joi');
 
-const validateUpdate = (req, res, next) => {
-  const schema = Joi.object({
-    email: Joi.string()
-      .email({ tlds: { allow: false } })
-      .messages({
-        'string.email': 'Email must be a valid email address',
-        'any.required': 'Email is required'
-      }),
-
-    name: Joi.string().min(3).messages({
-      'string.min': 'Name must be at least 3 characters',
-      'any.required': 'Name is required'
+const updateSchema = Joi.object({
+  email: Joi.string()
+    .email({ tlds: { allow: false } })
+    .messages({
+      'string.email': 'Email harus berupa alamat email yang valid',
+      'any.required': 'Email wajib diisi'
     }),
 
-    phone: Joi.string()
-      .pattern(/^[0-9]{10,15}$/)
-      .messages({
-        'string.pattern.base':
-          'Phone must be a valid number with 10 to 15 digits',
-        'any.required': 'Phone number is required'
-      })
-  }).min(1);
+  name: Joi.string().min(3).messages({
+    'string.min': 'Nama minimal terdiri dari 3 karakter',
+    'any.required': 'Nama wajib diisi'
+  }),
 
-  const { error } = schema.validate(req.body);
-  if (error) {
-    return res.status(400).json({ message: error.details[0].message });
-  }
-  next();
-};
+  phone: Joi.string()
+    .pattern(/^[0-9]{10,15}$/)
+    .messages({
+      'string.pattern.base':
+        'Nomor telepon harus terdiri dari 10 sampai 15 digit angka',
+      'any.required': 'Nomor telepon wajib diisi'
+    })
+})
+  .min(1)
+  .messages({
+    'object.min': 'Minimal harus ada satu data yang diubah'
+  });
 
-module.exports = validateUpdate;
+module.exports = updateSchema;

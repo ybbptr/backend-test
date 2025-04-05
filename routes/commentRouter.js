@@ -8,8 +8,13 @@ const {
   // getComment,
   updateComments
 } = require('../controller/commentController');
+const validate = require('../middleware/validations/validate');
 
-Router.route('/').get(getComments).post(validateComment, createComments);
-Router.route('/:id').put(updateComments).delete(deleteComments);
+Router.route('/')
+  .get(getComments)
+  .post(validate(validateComment), createComments);
+Router.route('/:id')
+  .put(validate(validateComment), updateComments)
+  .delete(deleteComments);
 
 module.exports = Router;

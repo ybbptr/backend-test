@@ -1,5 +1,6 @@
 const asyncHandler = require('express-async-handler');
 const Comment = require('../model/commentModel');
+const throwError = require('../utils/throwError');
 
 // @desc Get all comments
 // GET /api/comments
@@ -27,8 +28,7 @@ const createComments = asyncHandler(async (req, res) => {
   const { anonymousName, text } = req.body || {};
 
   if (!text) {
-    res.status(400);
-    throw new Error('All fields are required!');
+    throwError('Semua field harus di isi!', 400, 'text');
   }
 
   const comment = await Comment.create({
@@ -58,8 +58,7 @@ const createComments = asyncHandler(async (req, res) => {
 const updateComments = asyncHandler(async (req, res) => {
   const comment = await Comment.findById(req.params.id);
   if (!comment) {
-    res.status(404);
-    throw new Error('Comment not found!');
+    throwError('Komentar tidak ditemukan!', 404, 'text');
   }
 
   const newComment = await Comment.findByIdAndUpdate(req.params.id, req.body, {
@@ -75,8 +74,7 @@ const updateComments = asyncHandler(async (req, res) => {
 const deleteComments = asyncHandler(async (req, res) => {
   const comment = await Comment.findById(req.params.id);
   if (!comment) {
-    res.status(404);
-    throw new Error('Comment not found!');
+    throwError('Komentar tidak ditemukan!', 404, 'text');
   }
 
   await comment.deleteOne();

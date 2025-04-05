@@ -8,11 +8,13 @@ const {
 const validateToken = require('../middleware/validations/validateTokenHandler');
 const validateRegister = require('../middleware/validations/validateRegister');
 const validateUpdate = require('../middleware/validations/validateUpdate');
+const validateLogin = require('../middleware/validations/validateLogin');
+const validate = require('../middleware/validations/validate');
 const Router = express.Router();
 
-Router.post('/register', validateRegister, registerUser);
-Router.post('/login', userLogin);
+Router.post('/register', validate(validateRegister), registerUser);
+Router.post('/login', validate(validateLogin), userLogin);
+Router.put('/update', validateToken, validate(validateUpdate), updateUser);
 Router.get('/current', validateToken, getCurrentUser);
-Router.put('/update', validateToken, validateUpdate, updateUser);
 
 module.exports = Router;

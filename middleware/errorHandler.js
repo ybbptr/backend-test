@@ -1,38 +1,27 @@
 const { constants } = require('../constants');
 
+const statusTitles = {
+  [constants.VALIDATION_ERROR]: 'Validation Failed',
+  [constants.UNAUTHORIZED]: 'Unauthorized',
+  [constants.FORBIDDEN]: 'Forbidden',
+  [constants.NOT_FOUND]: 'Not Found',
+  [constants.SERVER_ERROR]: 'Server Error'
+};
+
 const errorHandler = (err, req, res, next) => {
   const statusCode =
-    res.statusCode && res.statusCode !== 200
+    err.statusCode ||
+    (res.statusCode && res.statusCode !== 200
       ? res.statusCode
-      : constants.SERVER_ERROR;
+      : constants.SERVER_ERROR);
 
-  let title;
-
-  switch (statusCode) {
-    case constants.VALIDATION_ERROR:
-      title = 'Validation Failed';
-      break;
-    case constants.UNAUTHORIZED:
-      title = 'Unauthorized';
-      break;
-    case constants.FORBIDDEN:
-      title = 'Forbidden';
-      break;
-    case constants.NOT_FOUND:
-      title = 'Not Found';
-      break;
-    case constants.SERVER_ERROR:
-      title = 'Server Error';
-      break;
-    default:
-      title = 'Unexpected Error';
-      break;
-  }
+  const title = err.title || statusTitles[statusCode] || 'Unexpected Error';
 
   res.status(statusCode).json({
     success: false,
     title,
     message: err.message || 'Something went wrong',
+    field: err.field || null,
     stackTrace: process.env.NODE_ENV === 'production' ? null : err.stack
   });
 };

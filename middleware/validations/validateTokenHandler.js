@@ -6,7 +6,7 @@ const validateToken = asyncHandler(async (req, res, next) => {
 
   if (!authHeader || !authHeader.startsWith('Bearer')) {
     res.status(401);
-    throw new Error('Token not found or invalid format');
+    throw new Error('Token tidak ditemukan atau format tidak valid');
   }
 
   const token = authHeader.split(' ')[1];
@@ -14,7 +14,7 @@ const validateToken = asyncHandler(async (req, res, next) => {
   jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
     if (err) {
       res.status(401);
-      throw new Error('User is not authorized');
+      throw new Error('Pengguna tidak memiliki izin akses');
     }
     req.user = decoded.user;
     next();
