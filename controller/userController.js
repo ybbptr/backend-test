@@ -60,6 +60,10 @@ const userLogin = asyncHandler(async (req, res) => {
   }
 
   const user = await User.findOne({ email });
+  if (!user) {
+    res.status(404);
+    throwError('Email tidak ditemukan!', 400, 'email');
+  }
   // Compare password with hashedpassword
   const isPasswordValid =
     user && (await bcrypt.compare(password, user.password));
