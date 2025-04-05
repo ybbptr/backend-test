@@ -1,15 +1,15 @@
 const express = require('express');
 const Router = express.Router();
-const validateComment = require('../middleware/validateComment');
+const validateComment = require('../middleware/validations/validateComment');
 const {
   getComments,
   createComments,
   deleteComments,
-  getComment,
+  // getComment,
   updateComments
 } = require('../controller/commentController');
 
 Router.route('/').get(getComments).post(validateComment, createComments);
-Router.route('/:id').get(getComment).put(updateComments).delete(deleteComments);
+Router.route('/:id').put(updateComments).delete(deleteComments);
 
 module.exports = Router;

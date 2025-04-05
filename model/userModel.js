@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+
 const userSchema = new mongoose.Schema(
   {
     email: {
@@ -17,11 +18,26 @@ const userSchema = new mongoose.Schema(
     phone: {
       type: String,
       required: [true, 'Phone number is required'],
-      trim: true
+      trim: true,
+      minlength: [10, 'Phone number must be at least 10 digits'],
+      maxlength: [15, 'Phone number must not be more than 15 digits'],
+      validate: {
+        validator: function (value) {
+          return /^[0-9]+$/.test(value);
+        },
+        message: 'Phone number must contain only numbers'
+      }
     },
     password: {
       type: String,
-      required: [true, 'Password is required']
+      required: [true, 'Password is required'],
+      minlength: [8, 'Password must be at least 8 characters'],
+      validate: {
+        validator: function (value) {
+          return /\d/.test(value);
+        },
+        message: 'Password must contain at least one number'
+      }
     }
   },
   { timestamps: true }

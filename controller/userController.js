@@ -41,46 +41,6 @@ const registerUser = asyncHandler(async (req, res) => {
   }
 });
 
-// // Email & Username
-
-// const userLogin = asyncHandler(async (req, res) => {
-//   const { login, password } = req.body; // login = username/email
-
-//   if (!login || !password) {
-//     return res.status(400).json({ message: 'All fields are mandatory!' });
-//   }
-
-//   const isEmail = login.includes('@');
-
-//   const user = await User.findOne(
-//     isEmail ? { email: login } : { username: login }
-//   );
-
-//   if (!user) {
-//     return res.status(401).json({ message: 'Invalid credentials' });
-//   }
-
-//   const isPasswordValid = await bcrypt.compare(password, user.password);
-
-//   if (!isPasswordValid) {
-//     return res.status(401).json({ message: 'Invalid credentials' });
-//   }
-
-//   const accessToken = jwt.sign(
-//     {
-//       user: {
-//         id: user._id,
-//         email: user.email
-//       }
-//     },
-//     process.env.ACCESS_TOKEN_SECRET,
-//     { expiresIn: '1h' }
-//   );
-
-//   res.status(200).json({ accessToken });
-// });
-
-// Email only
 const userLogin = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
@@ -112,10 +72,50 @@ const userLogin = asyncHandler(async (req, res) => {
 
 const getCurrentUser = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user.id).select('-password');
+  console.log(req.user);
+
   if (!user) {
     return res.status(404).json({ message: 'User not found' });
   }
   res.status(200).json(user);
 });
 
-module.exports = { registerUser, userLogin, getCurrentUser };
+const updateUser = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user.id).select('-password');
+  if (!user) {
+    res.status(404);
+    throw new Error('User not found!');
+  }
+
+  const { name, email, phone } = req.body || {};
+  if (!name && !email && !phone) {
+    return res
+      .status(400)
+      .json({ message: 'At least one field must be provided to update' });
+  }
+
+  // Build object update
+  const updatedFields = {};
+  if (name) updatedFields.name = name;
+  if (email) updatedFields.email = email;
+  if (phone) updatedFields.phone = phone;
+
+  if (email) {
+    const userExist = await User.findOne({ email });
+    if (userExist && userExist.id !== user.id) {
+      res.status(400);
+      throw new Error('This email is not available!');
+    }
+  }
+
+  const updatedUser = await User.findByIdAndUpdate(user.id, updatedFields, {
+    new: true,
+    runValidators: true
+  }).select('-password');
+  res.status(200).json({
+    message: 'Sucessfully updated',
+    user: updatedUser
+  });
+});
+
+module.exports = { registerUser, userLogin, getCurrentUser, updateUser };
