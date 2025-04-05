@@ -28,16 +28,30 @@ const registerUser = asyncHandler(async (req, res) => {
   });
 
   // Checking if user is valid
-  if (!user) {
+  if (user) {
+    const accessToken = jwt.sign(
+      {
+        user: {
+          id: user._id,
+          email: user.email
+        }
+      },
+      process.env.ACCESS_TOKEN_SECRET,
+      { expiresIn: '1h' }
+    );
+
+    res.status(201).json({
+      user: {
+        _id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone
+      },
+      accessToken
+    });
+  } else {
     res.status(400);
     throw new Error('User data is not valid!');
-  } else {
-    res.status(201).json({
-      _id: user.id,
-      name: user.name,
-      email: user.email,
-      phone: user.phone
-    });
   }
 });
 
