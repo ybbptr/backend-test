@@ -38,6 +38,11 @@ const userSchema = new mongoose.Schema(
         },
         message: 'Password must contain at least one number'
       }
+    },
+    role: {
+      type: String,
+      enum: ['admin', 'user'],
+      default: 'user'
     }
   },
   { timestamps: true }

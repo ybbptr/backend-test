@@ -44,7 +44,8 @@ const registerUser = asyncHandler(async (req, res) => {
         _id: user.id,
         name: user.name,
         email: user.email,
-        phone: user.phone
+        phone: user.phone,
+        role: user.role
       },
       accessToken
     });
@@ -79,7 +80,15 @@ const userLogin = asyncHandler(async (req, res) => {
       process.env.ACCESS_TOKEN_SECRET,
       { expiresIn: '1h' }
     );
-    return res.status(200).json({ accessToken });
+
+    let userRole;
+    const isAdmin =
+      user.email === process.env.ADMIN_ACCESS &&
+      (await bcrypt.compare(password, user.password));
+    if (isAdmin) userRole = 'admin';
+    else userRole = 'user';
+
+    res.status(200).json({ accessToken, userRole });
   } else {
     throwError('Password invalid!', 401, 'password');
   }
@@ -87,7 +96,7 @@ const userLogin = asyncHandler(async (req, res) => {
 
 const getCurrentUser = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user.id).select('-password');
-  console.log(req.user);
+  console.log(user);
 
   if (!user) {
     return throwError('User tidak ditemukan!', 404);
@@ -130,4 +139,21 @@ const updateUser = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { registerUser, userLogin, getCurrentUser, updateUser };
+const getAllUsers = asyncHandler(async (req, res) => {
+  const admin = await User.findById(req.user.id).select('-password');
+
+  if (!admin) {
+    return throwError('Anda tidak memiliki izin untuk mengakses data!', 401);
+  }
+
+  const users = await User.find({ role: 'user' }).select('-password');
+  res.status(200).json({ users });
+});
+
+module.exports = {
+  registerUser,
+  userLogin,
+  getCurrentUser,
+  updateUser,
+  getAllUsers
+};

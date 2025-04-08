@@ -3,7 +3,8 @@ const {
   registerUser,
   userLogin,
   getCurrentUser,
-  updateUser
+  updateUser,
+  getAllUsers
 } = require('../controller/userController');
 const validateToken = require('../middleware/validations/validateTokenHandler');
 const validateRegister = require('../middleware/validations/validateRegister');
@@ -16,5 +17,6 @@ Router.post('/register', validate(validateRegister), registerUser);
 Router.post('/login', validate(validateLogin), userLogin);
 Router.put('/update', validateToken, validate(validateUpdate), updateUser);
 Router.get('/current', validateToken, getCurrentUser);
+Router.get('/allUsers', validateToken, getAllUsers);
 
 module.exports = Router;
