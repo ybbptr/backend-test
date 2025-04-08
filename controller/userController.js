@@ -95,7 +95,7 @@ const userLogin = asyncHandler(async (req, res) => {
 });
 
 const getCurrentUser = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user.id).select('-password');
+  const user = await User.findById(req.user.id).select('-password -role');
   console.log(user);
 
   if (!user) {
@@ -105,7 +105,7 @@ const getCurrentUser = asyncHandler(async (req, res) => {
 });
 
 const updateUser = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user.id).select('-password');
+  const user = await User.findById(req.user.id).select('-password -role');
   if (!user) {
     res.status(404);
     throwError('User data tidak valid!', 400);
@@ -132,7 +132,7 @@ const updateUser = asyncHandler(async (req, res) => {
   const updatedUser = await User.findByIdAndUpdate(user.id, updatedFields, {
     new: true,
     runValidators: true
-  }).select('-password');
+  }).select('-password -role');
   res.status(200).json({
     message: 'Berhasil di update!',
     user: updatedUser
@@ -146,8 +146,40 @@ const getAllUsers = asyncHandler(async (req, res) => {
     return throwError('Anda tidak memiliki izin untuk mengakses data!', 401);
   }
 
-  const users = await User.find({ role: 'user' }).select('-password');
+  const users = await User.find({ role: 'user' }).select('-password -role');
   res.status(200).json({ users });
+});
+
+const updatePassword = asyncHandler(async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+
+  const user = await User.findById(req.user.id).select('-role');
+  if (!user) return throwError('Pengguna tidak ditemukan', 401);
+
+  const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+  const isPasswordMatch = async (currentPassword, hashedPassword) => {
+    return await bcrypt.compare(currentPassword, hashedPassword);
+  };
+
+  // Password tidak sesuai
+  if (!(await isPasswordMatch(currentPassword, user.password))) {
+    return throwError('Password tidak sesuai', 400);
+  }
+
+  // Password tidak boleh sama dengan yg sebelumnya
+  if (await isPasswordMatch(newPassword, user.password)) {
+    return throwError(
+      'Password tidak boleh sama dengan sebelumnya!',
+      400,
+      'newPassword'
+    );
+  }
+
+  user.password = hashedPassword;
+  await user.save();
+
+  res.status(200).json({ message: 'Password berhasil diganti!' });
 });
 
 module.exports = {
@@ -155,5 +187,6 @@ module.exports = {
   userLogin,
   getCurrentUser,
   updateUser,
-  getAllUsers
+  getAllUsers,
+  updatePassword
 };

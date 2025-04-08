@@ -9,12 +9,11 @@ const {
   updateComments
 } = require('../controller/commentController');
 const validate = require('../middleware/validations/validate');
+const validateToken = require('../middleware/validations/validateTokenHandler');
 
 Router.route('/')
   .get(getComments)
-  .post(validate(validateComment), createComments);
-Router.route('/:id')
-  .put(validate(validateComment), updateComments)
-  .delete(deleteComments);
+  .post(validateToken, validate(validateComment), createComments);
+Router.route('/:id').delete(validateToken, deleteComments);
 
 module.exports = Router;
