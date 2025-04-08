@@ -163,18 +163,16 @@ const updatePassword = asyncHandler(async (req, res) => {
   };
 
   // Password tidak sesuai
-  if (!(await isPasswordMatch(currentPassword, user.password))) {
-    return throwError('Password tidak sesuai', 400);
-  }
+  if (!(await isPasswordMatch(currentPassword, user.password)))
+    return throwError('Password tidak sesuai', 400, 'password');
 
   // Password tidak boleh sama dengan yg sebelumnya
-  if (await isPasswordMatch(newPassword, user.password)) {
+  if (await isPasswordMatch(newPassword, user.password))
     return throwError(
       'Password tidak boleh sama dengan sebelumnya!',
       400,
       'newPassword'
     );
-  }
 
   user.password = hashedPassword;
   await user.save();
