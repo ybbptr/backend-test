@@ -14,6 +14,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use('/api/comments', require('./routes/commentRouter'));
 app.use('/api/users', require('./routes/userRouter'));
+app.use('/api/orders', require('./routes/orderRouter'));
 app.use(errorHandler);
 
 app.listen(port, () => {

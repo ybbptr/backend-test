@@ -9,8 +9,8 @@ const registerSchema = Joi.object({
       'any.required': 'Email wajib diisi!'
     }),
 
-  name: Joi.string().min(3).required().messages({
-    'string.min': 'Nama minimal terdiri dari 3 karakter!',
+  name: Joi.string().min(2).required().messages({
+    'string.min': 'Nama minimal terdiri dari 2 karakter!',
     'any.required': 'Nama wajib diisi!'
   }),
 
