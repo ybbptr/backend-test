@@ -26,18 +26,18 @@ const getComments = asyncHandler(async (req, res) => {
 // GET /api/comments
 // @access private, user
 const createComments = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user.id).select(
-    '-password -role -phone -email -createdAt -updatedAt'
-  );
-  console.log(user);
+  // const user = await User.findById(req.user.id).select(
+  //   '-password -role -phone -email -createdAt -updatedAt'
+  // );
+  // console.log(user);
 
-  if (!user) return throwError('Anda harus login untuk membuat komentar!', 401);
+  // if (!user) return throwError('Anda harus login untuk membuat komentar!', 401);
 
   const { text } = req.body || {};
   if (!text) throwError('Semua field harus di isi!', 400, 'text');
 
   const comment = await Comment.create({
-    name: user.name || 'Anonymous',
+    name: 'Anonymous',
     text
   });
 
