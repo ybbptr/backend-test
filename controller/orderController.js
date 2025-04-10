@@ -39,8 +39,7 @@ const createOrder = asyncHandler(async (req, res) => {
   "
 >
   <div style="display: flex; align-items: center; margin-bottom: 16px">
-    <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUcAAABvCAYAAAB/wQKEAAAAAXNSR0IArs4c6QAAIABJREFUeF7sfQe4XFXV9rv3Pn36rakkQgBFRASkI6D40bvGiogFFAUVQREL8VNEUUBEQBS/IIpgUHrvNUhRRHoN6bffO+30s/f/rD03wd/CTQIJEWaeJwzJnDllnT3vWeVd72Jov9oWaFugbYG2Bf7FAqxtk7YF2hZoW6BtgX+1QBsc26uibYG2BdoW+DcWaINje1m0LdC2..." alt="Logo" style="height: 40px; margin-right: 12px" />
-
+    <img src="https://backend-test-production-51c5.up.railway.app/assets/soilab-logo.png" alt="Logo" style="height: 40px; margin-right: 12px" />
   </div>
   <h2 style="color: #2dabe6; font-size: 18px; margin-top: 25px">
     📦 Pesanan Baru Telah Masuk
@@ -116,7 +115,7 @@ const createOrder = asyncHandler(async (req, res) => {
     <strong>📌 Catatan:</strong>
     <p style="margin: 5px 0 0 0; font-size: 13px">
       Pastikan untuk mengecek file lampiran bila tersedia. Data ini berasal dari
-      form pemesanan website.
+      form layanan pemesanan.
     </p>
   </div>
 </div>

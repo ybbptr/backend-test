@@ -26,14 +26,18 @@ const getComments = asyncHandler(async (req, res) => {
 // GET /api/comments
 // @access private, user
 const createComments = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user.id).select('-password -role');
+  const user = await User.findById(req.user.id).select(
+    '-password -role -phone -email -createdAt -updatedAt'
+  );
+  console.log(user);
+
   if (!user) return throwError('Anda harus login untuk membuat komentar!', 401);
 
-  const text = req.body || {};
+  const { text } = req.body || {};
   if (!text) throwError('Semua field harus di isi!', 400, 'text');
 
   const comment = await Comment.create({
-    name: req.user.name || 'Anonymous',
+    name: user.name || 'Anonymous',
     text
   });
 
@@ -73,13 +77,14 @@ const createComments = asyncHandler(async (req, res) => {
 // GET /api/comments/:id
 // @access private, admin
 const deleteComments = asyncHandler(async (req, res) => {
-  const admin = await User.findById(req.user.id).select('-password -role');
-  if (!admin) {
+  const admin = await User.findById(req.user.id).select('-password');
+  if (admin.role === 'user') {
     return throwError(
       'Anda tidak memiliki akses untuk menghapus komentar!',
       401
     );
   }
+
   const comment = await Comment.findById(req.params.id);
   if (!comment) throwError('Komentar tidak ditemukan!', 404, 'text');
 

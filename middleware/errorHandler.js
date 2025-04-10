@@ -5,6 +5,7 @@ const statusTitles = {
   [constants.UNAUTHORIZED]: 'Unauthorized',
   [constants.FORBIDDEN]: 'Forbidden',
   [constants.NOT_FOUND]: 'Not Found',
+  [constants.TOO_MANY_REQUEST]: 'Too many request',
   [constants.SERVER_ERROR]: 'Server Error'
 };
 
