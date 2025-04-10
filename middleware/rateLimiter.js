@@ -9,6 +9,7 @@ const createRateLimiter = ({ windowMs, max, message }) =>
       return req.user?.id || req.ip;
     },
     handler: (req, res, next, options) => {
+      console.log(`LIMIT HIT - IP: ${req.ip} - URL: ${req.originalUrl}`);
       return throwError(
         message || 'Too many requests, please try again later.',
         429
