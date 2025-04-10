@@ -9,7 +9,7 @@ const Router = express.Router();
 
 Router.post(
   '/create-order',
-  // validateToken,
+  validateToken,
   upload.single('attachment'),
   multerErrorHandler,
   validate(validateOrder),
