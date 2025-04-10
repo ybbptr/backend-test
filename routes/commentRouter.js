@@ -18,14 +18,12 @@ const commentLimiter = createRateLimiter({
   message: 'Terlalu banyak komentar dalam waktu singkat. Coba lagi nanti.'
 });
 
-Router.route('/')
-  .get(getComments)
-  .post(
-    validateToken,
-    commentLimiter,
-    validate(validateComment),
-    createComments
-  );
+Router.route('/').get(getComments).post(
+  // validateToken,
+  commentLimiter,
+  validate(validateComment),
+  createComments
+);
 Router.route('/:id').delete(validateToken, deleteComments);
 
 module.exports = Router;
