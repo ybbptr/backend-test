@@ -6,10 +6,14 @@ const createRateLimiter = ({ windowMs, max, message }) =>
     windowMs,
     max,
     keyGenerator: (req, res) => {
-      return req.user?.id || req.ip;
+      return req.body?.email || req.ip;
     },
     handler: (req, res, next, options) => {
-      console.log(`LIMIT HIT - IP: ${req.ip} - URL: ${req.originalUrl}`);
+      console.log(
+        `LIMIT HIT - FOR: ${req.body?.email || req.ip} - URL: ${
+          req.originalUrl
+        }`
+      );
       return throwError(
         message || 'Too many requests, please try again later.',
         429

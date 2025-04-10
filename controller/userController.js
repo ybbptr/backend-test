@@ -96,8 +96,6 @@ const userLogin = asyncHandler(async (req, res) => {
 
 const getCurrentUser = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user.id).select('-password -role');
-  console.log(user);
-
   if (!user) {
     return throwError('User tidak ditemukan!', 404);
   }
