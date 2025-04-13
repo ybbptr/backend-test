@@ -17,7 +17,7 @@ const orderLimiter = createRateLimiter({
 Router.post(
   '/create-order',
   validateToken,
-  orderLimiter,
+  // orderLimiter,
   upload.single('attachment'),
   multerErrorHandler,
   validate(validateOrder),
