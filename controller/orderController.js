@@ -5,7 +5,6 @@ const nodemailer = require('nodemailer');
 const createOrder = asyncHandler(async (req, res) => {
   const { name, company, email, contact, service, message } = req.body || {};
 
-  // Siapin array kosong untuk attachment
   let attachments = [];
 
   if (req.file) {
