@@ -6,7 +6,10 @@ const createRateLimiter = ({ windowMs, max, message }) =>
     windowMs,
     max,
     keyGenerator: (req, res) => {
-      return req.body?.email || req.ip;
+      const key = req.body?.email || req.ip;
+      console.log('[REGISTER LIMITER] KEY:', key);
+      return key;
+      // return req.body?.email || req.ip;
     },
     handler: (req, res, next, options) => {
       console.log(
