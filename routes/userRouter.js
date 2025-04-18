@@ -35,7 +35,8 @@ Router.post(
   validate(validateRegister),
   registerUser
 );
-Router.post('/login', loginLimiter, validate(validateLogin), userLogin);
+Router.post('/login', validate(validateLogin), userLogin);
+// Router.post('/login', loginLimiter, validate(validateLogin), userLogin);
 
 // PUT method
 Router.put(

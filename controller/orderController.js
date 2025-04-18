@@ -93,7 +93,7 @@ const createOrder = asyncHandler(async (req, res) => {
       }
 
       <div style="background-color: #fff3cd; padding: 10px; border-left: 4px solid #ffc107; margin-top: 20px; border-radius: 5px;">
-        <strong>📌 Catatan:</strong>
+        <strong>📌 Notes:</strong>
         <p style="margin: 5px 0 0 0; font-size: 13px">
           Pastikan untuk mengecek file lampiran bila tersedia. Data ini berasal dari
           form layanan pemesanan.
