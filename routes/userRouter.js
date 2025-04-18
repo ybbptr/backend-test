@@ -31,7 +31,7 @@ const registerLimiter = createRateLimiter({
 // POST Method
 Router.post(
   '/register',
-  registerLimiter,
+  // registerLimiter,
   validate(validateRegister),
   registerUser
 );
