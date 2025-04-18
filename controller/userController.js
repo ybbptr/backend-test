@@ -39,6 +39,8 @@ const registerUser = asyncHandler(async (req, res) => {
       { expiresIn: '1h' }
     );
 
+    console.log(user);
+
     res.status(201).json({
       user: {
         _id: user.id,
@@ -88,7 +90,7 @@ const userLogin = asyncHandler(async (req, res) => {
     if (isAdmin) userRole = 'admin';
     else userRole = 'user';
 
-    res.status(200).json({ accessToken, userRole });
+    res.status(200).json({ accessToken, role: userRole });
   } else {
     throwError('Password invalid!', 401, 'password');
   }
