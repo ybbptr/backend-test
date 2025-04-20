@@ -77,18 +77,17 @@ const createComments = asyncHandler(async (req, res) => {
 // GET /api/comments/:id
 // @access private, admin
 const deleteComments = asyncHandler(async (req, res) => {
-  const admin = await User.findById(req.user.id).select('-password');
-  if (admin.role === 'user') {
+  const admin = await User.findById(req.user.id).select('role');
+  if (admin.role != 'admin') {
     return throwError(
       'Anda tidak memiliki akses untuk menghapus komentar!',
       401
     );
   }
 
-  const comment = await Comment.findById(req.params.id);
+  const comment = await Comment.findByIdAndDelete(req.params.id);
   if (!comment) throwError('Komentar tidak ditemukan!', 404, 'text');
 
-  await comment.deleteOne(req.params.id);
   res.status(200).json({ message: 'Comment succesfully deleted' });
 });
 
