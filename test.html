@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Socket.IO Chat Test</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  </head>
+  <body>
+    <h2>Real-time Chat Test</h2>
+
+    <!-- Kalau kamu mau test sebagai Admin, tinggal ganti role di bawah -->
+    <p><strong>Current Role:</strong> <span id="role"></span></p>
+
+    <div id="admin-panel" style="display: none">
+      <input id="receiver" placeholder="Receiver ID (User ID)" />
+    </div>
+
+    <input id="message" placeholder="Type a message" />
+    <button onclick="sendMessage()">Send</button>
+
+    <ul id="messages"></ul>
+
+    <script>
+      const urlParams = new URLSearchParams(window.location.search);
+      const token = urlParams.get('token'); // token diambil dari parameter URL
+
+      if (!token) {
+        console.error('Token is missing in URL');
+      }
+
+      // --- SETTING MANUAL ROLE (user/admin) untuk testing ---
+      const myRole = 'admin'; // ganti ke 'admin' kalau mau tes sebagai admin
+
+      document.getElementById('role').innerText = myRole.toUpperCase();
+      if (myRole === 'admin') {
+        document.getElementById('admin-panel').style.display = 'block';
+      }
+
+      const socket = io('http://localhost:3000', {
+        auth: {
+          token: token
+        }
+      });
+
+      socket.on('connect', () => {
+        console.log('Connected with socket id:', socket.id);
+        socket.emit('join');
+      });
+
+      // Terima pesan
+      socket.on('receiveMessage', ({ sender, message }) => {
+        const li = document.createElement('li');
+        li.textContent = `📩 ${sender}: ${message}`;
+        document.getElementById('messages').appendChild(li);
+      });
+
+      // Kirim pesan
+      function sendMessage() {
+        const message = document.getElementById('message').value;
+        console.log(message);
+
+        if (myRole === 'admin') {
+          const receiver = document.getElementById('receiverId').value;
+          socket.emit('sendMsg', { receiver, message }); // Kirim ke user
+        } else {
+          socket.emit('sendMsg', {
+            receiver: '67f0f2b93ceed18f04a6f483',
+            message
+          }); // Kirim ke admin
+        }
+      }
+    </script>
+  </body>
+</html>

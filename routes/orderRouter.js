@@ -2,7 +2,7 @@ const express = require('express');
 const validateToken = require('../middleware/validations/validateTokenHandler');
 const validateOrder = require('../middleware/validations/validateOrder');
 const createOrder = require('../controller/orderController');
-const upload = require('../utils/upload');
+const pdfUploader = require('../utils/pdfUploader');
 const validate = require('../middleware/validations/validate');
 const multerErrorHandler = require('../middleware/multerErrorHandler');
 const { createRateLimiter } = require('../middleware/rateLimiter');
@@ -18,7 +18,7 @@ Router.post(
   '/create-order',
   validateToken,
   // orderLimiter,
-  upload.single('attachment'),
+  pdfUploader.single('attachment'),
   multerErrorHandler,
   validate(validateOrder),
   createOrder

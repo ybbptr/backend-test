@@ -36,10 +36,8 @@ const registerUser = asyncHandler(async (req, res) => {
         }
       },
       process.env.ACCESS_TOKEN_SECRET,
-      { expiresIn: '1h' }
+      { expiresIn: '3h' }
     );
-
-    console.log(user);
 
     res.status(201).json({
       user: {
@@ -76,7 +74,9 @@ const userLogin = asyncHandler(async (req, res) => {
       {
         user: {
           email: user.email,
-          id: user.id
+          name: user.name,
+          id: user.id,
+          role: user.role
         }
       },
       process.env.ACCESS_TOKEN_SECRET,
