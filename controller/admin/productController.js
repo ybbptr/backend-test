@@ -13,9 +13,7 @@ const addProduct = asyncHandler(async (req, res) => {
     ? req.file.path
     : 'https://res.cloudinary.com/dwnvblf1g/image/upload/v1746338190/placeholder_aanaig.png';
 
-  const imagePublicId = req.file
-    ? req.file.filename
-    : 'https://res.cloudinary.com/dwnvblf1g/image/upload/v1746338190/placeholder_aanaig.png';
+  const imagePublicId = req.file ? req.file.filename : null;
 
   const product = await Product.create({
     imageUrl,
@@ -46,10 +44,8 @@ const removeProduct = asyncHandler(async (req, res) => {
   const product = await Product.findById(req.params.id);
   if (!product) throwError('Barang tidak tersedia!', 400);
 
-  if (product.imagePublicId) {
+  if (product.imagePublicId != null) {
     await cloudinary.uploader.destroy(product.imagePublicId);
-  } else {
-    throwError('Image public id tidak valid!', 400);
   }
 
   await Product.findByIdAndDelete(req.params.id);
