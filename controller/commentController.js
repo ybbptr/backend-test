@@ -3,9 +3,6 @@ const Comment = require('../model/commentModel');
 const throwError = require('../utils/throwError');
 const User = require('../model/userModel');
 
-// @desc Get all comments
-// GET /api/comments
-// @access public
 const getComments = asyncHandler(async (req, res) => {
   const comments = await Comment.find();
   const formattedComments = comments.map((comment) => ({
@@ -22,9 +19,6 @@ const getComments = asyncHandler(async (req, res) => {
   res.status(200).json(formattedComments);
 });
 
-// @desc Create comment
-// GET /api/comments
-// @access private, user
 const createComments = asyncHandler(async (req, res) => {
   // const user = await User.findById(req.user.id).select(
   //   '-password -role -phone -email -createdAt -updatedAt'
@@ -44,9 +38,6 @@ const createComments = asyncHandler(async (req, res) => {
   res.status(201).json(comment);
 });
 
-// @desc Get comment
-// GET /api/comments
-// @access public
 // const getComment = asyncHandler(async (req, res) => {
 //   const comment = await Comment.findById(req.params.id);
 //   if (!comment) {
@@ -57,9 +48,6 @@ const createComments = asyncHandler(async (req, res) => {
 //   res.status(200).json(comment);
 // });
 
-// @desc Update comment
-// GET /api/comments/:id
-// @access private, user
 // const updateComments = asyncHandler(async (req, res) => {
 //   const comment = await Comment.findById(req.params.id);
 //   if (!comment) {
@@ -73,9 +61,6 @@ const createComments = asyncHandler(async (req, res) => {
 //   res.status(200).json(newComment);
 // });
 
-// @desc delete comment
-// GET /api/comments/:id
-// @access private, admin
 const deleteComments = asyncHandler(async (req, res) => {
   const admin = await User.findById(req.user.id).select('role');
   if (admin.role != 'admin') {

@@ -15,6 +15,7 @@ connectDb();
 app.set('trust proxy', 1);
 
 app.use(cors());
+app.options('*', cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use('/assets', express.static(path.join(__dirname, 'public/assets')));

@@ -9,9 +9,7 @@ const adminSocket = (io, socket) => {
     console.log(`📤 Admin sent message to ${receiverId}: ${message}`);
   });
 
-  socket.on('getOnlineUsers', () => {
-    // logic ambil list user online bisa ditambah nanti
-  });
+  socket.on('getOnlineUsers', () => {});
 };
 
 module.exports = adminSocket;
