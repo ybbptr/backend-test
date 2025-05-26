@@ -15,16 +15,25 @@ connectDb();
 app.set('trust proxy', 1);
 
 const allowedOrigins = [
-  'http://localhost:5173',
+  'http://127.0.0.1:5500',
   'https://soilab-app.vercel.app'
 ];
 
 const corsOptions = {
   origin: function (origin, callback) {
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
+    if (process.env.NODE_ENV === 'development') {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
     } else {
-      callback(new Error('Not allowed by CORS'));
+      // Production: harus spesifik
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
     }
   },
   credentials: true

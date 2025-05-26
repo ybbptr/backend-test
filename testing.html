@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Test Backend API</title>
+  </head>
+  <body>
+    <h1>Test Fetch Backend API</h1>
+    <button id="btn-test">Test API</button>
+    <pre id="result"></pre>
+
+    <script>
+      const btn = document.getElementById('btn-test');
+      const result = document.getElementById('result');
+
+      btn.addEventListener('click', () => {
+        fetch('http://localhost:3000/api/comments/', {
+          method: 'GET',
+          credentials: 'include' // kalau backend pakai cookie/session
+        })
+          .then((res) => {
+            if (!res.ok) throw new Error('Network response was not ok');
+            return res.json();
+          })
+          .then((data) => {
+            result.textContent = JSON.stringify(data, null, 2);
+          })
+          .catch((err) => {
+            result.textContent = 'Error: ' + err.message;
+          });
+      });
+    </script>
+  </body>
+</html>
