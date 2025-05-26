@@ -14,8 +14,24 @@ connectDb();
 
 app.set('trust proxy', 1);
 
-app.use(cors());
-app.options('*', cors());
+const allowedOrigins = [
+  'http://localhost:5173',
+  'https://soilab-app.vercel.app'
+];
+
+const corsOptions = {
+  origin: function (origin, callback) {
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
