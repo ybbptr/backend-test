@@ -1,10 +1,10 @@
 const mongoose = require('mongoose');
 
 const employeeSchema = new mongoose.Schema({
-  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  email: { type: String, required: true },
   name: { type: String, required: true },
   nik: { type: String, required: true },
-  age: { type: Number, required: true },
+  age: Number,
   employment_type: {
     type: String,
     required: true,
@@ -22,7 +22,7 @@ const employeeSchema = new mongoose.Schema({
   status: { type: String, enum: ['Menikah', 'Belum Menikah'] },
   bank_account_number: String,
   emergency_contact_number: String,
-  position: String,
+  position: { type: String, enum: ['Admin', 'Karyawan'], required: true },
   blood_type: { type: String, enum: ['A', 'B', 'AB', 'O'] },
   start_date: Date,
   end_date: Date,

@@ -46,9 +46,17 @@ const updateWarehouse = asyncHandler(async (req, res) => {
   res.status(200).json(warehouse);
 });
 
+const getWarehouse = asyncHandler(async (req, res) => {
+  const warehouse = await Warehouse.findById(req.params.id);
+  if (!warehouse) throwError('Gudang yang anda cari tidak ada!', 400);
+
+  res.status(200).json({ warehouse });
+});
+
 module.exports = {
   addWarehouse,
   getWarehouses,
   removeWarehouse,
-  updateWarehouse
+  updateWarehouse,
+  getWarehouse
 };
