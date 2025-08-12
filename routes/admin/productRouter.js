@@ -18,8 +18,8 @@ const validateProduct = require('../../middleware/validations/validateProduct');
 Router.post(
   '/add-product',
   setUploadFolder('images/products'),
-  upload.single('imageUrl'),
   validate(validateProduct),
+  upload.single('imageUrl'),
   addProduct
 );
 

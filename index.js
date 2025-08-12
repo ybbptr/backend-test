@@ -40,6 +40,7 @@ app.use('/api/users', require('./routes/userRouter'));
 app.use('/api/orders', require('./routes/orderRouter'));
 app.use('/admin/products', require('./routes/admin/productRouter'));
 app.use('/admin/employees', require('./routes/admin/employeeRouter'));
+app.use('/admin/warehouses', require('./routes/admin/warehouseRouter'));
 app.use(errorHandler);
 
 app.get('/test-chat', (req, res) => {
