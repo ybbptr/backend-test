@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const employeeSchema = new mongoose.Schema({
   email: { type: String, required: true },
   name: { type: String, required: true },
-  nik: { type: String, required: true },
+  nik: { type: String, required: true, unique: true },
   age: Number,
   employment_type: {
     type: String,
@@ -12,7 +12,7 @@ const employeeSchema = new mongoose.Schema({
   },
   religion: {
     type: String,
-    enum: ['Islam', 'Kristen', 'Katolik', 'Budha', 'Hindu']
+    enum: ['Islam', 'Protestan', 'Katolik', 'Budha', 'Hindu', 'Konghucu']
   },
   height: Number,
   weight: Number,
