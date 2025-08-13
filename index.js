@@ -12,33 +12,12 @@ const port = process.env.PORT || 3001;
 
 connectDb();
 
-app.set('trust proxy', 1);
-
-const allowedOrigins = [
-  'http://localhost:5173',
-  'https://soilab-app.vercel.app'
-];
-
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin);
-  }
-  res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.header('Access-Control-Allow-Credentials', 'true');
-
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  next();
-});
+// app.set('trust proxy', 1);
 
 app.use(
   cors({
-    origin: allowedOrigins,
-    credentials: true,
-    optionsSuccessStatus: 200
+    origin: ['http://localhost:5173', 'https://soilab-app.vercel.app'],
+    credentials: true
   })
 );
 
