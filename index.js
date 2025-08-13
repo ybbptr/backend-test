@@ -19,27 +19,32 @@ const allowedOrigins = [
   'https://soilab-app.vercel.app'
 ];
 
-// const corsOptions = {
-//   origin: function (origin, callback) {
-//     if (!origin || allowedOrigins.includes(origin)) {
-//       callback(null, true);
-//     } else {
-//       callback(new Error('Not allowed by CORS'));
-//     }
-//   },
-//   credentials: true
-// };
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Credentials', 'true');
 
-const corsOptions = {
-  origin: allowedOrigins,
-  credentials: true,
-  optionsSuccessStatus: 200
-};
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
-app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
+app.use(
+  cors({
+    origin: allowedOrigins,
+    credentials: true,
+    optionsSuccessStatus: 200
+  })
+);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
 app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
 app.use('/api/comments', require('./routes/commentRouter'));
 app.use('/api/users', require('./routes/userRouter'));
@@ -47,6 +52,7 @@ app.use('/api/orders', require('./routes/orderRouter'));
 app.use('/admin/products', require('./routes/admin/productRouter'));
 app.use('/admin/employees', require('./routes/admin/employeeRouter'));
 app.use('/admin/warehouses', require('./routes/admin/warehouseRouter'));
+
 app.use(errorHandler);
 
 app.get('/test-chat', (req, res) => {
