@@ -4,6 +4,7 @@ const throwError = require('../../utils/throwError');
 const Loan = require('../../model/loanModel');
 const Employee = require('../../model/employeeModel');
 const Product = require('../../model/productModel');
+const Warehouse = require('../../model/warehouseModel');
 
 const addLoan = asyncHandler(async (req, res) => {
   const {
@@ -12,7 +13,7 @@ const addLoan = asyncHandler(async (req, res) => {
     return_date,
     employee,
     approval,
-    project_type,
+    warehouse,
     product,
     loan_quantity
   } = req.body || {};
@@ -22,7 +23,7 @@ const addLoan = asyncHandler(async (req, res) => {
     !loan_date ||
     !return_date ||
     !employee ||
-    !project_type ||
+    !warehouse ||
     !product ||
     !loan_quantity
   ) {
@@ -56,7 +57,7 @@ const addLoan = asyncHandler(async (req, res) => {
           return_date,
           employee,
           approval,
-          project_type,
+          warehouse,
           product,
           loan_quantity
         }
@@ -75,14 +76,21 @@ const addLoan = asyncHandler(async (req, res) => {
 });
 
 const getLoans = asyncHandler(async (req, res) => {
-  const loan_items = await Loan.find().populate('employee', 'name').exec();
+  const loan_items = await Loan.find().populate([
+    { path: 'employee', select: 'name' },
+    { path: 'product', select: 'product_name product_code quantity' },
+    { path: 'warehouse', select: 'warehouse_name warehouse_code' }
+  ]);
+
   res.status(200).json(loan_items);
 });
 
 const getLoan = asyncHandler(async (req, res) => {
-  const loan_item = await Loan.findById(req.params.id)
-    .populate('employee', 'name')
-    .exec();
+  const loan_item = await Loan.findById(req.params.id).populate([
+    { path: 'employee', select: 'name' },
+    { path: 'product', select: 'product_name product_code quantity' },
+    { path: 'warehouse', select: 'warehouse_name warehouse_code' }
+  ]);
   if (!loan_item) throwError('Pengajuan tidak terdaftar!', 400);
 
   res.status(200).json(loan_item);
@@ -107,7 +115,7 @@ const updateLoan = asyncHandler(async (req, res) => {
       return_date,
       employee,
       approval,
-      project_type,
+      warehouse,
       product,
       loan_quantity
     } = req.body || {};
@@ -161,7 +169,7 @@ const updateLoan = asyncHandler(async (req, res) => {
     loan_item.return_date = return_date || loan_item.return_date;
     loan_item.employee = employee || loan_item.employee;
     loan_item.approval = approval || loan_item.approval;
-    loan_item.project_type = project_type || loan_item.project_type;
+    loan_item.warehouse = warehouse || loan_item.warehouse;
     loan_item.product = product || loan_item.product;
     loan_item.loan_quantity = loan_quantity || loan_item.loan_quantity;
 
@@ -190,6 +198,14 @@ const getAllProduct = asyncHandler(async (req, res) => {
   res.json(product);
 });
 
+const getAllWarehouse = asyncHandler(async (req, res) => {
+  const warehouse = await Warehouse.find().select(
+    'warehouse_code warehouse_name'
+  );
+
+  res.json(warehouse);
+});
+
 module.exports = {
   addLoan,
   getLoans,
@@ -197,5 +213,6 @@ module.exports = {
   removeLoan,
   updateLoan,
   getAllEmployee,
-  getAllProduct
+  getAllProduct,
+  getAllWarehouse
 };

@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 const loanSchema = new mongoose.Schema({
-  loan_number: { type: String, required: true, unique: true },
+  loan_number: { type: String, required: true, trim: true, unique: true },
   loan_date: { type: Date, required: true },
   loan_quantity: {
     type: Number,
@@ -19,10 +19,10 @@ const loanSchema = new mongoose.Schema({
     enum: ['Disetujui', 'Ditolak', 'Diproses'],
     default: 'Diproses'
   },
-  project_type: {
-    type: String,
-    required: true,
-    enum: ['SIS', 'SLS', 'Topography']
+  warehouse: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Warehouse',
+    required: true
   },
   product: {
     type: mongoose.Schema.Types.ObjectId,

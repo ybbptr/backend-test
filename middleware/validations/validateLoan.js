@@ -51,12 +51,17 @@ const loanSchema = Joi.object({
         'Persetujuan harus salah satu dari: Disetujui, Ditolak, Diproses!',
       'any.required': 'Persetujuan wajib diisi!'
     }),
-  project_type: Joi.string()
-    .valid('SIS', 'SLS', 'Topography')
+  warehouse: Joi.string()
+    .custom((value, helpers) => {
+      if (!mongoose.Types.ObjectId.isValid(value)) {
+        return helpers.error('any.invalid');
+      }
+      return value;
+    })
     .required()
     .messages({
-      'any.only': 'Project type harus salah satu dari: SIS, SLS, Topography!',
-      'any.required': 'Project type wajib diisi!'
+      'any.invalid': 'ID gudang tidak valid!',
+      'any.required': 'Gudang wajib diisi!'
     }),
   loan_quantity: Joi.number().positive().allow(null).required().messages({
     'any.required': 'Jumlah barang yang dipinjam wajib diisi!',
