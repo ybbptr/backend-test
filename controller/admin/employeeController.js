@@ -5,7 +5,7 @@ const Employee = require('../../model/employeeModel');
 
 const addEmployee = asyncHandler(async (req, res) => {
   const {
-    email,
+    user,
     name,
     nik,
     age,
@@ -25,11 +25,11 @@ const addEmployee = asyncHandler(async (req, res) => {
     end_date
   } = req.body || {};
 
-  if (!email || !name || !nik || !employment_type || !position)
+  if (!user || !name || !nik || !employment_type || !position)
     throwError('Field ini harus diisi', 400);
 
   const employee = await Employee.create({
-    email,
+    user,
     name,
     nik,
     age,
@@ -76,7 +76,7 @@ const removeEmployee = asyncHandler(async (req, res) => {
 
 const updateEmployee = asyncHandler(async (req, res) => {
   const {
-    email,
+    user,
     name,
     nik,
     age,
@@ -99,7 +99,7 @@ const updateEmployee = asyncHandler(async (req, res) => {
   const employee = await Employee.findById(req.params.id);
   if (!employee) throwError('Karyawan tidak ditemukan!', 404);
 
-  employee.email = email || employee.email;
+  employee.user = user || employee.user;
   employee.name = name || employee.name;
   employee.nik = nik || employee.nik;
   employee.age = age || employee.age;
