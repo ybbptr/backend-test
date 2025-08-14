@@ -12,6 +12,7 @@ const employeeValidation = Joi.object({
     })
     .messages({
       'any.invalid': 'User harus berupa ObjectId yang valid',
+      'string.empty': 'User tidak boleh kosong!',
       'any.required': 'User wajib diisi'
     }),
   name: Joi.string().min(2).required().messages({

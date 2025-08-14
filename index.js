@@ -40,6 +40,8 @@ app.use('/api/orders', require('./routes/orderRouter'));
 app.use('/admin/products', require('./routes/admin/productRouter'));
 app.use('/admin/employees', require('./routes/admin/employeeRouter'));
 app.use('/admin/warehouses', require('./routes/admin/warehouseRouter'));
+app.use('/admin/vendors', require('./routes/admin/vendorRouter'));
+app.use('/admin/clients', require('./routes/admin/clientRouter'));
 
 app.use(errorHandler);
 
