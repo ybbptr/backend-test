@@ -1,7 +1,7 @@
 const Joi = require('joi');
 
 const employeeValidation = Joi.object({
-  email: Joi.string().email().required().messages({
+  user: Joi.string().email().required().messages({
     'string.base': 'Email harus berupa teks',
     'string.email': 'Email tidak valid',
 
