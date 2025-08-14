@@ -1,12 +1,18 @@
 const Joi = require('joi');
 
 const employeeValidation = Joi.object({
-  user: Joi.string().email().required().messages({
-    'string.base': 'Email harus berupa teks',
-    'string.email': 'Email tidak valid',
-
-    'any.required': 'Email wajib diisi'
-  }),
+  user: Joi.string()
+    .required()
+    .custom((value, helpers) => {
+      if (!mongoose.Types.ObjectId.isValid(value)) {
+        return helpers.error('any.invalid');
+      }
+      return value;
+    })
+    .messages({
+      'any.invalid': 'User harus berupa ObjectId yang valid',
+      'any.required': 'User wajib diisi'
+    }),
   name: Joi.string().min(2).required().messages({
     'string.base': 'Nama harus berupa teks',
     'string.min': 'Minimal berisi 2 huruf',
