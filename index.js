@@ -42,6 +42,7 @@ app.use('/admin/employees', require('./routes/admin/employeeRouter'));
 app.use('/admin/warehouses', require('./routes/admin/warehouseRouter'));
 app.use('/admin/vendors', require('./routes/admin/vendorRouter'));
 app.use('/admin/clients', require('./routes/admin/clientRouter'));
+app.use('/admin/loans', require('./routes/admin/loanRouter'));
 
 app.use(errorHandler);
 

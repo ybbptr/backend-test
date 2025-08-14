@@ -10,13 +10,14 @@ const {
 const Router = express.Router();
 const validate = require('../../middleware/validations/validate');
 const validateEmployee = require('../../middleware/validations/validateEmployee');
-const checkNikDuplicate = require('../../middleware/checkDuplicateNik');
+const checkDuplicate = require('../../middleware/checkDuplicate');
+const Employee = require('../../model/employeeModel');
 // const upload = require('../../utils/pdfUploader');
 
 Router.post(
   '/add-employee',
   validate(validateEmployee),
-  checkNikDuplicate,
+  checkDuplicate(Employee, { nik: 'NIK' }),
   addEmployee
 )
   .get('/email-employees', getAllUserEmails)
@@ -26,7 +27,7 @@ Router.delete('/remove/:id', removeEmployee);
 Router.put(
   '/update/:id',
   validate(validateEmployee),
-  checkNikDuplicate,
+  checkDuplicate(Employee, { nik: 'NIK' }),
   updateEmployee
 );
 
