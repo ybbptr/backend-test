@@ -1,7 +1,7 @@
 const asyncHandler = require('express-async-handler');
 const throwError = require('../../utils/throwError');
-const Employee = require('../../model/employeeModel');
 const User = require('../../model/userModel');
+const Employee = require('../../model/employeeModel');
 
 const addEmployee = asyncHandler(async (req, res) => {
   const {
@@ -53,12 +53,14 @@ const addEmployee = asyncHandler(async (req, res) => {
 });
 
 const getEmployees = asyncHandler(async (req, res) => {
-  const employees = await Employee.find();
+  const employees = await Employee.find().populate('user', 'email').exec();
   res.status(200).json(employees);
 });
 
 const getEmployee = asyncHandler(async (req, res) => {
-  const employee = await Employee.findById(req.params.id);
+  const employee = await Employee.findById(req.params.id)
+    .populate('user', 'email')
+    .exec();
   if (!employee) throwError('Data karyawan tidak ada!', 400);
 
   res.status(200).json(employee);
@@ -124,7 +126,8 @@ const updateEmployee = asyncHandler(async (req, res) => {
 });
 
 const getAllUserEmails = asyncHandler(async (req, res) => {
-  const users = await User.find({}, 'email');
+  const users = await User.find().select('email'); // ambil semua email
+
   res.json(users);
 });
 

@@ -21,11 +21,12 @@ const employeeValidation = Joi.object({
       'string.pattern.base': 'NIK hanya boleh berisi angka',
       'string.length': 'NIK harus 16 digit'
     }),
-  age: Joi.number().integer().positive().min(1).messages({
+  age: Joi.number().integer().positive().min(1).required().messages({
     'number.base': 'Umur harus berupa angka',
     'number.min': 'Umur minimal 1 tahun',
     'number.positive': 'Umur harus lebih dari 0',
-    'number.integer': 'Umur harus bilangan bulat'
+    'number.integer': 'Umur harus bilangan bulat',
+    'any.required': 'Umur wajib diisi'
   }),
   employment_type: Joi.string()
     .valid('Freelance', 'Karyawan')
@@ -37,8 +38,12 @@ const employeeValidation = Joi.object({
   religion: Joi.string()
     .valid('Islam', 'Protestan', 'Katolik', 'Budha', 'Hindu', 'Konghucu')
     .allow(null, ''),
-  height: Joi.number().positive().allow(null),
-  weight: Joi.number().positive().allow(null),
+  height: Joi.number().positive().allow(null).required().messages({
+    'any.required': 'Tinggi badan wajib diisi'
+  }),
+  weight: Joi.number().positive().allow(null).required().messages({
+    'any.required': 'Berat badan wajib diisi'
+  }),
   number_of_children: Joi.number().integer().min(0).allow(null),
   place_of_birth: Joi.string().allow(null, ''),
   date_of_birth: Joi.date().allow(null),
