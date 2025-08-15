@@ -45,7 +45,11 @@ app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
 
 // Multipart
 app.use('/api/orders', require('./routes/orderRouter'));
-app.use('/admin/products', require('./routes/admin/productRouter'));
+app.use(
+  '/admin/products',
+  express.json(),
+  require('./routes/admin/productRouter')
+);
 
 // Application / JSON
 app.use('/api/comments', express.json(), require('./routes/commentRouter'));
