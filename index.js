@@ -75,7 +75,11 @@ app.use(
   require('./routes/admin/clientRouter')
 );
 app.use('/admin/loans', express.json(), require('./routes/admin/loanRouter'));
-app.use('/admin/shelfs', express.json(), require('./routes/admin/shelfRouter'));
+app.use(
+  '/admin/shelves',
+  express.json(),
+  require('./routes/admin/shelfRouter')
+);
 
 app.use(errorHandler);
 
