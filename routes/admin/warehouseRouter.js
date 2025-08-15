@@ -15,7 +15,7 @@ const validateWarehouse = require('../../middleware/validations/validateWarehous
 const multer = require('multer');
 const upload = multer();
 
-Router.get('all-warehouse', getWarehouses);
+Router.get('/all-warehouse', getWarehouses);
 Router.post(
   '/add-warehouse',
   upload.none(),
