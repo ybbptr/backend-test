@@ -14,6 +14,14 @@ const productSchema = Joi.object({
   quantity: Joi.number().integer().min(0).messages({
     'number.base': 'Kuantitas barang harus berupa angka!'
   }),
+  condition: Joi.string()
+    .valid('Rusak ringan', 'Rusak berat', 'Baik', 'Baru')
+    .default('Baik')
+    .messages({
+      'any.only':
+        'Persetujuan harus salah satu dari: Rusak ringan, Rusak berat, Baik, Baru!',
+      'any.required': 'Kondisi wajib diisi!'
+    }),
   warehouse: Joi.string()
     .custom((value, helpers) => {
       if (!mongoose.Types.ObjectId.isValid(value)) {
@@ -25,7 +33,19 @@ const productSchema = Joi.object({
     .messages({
       'any.invalid': 'ID gudang tidak valid!',
       'any.required': 'Gudang wajib diisi!'
+    }),
+  shelf: Joi.string()
+    .custom((value, helpers) => {
+      if (!mongoose.Types.ObjectId.isValid(value)) {
+        return helpers.error('any.invalid');
+      }
+      return value;
     })
-}).unknown(true);
+    .required()
+    .messages({
+      'any.invalid': 'ID lemari tidak valid!',
+      'any.required': 'Lemari wajib diisi!'
+    })
+});
 
 module.exports = productSchema;

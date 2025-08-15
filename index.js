@@ -14,7 +14,7 @@ connectDb();
 
 app.use(
   cors({
-    origin: '*', // atau spesifik domain
+    origin: '*',
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
     credentials: true
@@ -22,23 +22,6 @@ app.use(
 );
 
 // app.set('trust proxy', 1);
-
-// app.use(function (req, res, next) {
-//   res.setHeader('Access-Control-Allow-Origin', '*');
-//   res.setHeader(
-//     'Access-Control-Allow-Methods',
-//     'GET, POST, OPTIONS, PUT, PATCH, DELETE'
-//   );
-//   res.setHeader(
-//     'Access-Control-Allow-Headers',
-//     'X-Requested-With, Content-Type, Authorization'
-//   );
-
-//   res.setHeader('Access-Control-Allow-Credentials', true);
-
-//   next();
-// });
-
 // app.use(express.urlencoded({ extended: true }));
 
 app.use('/assets', express.static(path.join(__dirname, 'public/assets')));

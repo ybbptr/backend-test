@@ -2,11 +2,19 @@ const asyncHandler = require('express-async-handler');
 const throwError = require('../../utils/throwError');
 const Warehouse = require('../../model/warehouseModel');
 const Product = require('../../model/productModel');
+const Shelf = require('../../model/shelfModel');
 const cloudinary = require('cloudinary');
 
 const addProduct = asyncHandler(async (req, res) => {
-  const { product_code, product_name, description, quantity, warehouse } =
-    req.body || {};
+  const {
+    product_code,
+    product_name,
+    description,
+    quantity,
+    warehouse,
+    condition,
+    shelf
+  } = req.body || {};
 
   if (!product_code || !product_name) throwError('Field ini harus diisi', 400);
 
@@ -23,24 +31,28 @@ const addProduct = asyncHandler(async (req, res) => {
     product_name,
     description,
     quantity,
-    warehouse
+    warehouse,
+    condition,
+    shelf
   });
 
   res.status(201).json(product);
 });
 
 const getProducts = asyncHandler(async (req, res) => {
-  const products = await Product.find()
-    .populate('warehouse', 'warehouse_name warehouse_code')
-    .exec();
+  const products = await Product.find().populate([
+    { path: 'warehouse', select: 'warehouse_name warehouse_code' },
+    { path: 'shelf', select: 'shelf_name shelf_code' }
+  ]);
 
   res.status(200).json(products);
 });
 
 const getProduct = asyncHandler(async (req, res) => {
-  const product = await Product.findById(req.params.id)
-    .populate('warehouse', 'warehouse_name warehouse_code')
-    .exec();
+  const product = await Product.findById(req.params.id).populate([
+    { path: 'warehouse', select: 'warehouse_name warehouse_code' },
+    { path: 'shelf', select: 'shelf_name shelf_code' }
+  ]);
   if (!product) throwError('Barang tidak tersedia!', 400);
 
   res.status(200).json(product);
@@ -59,8 +71,15 @@ const removeProduct = asyncHandler(async (req, res) => {
 });
 
 const updateProduct = asyncHandler(async (req, res) => {
-  const { product_code, product_name, description, quantity, warehouse } =
-    req.body;
+  const {
+    product_code,
+    product_name,
+    description,
+    quantity,
+    warehouse,
+    condition,
+    shelf
+  } = req.body;
 
   const product = await Product.findById(req.params.id);
   if (!product) throwError('Barang tidak ditemukan!', 404);
@@ -82,7 +101,8 @@ const updateProduct = asyncHandler(async (req, res) => {
   product.description = description || product.description;
   product.quantity = quantity || product.quantity;
   product.warehouse = warehouse || product.warehouse;
-  product.place = place || product.place;
+  product.condition = condition || product.condition;
+  product.shelf = shelf || product.shelf;
   product.imageUrl = imageUrl;
   product.imagePublicId = imagePublicId;
 
@@ -92,10 +112,21 @@ const updateProduct = asyncHandler(async (req, res) => {
 
 const getAllWarehouse = asyncHandler(async (req, res) => {
   const warehouse = await Warehouse.find().select(
-    'warehouse_code warehouse_name'
+    'warehouse_code warehouse_name shelves'
   );
 
   res.json(warehouse);
+});
+
+const getShelvesByWarehouse = asyncHandler(async (req, res) => {
+  const { warehouse } = req.query;
+  if (!warehouse) throwError('ID gudang tidak valid', 400);
+
+  const shelves = await Shelf.find({ warehouse }).select(
+    'shelf_name shelf_code'
+  );
+
+  res.json(shelves);
 });
 
 module.exports = {
@@ -104,5 +135,6 @@ module.exports = {
   getProduct,
   removeProduct,
   updateProduct,
-  getAllWarehouse
+  getAllWarehouse,
+  getShelvesByWarehouse
 };

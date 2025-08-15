@@ -7,7 +7,8 @@ const {
   getProduct,
   updateProduct,
   removeProduct,
-  getAllWarehouse
+  getAllWarehouse,
+  getShelvesByWarehouse
 } = require('../../controller/admin/productController');
 
 const Router = express.Router();
@@ -28,16 +29,19 @@ Router.post(
   addProduct
 );
 
-Router.get('/all-products', getProducts).get('all-warehouse', getAllWarehouse);
+Router.get('/all-product', getProducts)
+  .get('/all-warehouse', getAllWarehouse)
+  .get('/shelves', getShelvesByWarehouse);
+
 Router.get('/:id', getProduct);
 Router.put(
-  '/:id',
+  '/update/:id',
   setUploadFolder('images/products'),
   upload.single('imageUrl'),
   validate(validateProduct),
   checkDuplicate(Product, { product_code: 'Kode barang' }),
   updateProduct
 );
-Router.delete('/:id', removeProduct);
+Router.delete('/remove/:id', removeProduct);
 
 module.exports = Router;

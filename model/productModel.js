@@ -11,9 +11,20 @@ const productSchema = new mongoose.Schema({
   product_name: { type: String, required: true },
   description: { type: String },
   quantity: { type: Number, default: 0 },
+  condition: {
+    type: String,
+    required: true,
+    enum: ['Rusak ringan', 'Rusak berat', 'Baik', 'Baru'],
+    default: 'Baik'
+  },
   warehouse: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Warehouse',
+    required: true
+  },
+  shelf: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Shelf',
     required: true
   }
 });
