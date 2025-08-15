@@ -62,7 +62,7 @@ const addWarehouse = asyncHandler(async (req, res) => {
 
 const getWarehouses = asyncHandler(async (req, res) => {
   const warehouses = await Warehouse.find()
-    .populate('shelf', 'shelf_name shelf_code')
+    .populate('shelves', 'shelf_name shelf_code')
     .exec();
   res.status(200).json(warehouses);
 });
@@ -95,7 +95,7 @@ const updateWarehouse = asyncHandler(async (req, res) => {
 
 const getWarehouse = asyncHandler(async (req, res) => {
   const warehouse = await Warehouse.findById(req.params.id)
-    .populate('shelf', 'shelf_name shelf_code')
+    .populate('shelves', 'shelf_name shelf_code')
     .exec();
   if (!warehouse) throwError('Gudang yang anda cari tidak ada!', 400);
 
