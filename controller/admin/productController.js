@@ -1,10 +1,11 @@
 const asyncHandler = require('express-async-handler');
 const throwError = require('../../utils/throwError');
+const Warehouse = require('../../model/warehouseModel');
 const Product = require('../../model/productModel');
 const cloudinary = require('cloudinary');
 
 const addProduct = asyncHandler(async (req, res) => {
-  const { product_code, product_name, description, quantity, place } =
+  const { product_code, product_name, description, quantity, warehouse } =
     req.body || {};
 
   if (!product_code || !product_name) throwError('Field ini harus diisi', 400);
@@ -22,19 +23,24 @@ const addProduct = asyncHandler(async (req, res) => {
     product_name,
     description,
     quantity,
-    place
+    warehouse
   });
 
   res.status(201).json(product);
 });
 
 const getProducts = asyncHandler(async (req, res) => {
-  const products = await Product.find();
+  const products = await Product.find()
+    .populate('warehouse', 'warehouse_name warehouse_code')
+    .exec();
+
   res.status(200).json(products);
 });
 
 const getProduct = asyncHandler(async (req, res) => {
-  const product = await Product.findById(req.params.id);
+  const product = await Product.findById(req.params.id)
+    .populate('warehouse', 'warehouse_name warehouse_code')
+    .exec();
   if (!product) throwError('Barang tidak tersedia!', 400);
 
   res.status(200).json(product);
@@ -53,10 +59,10 @@ const removeProduct = asyncHandler(async (req, res) => {
 });
 
 const updateProduct = asyncHandler(async (req, res) => {
-  const { id } = req.params;
-  const { product_code, product_name, description, quantity, place } = req.body;
+  const { product_code, product_name, description, quantity, warehouse } =
+    req.body;
 
-  const product = await Product.findById(id);
+  const product = await Product.findById(req.params.id);
   if (!product) throwError('Barang tidak ditemukan!', 404);
 
   let imageUrl = product.imageUrl;
@@ -75,6 +81,7 @@ const updateProduct = asyncHandler(async (req, res) => {
   product.product_name = product_name || product.product_name;
   product.description = description || product.description;
   product.quantity = quantity || product.quantity;
+  product.warehouse = warehouse || product.warehouse;
   product.place = place || product.place;
   product.imageUrl = imageUrl;
   product.imagePublicId = imagePublicId;
@@ -83,10 +90,19 @@ const updateProduct = asyncHandler(async (req, res) => {
   res.status(200).json(product);
 });
 
+const getAllWarehouse = asyncHandler(async (req, res) => {
+  const warehouse = await Warehouse.find().select(
+    'warehouse_code warehouse_name'
+  );
+
+  res.json(warehouse);
+});
+
 module.exports = {
   addProduct,
   getProducts,
   getProduct,
   removeProduct,
-  updateProduct
+  updateProduct,
+  getAllWarehouse
 };

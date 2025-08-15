@@ -1,4 +1,5 @@
 const Joi = require('joi');
+const mongoose = require('mongoose');
 
 const productSchema = Joi.object({
   product_code: Joi.string().required().messages({
@@ -13,7 +14,18 @@ const productSchema = Joi.object({
   quantity: Joi.number().integer().min(0).messages({
     'number.base': 'Kuantitas barang harus berupa angka!'
   }),
-  place: Joi.string()
+  warehouse: Joi.string()
+    .custom((value, helpers) => {
+      if (!mongoose.Types.ObjectId.isValid(value)) {
+        return helpers.error('any.invalid');
+      }
+      return value;
+    })
+    .required()
+    .messages({
+      'any.invalid': 'ID gudang tidak valid!',
+      'any.required': 'Gudang wajib diisi!'
+    })
 }).unknown(true);
 
 module.exports = productSchema;
