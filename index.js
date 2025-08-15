@@ -12,37 +12,65 @@ const port = process.env.PORT || 3001;
 
 connectDb();
 
+app.use(
+  cors({
+    origin: '*', // atau spesifik domain
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    credentials: true
+  })
+);
+
 // app.set('trust proxy', 1);
 
-app.use(function (req, res, next) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader(
-    'Access-Control-Allow-Methods',
-    'GET, POST, OPTIONS, PUT, PATCH, DELETE'
-  );
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'X-Requested-With, Content-Type, Authorization'
-  );
+// app.use(function (req, res, next) {
+//   res.setHeader('Access-Control-Allow-Origin', '*');
+//   res.setHeader(
+//     'Access-Control-Allow-Methods',
+//     'GET, POST, OPTIONS, PUT, PATCH, DELETE'
+//   );
+//   res.setHeader(
+//     'Access-Control-Allow-Headers',
+//     'X-Requested-With, Content-Type, Authorization'
+//   );
 
-  res.setHeader('Access-Control-Allow-Credentials', true);
+//   res.setHeader('Access-Control-Allow-Credentials', true);
 
-  next();
-});
+//   next();
+// });
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// app.use(express.urlencoded({ extended: true }));
 
 app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
-app.use('/api/comments', require('./routes/commentRouter'));
-app.use('/api/users', require('./routes/userRouter'));
+
+// Multipart
 app.use('/api/orders', require('./routes/orderRouter'));
 app.use('/admin/products', require('./routes/admin/productRouter'));
-app.use('/admin/employees', require('./routes/admin/employeeRouter'));
-app.use('/admin/warehouses', require('./routes/admin/warehouseRouter'));
-app.use('/admin/vendors', require('./routes/admin/vendorRouter'));
-app.use('/admin/clients', require('./routes/admin/clientRouter'));
-app.use('/admin/loans', require('./routes/admin/loanRouter'));
+
+// Application / JSON
+app.use('/api/comments', express.json(), require('./routes/commentRouter'));
+app.use('/api/users', express.json(), require('./routes/userRouter'));
+app.use(
+  '/admin/employees',
+  express.json(),
+  require('./routes/admin/employeeRouter')
+);
+app.use(
+  '/admin/warehouses',
+  express.json(),
+  require('./routes/admin/warehouseRouter')
+);
+app.use(
+  '/admin/vendors',
+  express.json(),
+  require('./routes/admin/vendorRouter')
+);
+app.use(
+  '/admin/clients',
+  express.json(),
+  require('./routes/admin/clientRouter')
+);
+app.use('/admin/loans', express.json(), require('./routes/admin/loanRouter'));
 
 app.use(errorHandler);
 

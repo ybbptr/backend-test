@@ -97,11 +97,32 @@ const getLoan = asyncHandler(async (req, res) => {
 });
 
 const removeLoan = asyncHandler(async (req, res) => {
-  const loan_item = await Loan.findById(req.params.id);
-  if (!loan_item) throwError('Pengajuan tidak terdaftar!', 400);
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  await loan_item.findByIdAndDelete(req.params.id);
-  res.status(200).json({ message: 'Pengajuan berhasil dihapus.' });
+  try {
+    const loan_item = await Loan.findById(req.params.id).session(session);
+    if (!loan_item) throwError('Pengajuan tidak terdaftar!', 400);
+
+    const item = await Product.findById(loan_item.product).session(session);
+    if (!item) throwError('Produk tidak ditemukan', 404);
+
+    if (loan_item.approval === 'Disetujui') {
+      item.quantity += loan_item.loan_quantity;
+      await item.save({ session });
+    }
+
+    await Loan.findByIdAndDelete(req.params.id).session(session);
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(200).json({ message: 'Pengajuan berhasil dihapus.' });
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    throw error;
+  }
 });
 
 const updateLoan = asyncHandler(async (req, res) => {
@@ -120,11 +141,9 @@ const updateLoan = asyncHandler(async (req, res) => {
       loan_quantity
     } = req.body || {};
 
-    // Ambil data loan lama
     const loan_item = await Loan.findById(req.params.id).session(session);
     if (!loan_item) throwError('Pengajuan tidak terdaftar!', 404);
 
-    // Ambil produk terkait
     const item = await Product.findById(product || loan_item.product).session(
       session
     );
@@ -163,7 +182,6 @@ const updateLoan = asyncHandler(async (req, res) => {
       await item.save({ session });
     }
 
-    // ====== Update field loan ======
     loan_item.loan_number = loan_number || loan_item.loan_number;
     loan_item.loan_date = loan_date || loan_item.loan_date;
     loan_item.return_date = return_date || loan_item.return_date;
