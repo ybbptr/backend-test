@@ -76,64 +76,21 @@ const removeWarehouse = asyncHandler(async (req, res) => {
 });
 
 const updateWarehouse = asyncHandler(async (req, res) => {
-  const {
-    warehouse_code,
-    warehouse_name,
-    image,
-    description,
-    shelves = []
-  } = req.body || {};
+  const { warehouse_code, warehouse_name, image, description, shelves } =
+    req.body || {};
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  const warehouse = await Warehouse.findById(req.params.id);
 
-  try {
-    const warehouse = await Warehouse.findById(req.params.id).session(session);
-    if (!warehouse) throwError('Gudang yang anda cari tidak ada!', 404);
+  if (!warehouse) throwError('Gudang yang anda cari tidak ada!', 404);
 
-    warehouse.warehouse_code = warehouse_code || warehouse.warehouse_code;
-    warehouse.warehouse_name = warehouse_name || warehouse.warehouse_name;
-    warehouse.image = image || warehouse.image;
-    warehouse.description = description || warehouse.description;
+  warehouse.warehouse_code = warehouse_code || warehouse.warehouse_code;
+  warehouse.warehouse_name = warehouse_name || warehouse.warehouse_name;
+  warehouse.image = image || warehouse.image;
+  warehouse.description = description || warehouse.description;
+  warehouse.shelves = shelves || warehouse.shelves;
 
-    let createdShelves = [];
-    if (shelves.length > 0) {
-      for (const s of shelves) {
-        await checkDuplicateValue(
-          Shelf,
-          'shelf_code',
-          s.shelf_code,
-          'Kode Lemari'
-        );
-      }
-
-      const shelvesWithWarehouse = shelves.map((s) => ({
-        ...s,
-        warehouse: warehouse._id
-      }));
-
-      createdShelves = await Shelf.insertMany(shelvesWithWarehouse, {
-        session
-      });
-
-      warehouse.shelves.push(...createdShelves.map((s) => s._id));
-    }
-
-    await warehouse.save({ session });
-
-    await session.commitTransaction();
-
-    res.status(200).json({
-      message: 'Warehouse berhasil diupdate',
-      warehouse,
-      newShelves: createdShelves
-    });
-  } catch (err) {
-    await session.abortTransaction();
-    throwError(err.message || 'Gagal update gudang', 400);
-  } finally {
-    session.endSession();
-  }
+  await warehouse.save();
+  res.status(200).json(warehouse);
 });
 
 const getWarehouse = asyncHandler(async (req, res) => {

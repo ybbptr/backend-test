@@ -19,14 +19,7 @@ Router.post(
   addWarehouse
 ).get('/all-warehouse', getWarehouses);
 
-Router.put(
-  '/update/:id',
-  validate(validateWarehouse),
-  checkDuplicate(Warehouse, {
-    warehouse_code: 'Kode gudang'
-  }),
-  updateWarehouse
-)
+Router.put('/update/:id', validate(validateWarehouse), updateWarehouse)
   .delete('/remove/:id', removeWarehouse)
   .get('/:id', getWarehouse);
 
