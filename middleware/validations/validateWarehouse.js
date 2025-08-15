@@ -1,4 +1,5 @@
 const Joi = require('joi');
+const mongoose = require('mongoose');
 
 const warehouseSchema = Joi.object({
   warehouse_code: Joi.string().required().messages({
@@ -9,7 +10,13 @@ const warehouseSchema = Joi.object({
     'any.required': 'Nama gudang wajib diisi!',
     'string.empty': 'Nama gudang tidak boleh kosong!'
   }),
-  description: Joi.string().allow('', null)
-}).unknown(true);
+  description: Joi.string().allow('', null),
+  shelves: Joi.array().items(
+    Joi.object({
+      shelf_code: Joi.string().required(),
+      shelf_name: Joi.string().required()
+    })
+  )
+});
 
 module.exports = warehouseSchema;

@@ -1,6 +1,7 @@
 const asyncHandler = require('express-async-handler');
 const throwError = require('../utils/throwError');
 
+// For middleware in route
 const checkDuplicate = (model, fields = []) => {
   return asyncHandler(async (req, res, next) => {
     for (const [field, label] of Object.entries(fields)) {
@@ -23,4 +24,28 @@ const checkDuplicate = (model, fields = []) => {
   });
 };
 
-module.exports = checkDuplicate;
+// for controller check
+const checkDuplicateValue = async (
+  model,
+  fieldName,
+  value,
+  label = null,
+  excludeId = null
+) => {
+  if (!value) return;
+
+  const query = { [fieldName]: value };
+  if (excludeId) {
+    query._id = { $ne: excludeId };
+  }
+
+  const exists = await model.findOne(query);
+  if (exists) {
+    throwError(`${label || fieldName} sudah terdaftar`, 400, fieldName);
+  }
+};
+
+module.exports = {
+  checkDuplicate,
+  checkDuplicateValue
+};

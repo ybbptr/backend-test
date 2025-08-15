@@ -10,7 +10,7 @@ const {
 const Router = express.Router();
 const validate = require('../../middleware/validations/validate');
 const validateEmployee = require('../../middleware/validations/validateEmployee');
-const checkDuplicate = require('../../middleware/checkDuplicate');
+const { checkDuplicate } = require('../../middleware/checkDuplicate');
 const Employee = require('../../model/employeeModel');
 // const upload = require('../../utils/pdfUploader');
 

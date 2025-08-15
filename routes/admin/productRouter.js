@@ -1,6 +1,6 @@
 const express = require('express');
 const Product = require('../../model/productModel');
-const checkDuplicate = require('../../middleware/checkDuplicate');
+const { checkDuplicate } = require('../../middleware/checkDuplicate');
 const {
   addProduct,
   getProducts,

@@ -28,9 +28,9 @@ const getShelfs = asyncHandler(async (req, res) => {
 });
 
 const getShelf = asyncHandler(async (req, res) => {
-  const shelf = await Shelf.findById(req.params.id).populate([
-    { path: 'warehouse', select: 'warehouse_name warehouse_code' }
-  ]);
+  const shelf = await Shelf.findById(req.params.id)
+    .populate('warehouse', 'warehouse_name warehouse_code')
+    .exec();
 
   if (!Shelf) throwError('Lemari tidak terdaftar!', 400);
 

@@ -1,6 +1,6 @@
 const express = require('express');
 const Router = express.Router();
-const checkDuplicate = require('../../middleware/checkDuplicate');
+const { checkDuplicate } = require('../../middleware/checkDuplicate');
 const Shelf = require('../../model/shelfModel');
 const validate = require('../../middleware/validations/validate');
 const validateShelf = require('../../middleware/validations/validateShelf');

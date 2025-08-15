@@ -1,5 +1,7 @@
 const express = require('express');
 const Router = express.Router();
+const { checkDuplicate } = require('../../middleware/checkDuplicate');
+const Warehouse = require('../../model/warehouseModel');
 const {
   addWarehouse,
   getWarehouses,
@@ -10,13 +12,22 @@ const {
 const validate = require('../../middleware/validations/validate');
 const validateWarehouse = require('../../middleware/validations/validateWarehouse');
 
-Router.post('/add-warehouse', validate(validateWarehouse), addWarehouse).get(
-  '/all-warehouse',
-  getWarehouses
-);
+Router.post(
+  '/add-warehouse',
+  validate(validateWarehouse),
+  checkDuplicate(Warehouse, { warehouse_code: 'Kode gudang' }),
+  addWarehouse
+).get('/all-warehouse', getWarehouses);
 
-Router.put('/:id', validate(validateWarehouse), updateWarehouse)
-  .delete('/:id', removeWarehouse)
+Router.put(
+  '/update/:id',
+  validate(validateWarehouse),
+  checkDuplicate(Warehouse, {
+    warehouse_code: 'Kode gudang'
+  }),
+  updateWarehouse
+)
+  .delete('/remove/:id', removeWarehouse)
   .get('/:id', getWarehouse);
 
 module.exports = Router;

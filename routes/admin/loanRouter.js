@@ -1,7 +1,7 @@
 const express = require('express');
 const Router = express.Router();
 const validate = require('../../middleware/validations/validate');
-const checkDuplicate = require('../../middleware/checkDuplicate');
+const { checkDuplicate } = require('../../middleware/checkDuplicate');
 const Loan = require('../../model/loanModel');
 const validateLoan = require('../../middleware/validations/validateLoan');
 const {
