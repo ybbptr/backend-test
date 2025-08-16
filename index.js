@@ -68,6 +68,11 @@ app.use(
   express.json(),
   require('./routes/admin/loanCirculationRouter')
 );
+app.use(
+  '/admin/product-circulation',
+  express.json(),
+  require('./routes/admin/productCirculationRouter')
+);
 
 app.use(errorHandler);
 
