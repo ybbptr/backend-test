@@ -136,6 +136,7 @@ const removeLoan = asyncHandler(async (req, res) => {
     if (loan_item.approval === 'Disetujui') {
       item.quantity += loan_item.loan_quantity;
       item.loan_quantity = loan_item.loan_quantity;
+      item.loan_quantity = 0;
 
       await item.save({ session });
     }
