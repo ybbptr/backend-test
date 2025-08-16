@@ -147,18 +147,6 @@ const updateProduct = asyncHandler(async (req, res) => {
   await product.save();
 
   if (warehouseChanged || shelfChanged) {
-    const allCirculations = await productCirculationModel
-      .find({ product: product._id })
-      .sort({ createdAt: -1 }); // terbaru dulu
-    const maxCirculations = 3;
-
-    if (allCirculations.length > maxCirculations) {
-      const deleteIds = allCirculations
-        .slice(maxCirculations) // data paling lama
-        .map((c) => c._id);
-      await productCirculationModel.deleteMany({ _id: { $in: deleteIds } });
-    }
-
     await productCirculationModel.create({
       product: product._id,
       product_code: product.product_code,
