@@ -147,18 +147,7 @@ const updateProduct = asyncHandler(async (req, res) => {
   await product.save();
 
   if (warehouseChanged || shelfChanged) {
-    const maxCirculations = 2; // Kalo mau 50 berarti isi 49, karena dibawah ada + 1
-
-    const allCirculations = await productCirculationModel
-      .find({ product: product._id })
-      .sort({ createdAt: 1 });
-
-    if (allCirculations.length >= maxCirculations) {
-      const deleteCount = allCirculations.length - maxCirculations + 1; // +1 untuk sisain tempat yang baru
-      const toDelete = allCirculations.slice(0, deleteCount).map((c) => c._id);
-      await productCirculationModel.deleteMany({ _id: { $in: toDelete } });
-    }
-
+    // Buat sirkulasi baru
     await productCirculationModel.create({
       product: product._id,
       product_code: product.product_code,
@@ -169,6 +158,19 @@ const updateProduct = asyncHandler(async (req, res) => {
       warehouse_to: product.warehouse,
       shelf_to: product.shelf
     });
+
+    // Hapus sirkulasi lama jika lebih dari 3
+    const allCirculations = await productCirculationModel
+      .find({ product: product._id })
+      .sort({ createdAt: -1 }); // terbaru dulu
+    const maxCirculations = 3;
+
+    if (allCirculations.length > maxCirculations) {
+      const deleteIds = allCirculations
+        .slice(maxCirculations) // data paling lama
+        .map((c) => c._id);
+      await productCirculationModel.deleteMany({ _id: { $in: deleteIds } });
+    }
   }
   res.status(200).json(product);
 });
