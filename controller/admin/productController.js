@@ -104,6 +104,17 @@ const updateProduct = asyncHandler(async (req, res) => {
   const product = await Product.findById(req.params.id);
   if (!product) throwError('Barang tidak ditemukan!', 404);
 
+  const previousWarehouse = product.warehouse;
+  const previousShelf = product.shelf;
+
+  const warehouseChanged =
+    warehouse &&
+    previousWarehouse &&
+    warehouse.toString() !== previousWarehouse.toString();
+
+  const shelfChanged =
+    shelf && previousShelf && shelf.toString() !== previousShelf.toString();
+
   let imageUrl = product.imageUrl;
   let imagePublicId = product.imagePublicId;
 
@@ -111,7 +122,6 @@ const updateProduct = asyncHandler(async (req, res) => {
     if (imagePublicId) {
       await cloudinary.uploader.destroy(imagePublicId);
     }
-
     imageUrl = req.file.path;
     imagePublicId = req.file.filename;
   }
@@ -127,6 +137,32 @@ const updateProduct = asyncHandler(async (req, res) => {
   product.imagePublicId = imagePublicId;
 
   await product.save();
+
+  if (warehouseChanged || shelfChanged) {
+    await productCirculationModel.create({
+      product: product._id,
+      product_code: product.product_code,
+      product_name: product.product_name,
+      imageUrl: product.imageUrl,
+      warehouse_from: previousWarehouse,
+      shelf_from: previousShelf,
+      warehouse_to: product.warehouse,
+      shelf_to: product.shelf
+    });
+
+    const maxCirculations = 3;
+    const allCirculations = await productCirculationModel
+      .find({ product: product._id })
+      .sort({ createdAt: 1 });
+
+    if (allCirculations.length > maxCirculations) {
+      const excess = allCirculations.length - maxCirculations;
+      const toDelete = allCirculations.slice(0, excess);
+      const deleteIds = toDelete.map((c) => c._id);
+      await productCirculationModel.deleteMany({ _id: { $in: deleteIds } });
+    }
+  }
+
   res.status(200).json(product);
 });
 
