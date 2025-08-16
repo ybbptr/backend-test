@@ -264,7 +264,12 @@ const updateLoan = asyncHandler(async (req, res) => {
 
       await loanCirculationModel.findOneAndUpdate(
         { loan_id: loan_item._id },
-        { loan_quantity },
+        {
+          loan_quantity,
+          imageUrl: item.imageUrl,
+          product_name: item.product_name,
+          warehouse_to: warehouse
+        },
         { session }
       );
     }
