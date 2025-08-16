@@ -146,6 +146,17 @@ const updateProduct = asyncHandler(async (req, res) => {
 
   await product.save();
 
+  const maxCirculations = 3;
+  const allCirculations = await productCirculationModel
+    .find({ product: product._id })
+    .sort({ createdAt: 1 });
+
+  if (allCirculations.length > maxCirculations) {
+    const excess = allCirculations.length - maxCirculations;
+    const deleteIds = allCirculations.slice(0, excess).map((c) => c._id);
+    await productCirculationModel.deleteMany({ _id: { $in: deleteIds } });
+  }
+
   if (warehouseChanged || shelfChanged) {
     await productCirculationModel.create({
       product: product._id,
@@ -157,17 +168,6 @@ const updateProduct = asyncHandler(async (req, res) => {
       warehouse_to: product.warehouse,
       shelf_to: product.shelf
     });
-
-    const maxCirculations = 3;
-    const allCirculations = await productCirculationModel
-      .find({ product: product._id })
-      .sort({ createdAt: 1 });
-
-    if (allCirculations.length > maxCirculations) {
-      const excess = allCirculations.length - maxCirculations;
-      const deleteIds = allCirculations.slice(0, excess).map((c) => c._id);
-      await productCirculationModel.deleteMany({ _id: { $in: deleteIds } });
-    }
   }
 
   res.status(200).json(product);
