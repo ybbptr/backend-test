@@ -88,6 +88,12 @@ const removeWarehouse = asyncHandler(async (req, res) => {
       { session }
     );
 
+    await Loan.updateMany(
+      { warehouse: warehouse._id },
+      { $set: { warehouse: null } },
+      { session }
+    );
+
     await warehouse.deleteOne({ session });
 
     await session.commitTransaction();

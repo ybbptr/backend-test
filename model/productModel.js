@@ -11,6 +11,7 @@ const productSchema = new mongoose.Schema({
   product_name: { type: String, required: true },
   description: { type: String },
   quantity: { type: Number, default: 0 },
+  loan_quantity: { type: Number, default: 0 },
   condition: {
     type: String,
     required: true,

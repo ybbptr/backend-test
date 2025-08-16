@@ -46,6 +46,8 @@ const addLoan = asyncHandler(async (req, res) => {
         throwError('Stok barang tidak mencukupi', 400);
       }
       item.quantity -= loan_quantity;
+
+      item.loan_quantity = loan_quantity;
       await item.save({ session });
     }
 
@@ -109,6 +111,8 @@ const removeLoan = asyncHandler(async (req, res) => {
 
     if (loan_item.approval === 'Disetujui') {
       item.quantity += loan_item.loan_quantity;
+      item.loan_quantity = loan_quantity;
+
       await item.save({ session });
     }
 
@@ -157,12 +161,16 @@ const updateLoan = asyncHandler(async (req, res) => {
         throwError('Stok tidak mencukupi', 400);
       }
       item.quantity -= loan_quantity;
+      item.loan_quantity = loan_quantity;
+
       await item.save({ session });
     }
 
     // 2. Dari Disetujui → Ditolak/Diproses (balikin stok)
     if (loan_item.approval === 'Disetujui' && approval !== 'Disetujui') {
       item.quantity += loan_item.loan_quantity;
+      item.loan_quantity = loan_quantity;
+
       await item.save({ session });
     }
 
@@ -179,6 +187,8 @@ const updateLoan = asyncHandler(async (req, res) => {
         // Balikin sebagian
         item.quantity += Math.abs(diff);
       }
+      item.loan_quantity = loan_quantity;
+
       await item.save({ session });
     }
 
