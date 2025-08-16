@@ -29,7 +29,7 @@ const getProductCirculation = asyncHandler(async (req, res) => {
   res.status(200).json(circulation);
 });
 
-const deleteProductCirculation = asyncHandler(async (req, res) => {
+const removeProductCirculation = asyncHandler(async (req, res) => {
   const circulation = await productCirculationModel.findById(req.params.id);
   if (!circulation) throwError('Sirkulasi tidak ditemukan!', 404);
 
@@ -40,5 +40,5 @@ const deleteProductCirculation = asyncHandler(async (req, res) => {
 module.exports = {
   getProductCirculations,
   getProductCirculation,
-  deleteProductCirculation
+  removeProductCirculation
 };
