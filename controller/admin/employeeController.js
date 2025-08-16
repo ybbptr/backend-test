@@ -2,6 +2,8 @@ const asyncHandler = require('express-async-handler');
 const throwError = require('../../utils/throwError');
 const User = require('../../model/userModel');
 const Employee = require('../../model/employeeModel');
+const Loan = require('../../model/loanModel');
+const mongoose = require('mongoose');
 
 const addEmployee = asyncHandler(async (req, res) => {
   const {
@@ -67,11 +69,29 @@ const getEmployee = asyncHandler(async (req, res) => {
 });
 
 const removeEmployee = asyncHandler(async (req, res) => {
-  const employee = await Employee.findById(req.params.id);
-  if (!employee) throwError('Data karyawan tidak ada!', 400);
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  await Employee.findByIdAndDelete(req.params.id);
-  res.status(200).json({ message: 'Data karyawan berhasil dihapus.' });
+  try {
+    const employee = await Employee.findById(req.params.id);
+    if (!employee) throwError('Data karyawan tidak ada!', 400);
+
+    await Loan.updateMany(
+      { employee: employee._id },
+      { $set: { employee: null } },
+      { session }
+    );
+
+    await employee.deleteOne({ session });
+
+    await session.commitTransaction();
+    res.status(200).json({ message: 'Data karyawan berhasil dihapus.' });
+  } catch (err) {
+    await session.abortTransaction();
+    throwError('Gagal menghapus karyawan', 400);
+  } finally {
+    session.endSession();
+  }
 });
 
 const updateEmployee = asyncHandler(async (req, res) => {
@@ -126,7 +146,7 @@ const updateEmployee = asyncHandler(async (req, res) => {
 });
 
 const getAllUserEmails = asyncHandler(async (req, res) => {
-  const users = await User.find().select('email'); // ambil semua email
+  const users = await User.find().select('email');
 
   res.json(users);
 });

@@ -59,7 +59,7 @@ const removeShelf = asyncHandler(async (req, res) => {
     res.status(200).json({ message: 'Lemari berhasil dihapus.' });
   } catch (err) {
     await session.abortTransaction();
-    throwError(err.message || 'Gagal menghapus lemari', 400);
+    throwError('Gagal menghapus lemari', 400);
   } finally {
     session.endSession();
   }

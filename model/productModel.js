@@ -15,7 +15,7 @@ const productSchema = new mongoose.Schema({
   condition: {
     type: String,
     required: true,
-    enum: ['Rusak ringan', 'Rusak berat', 'Baik', 'Baru'],
+    enum: ['Rusak ringan', 'Rusak berat', 'Baik'],
     default: 'Baik'
   },
   warehouse: {

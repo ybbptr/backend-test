@@ -3,7 +3,9 @@ const throwError = require('../../utils/throwError');
 const Warehouse = require('../../model/warehouseModel');
 const Product = require('../../model/productModel');
 const Shelf = require('../../model/shelfModel');
+const Loan = require('../../model/loanModel');
 const cloudinary = require('cloudinary');
+const mongoose = require('mongoose');
 
 const addProduct = asyncHandler(async (req, res) => {
   const {
@@ -59,15 +61,33 @@ const getProduct = asyncHandler(async (req, res) => {
 });
 
 const removeProduct = asyncHandler(async (req, res) => {
-  const product = await Product.findById(req.params.id);
-  if (!product) throwError('Barang tidak tersedia!', 400);
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  if (product.imagePublicId != null) {
-    await cloudinary.uploader.destroy(product.imagePublicId);
+  try {
+    const product = await Product.findById(req.params.id);
+    if (!product) throwError('Barang tidak tersedia!', 400);
+
+    if (product.imagePublicId != null) {
+      await cloudinary.uploader.destroy(product.imagePublicId);
+    }
+
+    await Loan.updateMany(
+      { product: product._id },
+      { $set: { product: null } },
+      { session }
+    );
+
+    await product.deleteOne({ session });
+
+    await session.commitTransaction();
+    res.status(200).json({ message: 'Barang berhasil dihapus.' });
+  } catch (err) {
+    await session.abortTransaction();
+    throwError('Gagal menghapus barang', 400);
+  } finally {
+    session.endSession();
   }
-
-  await Product.findByIdAndDelete(req.params.id);
-  res.status(200).json({ message: 'Barang berhasil dihapus.' });
 });
 
 const updateProduct = asyncHandler(async (req, res) => {

@@ -4,6 +4,7 @@ const { checkDuplicateValue } = require('../../middleware/checkDuplicate');
 const Warehouse = require('../../model/warehouseModel');
 const Shelf = require('../../model/shelfModel');
 const Product = require('../../model/productModel');
+const Loan = require('../../model/loanModel');
 const mongoose = require('mongoose');
 
 const addWarehouse = asyncHandler(async (req, res) => {
@@ -100,7 +101,7 @@ const removeWarehouse = asyncHandler(async (req, res) => {
     res.status(200).json({ message: 'Gudang berhasil dihapus.' });
   } catch (err) {
     await session.abortTransaction();
-    throwError(err.message || 'Gagal menghapus gudang', 400);
+    throwError('Gagal menghapus gudang', 400);
   } finally {
     session.endSession();
   }
