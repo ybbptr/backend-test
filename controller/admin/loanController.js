@@ -46,7 +46,7 @@ const addLoan = asyncHandler(async (req, res) => {
         throwError('Stok barang kosong, tidak dapat dipinjam', 400);
       if (item.quantity < loan_quantity)
         throwError('Stok barang tidak mencukupi', 400);
-      if (item.condition === 'Rusak berat')
+      if (item.condition === 'Rusak berat' || item.condition === 'Rusak berat')
         throwError('Barang rusak berat, tidak dapat dipinjam', 400);
 
       if (item.warehouse.toString() === warehouse.toString()) {
@@ -194,7 +194,7 @@ const updateLoan = asyncHandler(async (req, res) => {
       if (item.quantity < loan_quantity) {
         throwError('Stok tidak mencukupi', 400);
       }
-      if (item.condition === 'Rusak berat')
+      if (item.condition === 'Rusak berat' || item.condition === 'Rusak berat')
         throwError('Barang rusak berat, tidak dapat dipinjam', 400);
       if (item.warehouse.toString() === warehouse.toString()) {
         throwError('Gudang asal dan tujuan tidak boleh sama', 400);
@@ -226,7 +226,7 @@ const updateLoan = asyncHandler(async (req, res) => {
       if (item.warehouse.toString() === warehouse.toString()) {
         throwError('Gudang asal dan tujuan tidak boleh sama', 400);
       }
-      if (item.condition === 'Rusak berat')
+      if (item.condition === 'Rusak berat' || item.condition === 'Rusak berat')
         throwError('Barang rusak berat, tidak dapat dipinjam', 400);
 
       item.quantity += loan_item.loan_quantity;
@@ -244,7 +244,7 @@ const updateLoan = asyncHandler(async (req, res) => {
       if (item.warehouse.toString() === warehouse.toString()) {
         throwError('Gudang asal dan tujuan tidak boleh sama', 400);
       }
-      if (item.condition === 'Rusak berat')
+      if (item.condition === 'Rusak berat' || item.condition === 'Rusak berat')
         throwError('Barang rusak berat, tidak dapat dipinjam', 400);
 
       const diff = loan_quantity - loan_item.loan_quantity;
