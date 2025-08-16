@@ -39,6 +39,8 @@ app.use('/admin/loans', require('./routes/admin/loanRouter'));
 app.use('/admin/shelves', require('./routes/admin/shelfRouter'));
 app.use('/admin/projects', require('./routes/admin/projectRouter'));
 
+app.use('/admin/dashboard', require('./routes/admin/adminDashboardRouter'));
+
 app.use(
   '/admin/loan-circulation',
   require('./routes/admin/loanCirculationRouter')
