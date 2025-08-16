@@ -226,6 +226,10 @@ const updateLoan = asyncHandler(async (req, res) => {
       item.loan_quantity = loan_quantity;
 
       await item.save({ session });
+
+      await loanCirculationModel
+        .deleteMany({ loan_id: loan_item._id })
+        .session(session);
     }
 
     // 3. Sama-sama Disetujui, tapi jumlah berubah
@@ -248,6 +252,12 @@ const updateLoan = asyncHandler(async (req, res) => {
       item.loan_quantity = loan_quantity;
 
       await item.save({ session });
+
+      await loanCirculationModel.findOneAndUpdate(
+        { loan_id: loan_item._id },
+        { loan_quantity },
+        { session }
+      );
     }
 
     loan_item.loan_number = loan_number || loan_item.loan_number;
@@ -279,7 +289,9 @@ const getAllEmployee = asyncHandler(async (req, res) => {
 });
 
 const getAllProduct = asyncHandler(async (req, res) => {
-  const product = await Product.find().select('product_code product_name');
+  const product = await Product.find()
+    .select('product_code product_name warehouse')
+    .populate('warehouse', 'warehouse_code warehouse_name');
 
   res.json(product);
 });
