@@ -78,8 +78,8 @@ const updateProject = asyncHandler(async (req, res) => {
     progress,
     project_value,
     max_expense,
-    proposed,
-    used
+    proposed = 0,
+    used = 0
   } = req.body || {};
 
   const project = await Project.findById(req.params.id);
@@ -94,6 +94,8 @@ const updateProject = asyncHandler(async (req, res) => {
   if (max_expense > (project_value ?? project.project_value))
     throwError('Biaya pengeluaran melebihi biaya proyek!');
 
+  const remaining = proposed - used;
+
   project.project_name = project_name ?? project.project_name;
   project.location = location ?? project.location;
   project.client = client ?? project.client;
@@ -104,6 +106,7 @@ const updateProject = asyncHandler(async (req, res) => {
   project.max_expense = max_expense ?? project.max_expense;
   project.proposed = proposed ?? project.proposed;
   project.used = used ?? project.used;
+  project.remaining = remaining ?? project.remaining;
 
   await project.save();
   res.status(200).json(project);
