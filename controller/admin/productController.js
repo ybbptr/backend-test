@@ -146,18 +146,19 @@ const updateProduct = asyncHandler(async (req, res) => {
 
   await product.save();
 
-  const maxCirculations = 3;
-  const allCirculations = await productCirculationModel
-    .find({ product: product._id })
-    .sort({ createdAt: 1 });
-
-  if (allCirculations.length > maxCirculations) {
-    const excess = allCirculations.length - maxCirculations;
-    const deleteIds = allCirculations.slice(0, excess).map((c) => c._id);
-    await productCirculationModel.deleteMany({ _id: { $in: deleteIds } });
-  }
-
   if (warehouseChanged || shelfChanged) {
+    const maxCirculations = 2; // Kalo mau 50 berarti isi 49, karena dibawah ada + 1
+
+    const allCirculations = await productCirculationModel
+      .find({ product: product._id })
+      .sort({ createdAt: 1 });
+
+    if (allCirculations.length >= maxCirculations) {
+      const deleteCount = allCirculations.length - maxCirculations + 1; // +1 untuk sisain tempat yang baru
+      const toDelete = allCirculations.slice(0, deleteCount).map((c) => c._id);
+      await productCirculationModel.deleteMany({ _id: { $in: toDelete } });
+    }
+
     await productCirculationModel.create({
       product: product._id,
       product_code: product.product_code,
@@ -169,7 +170,6 @@ const updateProduct = asyncHandler(async (req, res) => {
       shelf_to: product.shelf
     });
   }
-
   res.status(200).json(product);
 });
 
