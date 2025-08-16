@@ -63,6 +63,11 @@ app.use(
   express.json(),
   require('./routes/admin/shelfRouter')
 );
+app.use(
+  '/admin/loan-circulation',
+  express.json(),
+  require('./routes/admin/loanCirculationRouter')
+);
 
 app.use(errorHandler);
 

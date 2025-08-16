@@ -5,6 +5,7 @@ const Loan = require('../../model/loanModel');
 const Employee = require('../../model/employeeModel');
 const Product = require('../../model/productModel');
 const Warehouse = require('../../model/warehouseModel');
+const loanCirculationModel = require('../../model/loanCirculationModel');
 
 const addLoan = asyncHandler(async (req, res) => {
   const {
@@ -18,6 +19,7 @@ const addLoan = asyncHandler(async (req, res) => {
     loan_quantity
   } = req.body || {};
 
+  // Validasi field wajib
   if (
     !loan_number ||
     !loan_date ||
@@ -37,20 +39,20 @@ const addLoan = asyncHandler(async (req, res) => {
     const item = await Product.findById(product).session(session);
     if (!item) throwError('Produk tidak ditemukan', 404);
 
+    // ====== Cek stok kalau Disetujui ======
     if (approval === 'Disetujui') {
-      if (item.quantity <= 0) {
+      if (!item.warehouse) throwError('Produk belum punya gudang asal', 400);
+      if (item.quantity <= 0)
         throwError('Stok barang kosong, tidak dapat dipinjam', 400);
-      }
-
-      if (item.quantity < loan_quantity) {
+      if (item.quantity < loan_quantity)
         throwError('Stok barang tidak mencukupi', 400);
-      }
-      item.quantity -= loan_quantity;
 
+      item.quantity -= loan_quantity;
       item.loan_quantity = loan_quantity;
       await item.save({ session });
     }
 
+    // ====== Buat Loan ======
     const loan_item = await Loan.create(
       [
         {
@@ -67,13 +69,31 @@ const addLoan = asyncHandler(async (req, res) => {
       { session }
     );
 
+    if (approval === 'Disetujui') {
+      await loanCirculationModel.create(
+        [
+          {
+            loan_id: loan_item[0]._id,
+            product: item._id,
+            product_name: item.product_name,
+            loan_quantity,
+            warehouse_from: item.warehouse,
+            warehouse_to: warehouse,
+            imageUrl: item.imageUrl
+          }
+        ],
+        { session }
+      );
+    }
+
     await session.commitTransaction();
+    session.endSession();
+
     res.status(201).json(loan_item[0]);
   } catch (error) {
     await session.abortTransaction();
-    throw error;
-  } finally {
     session.endSession();
+    throw error;
   }
 });
 
@@ -116,12 +136,19 @@ const removeLoan = asyncHandler(async (req, res) => {
       await item.save({ session });
     }
 
-    await Loan.findByIdAndDelete(req.params.id).session(session);
+    // ===== Hapus sirkulasi terkait =====
+    await loanCirculationModel
+      .deleteMany({ loan_id: loan_item._id })
+      .session(session);
+
+    await loan_item.deleteOne({ session });
 
     await session.commitTransaction();
     session.endSession();
 
-    res.status(200).json({ message: 'Pengajuan berhasil dihapus.' });
+    res
+      .status(200)
+      .json({ message: 'Pengajuan dan sirkulasi terkait berhasil dihapus.' });
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
@@ -164,6 +191,21 @@ const updateLoan = asyncHandler(async (req, res) => {
       item.loan_quantity = loan_quantity;
 
       await item.save({ session });
+
+      await loanCirculationModel.create(
+        [
+          {
+            loan_id: loan_item._id,
+            product: item._id,
+            product_name: item.product_name,
+            loan_quantity,
+            warehouse_from: item.warehouse,
+            warehouse_to: warehouse,
+            imageUrl: item.imageUrl
+          }
+        ],
+        { session }
+      );
     }
 
     // 2. Dari Disetujui → Ditolak/Diproses (balikin stok)
