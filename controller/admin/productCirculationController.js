@@ -6,10 +6,10 @@ const mongoose = require('mongoose');
 const getProductCirculations = asyncHandler(async (req, res) => {
   const circulations = await productCirculationModel
     .find()
-    .populate('warehouse_from', 'name')
-    .populate('warehouse_to', 'name')
-    .populate('shelf_from', 'name')
-    .populate('shelf_to', 'name')
+    .populate('warehouse_from', 'warehouse_name warehouse_code')
+    .populate('warehouse_to', 'warehouse_name warehouse_code')
+    .populate('shelf_from', 'shelf_name shelf_code')
+    .populate('shelf_to', 'shelf_name shelf_code')
     .populate('product', 'product_name product_code');
 
   res.status(200).json(circulations);
@@ -18,10 +18,10 @@ const getProductCirculations = asyncHandler(async (req, res) => {
 const getProductCirculation = asyncHandler(async (req, res) => {
   const circulation = await productCirculationModel
     .findById(req.params.id)
-    .populate('warehouse_from', 'name')
-    .populate('warehouse_to', 'name')
-    .populate('shelf_from', 'name')
-    .populate('shelf_to', 'name')
+    .populate('warehouse_from', 'warehouse_name warehouse_code')
+    .populate('warehouse_to', 'warehouse_name warehouse_code')
+    .populate('shelf_from', 'shelf_name shelf_code')
+    .populate('shelf_to', 'shelf_name shelf_code')
     .populate('product', 'product_name product_code');
 
   if (!circulation) throwError('Sirkulasi tidak ditemukan!', 404);

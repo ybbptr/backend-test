@@ -4,6 +4,7 @@ const Warehouse = require('../../model/warehouseModel');
 const Product = require('../../model/productModel');
 const Shelf = require('../../model/shelfModel');
 const Loan = require('../../model/loanModel');
+const productCirculationModel = require('../../model/productCirculationModel');
 const cloudinary = require('cloudinary');
 const mongoose = require('mongoose');
 
@@ -101,6 +102,13 @@ const updateProduct = asyncHandler(async (req, res) => {
     shelf
   } = req.body;
 
+  if (warehouse && !mongoose.Types.ObjectId.isValid(warehouse)) {
+    throwError('ID gudang tidak valid!', 400);
+  }
+  if (shelf && !mongoose.Types.ObjectId.isValid(shelf)) {
+    throwError('ID lemari tidak valid!', 400);
+  }
+
   const product = await Product.findById(req.params.id);
   if (!product) throwError('Barang tidak ditemukan!', 404);
 
@@ -157,8 +165,7 @@ const updateProduct = asyncHandler(async (req, res) => {
 
     if (allCirculations.length > maxCirculations) {
       const excess = allCirculations.length - maxCirculations;
-      const toDelete = allCirculations.slice(0, excess);
-      const deleteIds = toDelete.map((c) => c._id);
+      const deleteIds = allCirculations.slice(0, excess).map((c) => c._id);
       await productCirculationModel.deleteMany({ _id: { $in: deleteIds } });
     }
   }
