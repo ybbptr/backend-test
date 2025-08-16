@@ -2,6 +2,8 @@ const asyncHandler = require('express-async-handler');
 const throwError = require('../../utils/throwError');
 const Shelf = require('../../model/shelfModel');
 const Warehouse = require('../../model/warehouseModel');
+const Product = require('../../model/productModel');
+const mongoose = require('mongoose');
 
 const addShelf = asyncHandler(async (req, res) => {
   const { shelf_name, shelf_code, description, warehouse } = req.body || {};
@@ -38,11 +40,29 @@ const getShelf = asyncHandler(async (req, res) => {
 });
 
 const removeShelf = asyncHandler(async (req, res) => {
-  const shelf = await Shelf.findById(req.params.id);
-  if (!shelf) throwError('Lemari tidak terdaftar!', 400);
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  await Shelf.findByIdAndDelete(req.params.id);
-  res.status(200).json({ message: 'Lemari berhasil dihapus.' });
+  try {
+    const shelf = await Shelf.findById(req.params.id).session(session);
+    if (!shelf) throwError('Lemari tidak terdaftar!', 400);
+
+    await Product.updateMany(
+      { shelf: shelf._id },
+      { $set: { shelf: null } },
+      { session }
+    );
+
+    await shelf.deleteOne({ session });
+
+    await session.commitTransaction();
+    res.status(200).json({ message: 'Lemari berhasil dihapus.' });
+  } catch (err) {
+    await session.abortTransaction();
+    throwError(err.message || 'Gagal menghapus lemari', 400);
+  } finally {
+    session.endSession();
+  }
 });
 
 const updateShelf = asyncHandler(async (req, res) => {

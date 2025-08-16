@@ -3,6 +3,7 @@ const throwError = require('../../utils/throwError');
 const { checkDuplicateValue } = require('../../middleware/checkDuplicate');
 const Warehouse = require('../../model/warehouseModel');
 const Shelf = require('../../model/shelfModel');
+const Product = require('../../model/productModel');
 const mongoose = require('mongoose');
 
 const addWarehouse = asyncHandler(async (req, res) => {
@@ -68,11 +69,35 @@ const getWarehouses = asyncHandler(async (req, res) => {
 });
 
 const removeWarehouse = asyncHandler(async (req, res) => {
-  const warehouse = await Warehouse.findById(req.params.id);
-  if (!warehouse) throwError('Gudang yang anda cari tidak ada!', 400);
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  await Warehouse.findByIdAndDelete(req.params.id);
-  res.status(200).json({ message: 'Gudang berhasil dihapus.' });
+  try {
+    const warehouse = await Warehouse.findById(req.params.id).session(session);
+    if (!warehouse) throwError('Gudang tidak ditemukan!', 404);
+
+    await Shelf.updateMany(
+      { warehouse: warehouse._id },
+      { $set: { warehouse: null } },
+      { session }
+    );
+
+    await Product.updateMany(
+      { warehouse: warehouse._id },
+      { $set: { warehouse: null } },
+      { session }
+    );
+
+    await warehouse.deleteOne({ session });
+
+    await session.commitTransaction();
+    res.status(200).json({ message: 'Gudang berhasil dihapus.' });
+  } catch (err) {
+    await session.abortTransaction();
+    throwError(err.message || 'Gagal menghapus gudang', 400);
+  } finally {
+    session.endSession();
+  }
 });
 
 const updateWarehouse = asyncHandler(async (req, res) => {
