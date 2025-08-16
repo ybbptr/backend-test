@@ -47,6 +47,10 @@ const addLoan = asyncHandler(async (req, res) => {
       if (item.quantity < loan_quantity)
         throwError('Stok barang tidak mencukupi', 400);
 
+      if (item.warehouse.toString() === warehouse.toString()) {
+        throwError('Gudang asal dan tujuan tidak boleh sama', 400);
+      }
+
       item.quantity -= loan_quantity;
       item.loan_quantity = loan_quantity;
       await item.save({ session });
@@ -187,6 +191,11 @@ const updateLoan = asyncHandler(async (req, res) => {
       if (item.quantity < loan_quantity) {
         throwError('Stok tidak mencukupi', 400);
       }
+
+      if (item.warehouse.toString() === warehouse.toString()) {
+        throwError('Gudang asal dan tujuan tidak boleh sama', 400);
+      }
+
       item.quantity -= loan_quantity;
       item.loan_quantity = loan_quantity;
 
@@ -210,6 +219,9 @@ const updateLoan = asyncHandler(async (req, res) => {
 
     // 2. Dari Disetujui → Ditolak/Diproses (balikin stok)
     if (loan_item.approval === 'Disetujui' && approval !== 'Disetujui') {
+      if (item.warehouse.toString() === warehouse.toString()) {
+        throwError('Gudang asal dan tujuan tidak boleh sama', 400);
+      }
       item.quantity += loan_item.loan_quantity;
       item.loan_quantity = loan_quantity;
 
@@ -218,6 +230,10 @@ const updateLoan = asyncHandler(async (req, res) => {
 
     // 3. Sama-sama Disetujui, tapi jumlah berubah
     if (loan_item.approval === 'Disetujui' && approval === 'Disetujui') {
+      if (item.warehouse.toString() === warehouse.toString()) {
+        throwError('Gudang asal dan tujuan tidak boleh sama', 400);
+      }
+
       const diff = loan_quantity - loan_item.loan_quantity;
       if (diff > 0) {
         // Pinjam lebih banyak
