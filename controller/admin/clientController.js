@@ -1,6 +1,8 @@
 const asyncHandler = require('express-async-handler');
 const throwError = require('../../utils/throwError');
 const Client = require('../../model/clientModel');
+const Project = require('../../model/projectModel');
+const mongoose = require('mongoose');
 
 const addClient = asyncHandler(async (req, res) => {
   const {
@@ -44,11 +46,30 @@ const getClient = asyncHandler(async (req, res) => {
 });
 
 const removeClient = asyncHandler(async (req, res) => {
-  const client = await Client.findById(req.params.id);
-  if (!client) throwError('Client tidak terdaftar!', 400);
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  await Client.findByIdAndDelete(req.params.id);
-  res.status(200).json({ message: 'Client berhasil dihapus.' });
+  try {
+    const client = await Client.findById(req.params.id).session(session);
+    if (!client) throwError('Client tidak terdaftar!', 400);
+
+    await Project.updateMany(
+      { client: client._id },
+      { $set: { client: null } },
+      { session }
+    );
+
+    await client.deleteOne({ session });
+
+    await session.commitTransaction();
+
+    res.status(200).json({ message: 'Client berhasil dihapus.' });
+  } catch (err) {
+    await session.abortTransaction();
+    throwError(err.message || 'Gagal menghapus client', 400);
+  } finally {
+    session.endSession();
+  }
 });
 
 const updateClient = asyncHandler(async (req, res) => {

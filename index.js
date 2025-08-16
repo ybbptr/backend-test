@@ -22,55 +22,34 @@ app.use(
 );
 
 // app.set('trust proxy', 1);
-// app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 
 app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
 
-// Multipart
 app.use('/api/orders', require('./routes/orderRouter'));
-app.use(
-  '/admin/products',
-  express.json(),
-  require('./routes/admin/productRouter')
-);
+app.use('/admin/products', require('./routes/admin/productRouter'));
 
-// Application / JSON
-app.use('/api/comments', express.json(), require('./routes/commentRouter'));
-app.use('/api/users', express.json(), require('./routes/userRouter'));
-app.use(
-  '/admin/employees',
-  express.json(),
-  require('./routes/admin/employeeRouter')
-);
-app.use(
-  '/admin/warehouses',
-  express.json(),
-  require('./routes/admin/warehouseRouter')
-);
-app.use(
-  '/admin/vendors',
-  express.json(),
-  require('./routes/admin/vendorRouter')
-);
-app.use(
-  '/admin/clients',
-  express.json(),
-  require('./routes/admin/clientRouter')
-);
-app.use('/admin/loans', express.json(), require('./routes/admin/loanRouter'));
-app.use(
-  '/admin/shelves',
-  express.json(),
-  require('./routes/admin/shelfRouter')
-);
+app.use('/api/comments', require('./routes/commentRouter'));
+app.use('/api/users', require('./routes/userRouter'));
+app.use('/admin/employees', require('./routes/admin/employeeRouter'));
+app.use('/admin/warehouses', require('./routes/admin/warehouseRouter'));
+app.use('/admin/vendors', require('./routes/admin/vendorRouter'));
+app.use('/admin/clients', require('./routes/admin/clientRouter'));
+app.use('/admin/loans', require('./routes/admin/loanRouter'));
+app.use('/admin/shelves', require('./routes/admin/shelfRouter'));
+app.use('/admin/projects', require('./routes/admin/projectRouter'));
+
 app.use(
   '/admin/loan-circulation',
-  express.json(),
   require('./routes/admin/loanCirculationRouter')
 );
 app.use(
   '/admin/product-circulation',
-  express.json(),
+  require('./routes/admin/productCirculationRouter')
+);
+
+app.use(
+  '/admin/product-circulation',
   require('./routes/admin/productCirculationRouter')
 );
 
