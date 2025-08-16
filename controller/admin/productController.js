@@ -147,19 +147,6 @@ const updateProduct = asyncHandler(async (req, res) => {
   await product.save();
 
   if (warehouseChanged || shelfChanged) {
-    // Buat sirkulasi baru
-    await productCirculationModel.create({
-      product: product._id,
-      product_code: product.product_code,
-      product_name: product.product_name,
-      imageUrl: product.imageUrl,
-      warehouse_from: previousWarehouse,
-      shelf_from: previousShelf,
-      warehouse_to: product.warehouse,
-      shelf_to: product.shelf
-    });
-
-    // Hapus sirkulasi lama jika lebih dari 3
     const allCirculations = await productCirculationModel
       .find({ product: product._id })
       .sort({ createdAt: -1 }); // terbaru dulu
@@ -171,6 +158,17 @@ const updateProduct = asyncHandler(async (req, res) => {
         .map((c) => c._id);
       await productCirculationModel.deleteMany({ _id: { $in: deleteIds } });
     }
+
+    await productCirculationModel.create({
+      product: product._id,
+      product_code: product.product_code,
+      product_name: product.product_name,
+      imageUrl: product.imageUrl,
+      warehouse_from: previousWarehouse,
+      shelf_from: previousShelf,
+      warehouse_to: product.warehouse,
+      shelf_to: product.shelf
+    });
   }
   res.status(200).json(product);
 });
