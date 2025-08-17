@@ -28,9 +28,9 @@ app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
 
 app.use('/api/orders', require('./routes/orderRouter'));
 app.use('/admin/products', require('./routes/admin/productRouter'));
-
 app.use('/api/comments', require('./routes/commentRouter'));
 app.use('/api/users', require('./routes/userRouter'));
+
 app.use('/admin/employees', require('./routes/admin/employeeRouter'));
 app.use('/admin/warehouses', require('./routes/admin/warehouseRouter'));
 app.use('/admin/vendors', require('./routes/admin/vendorRouter'));
@@ -54,6 +54,9 @@ app.use(
   '/admin/product-circulation',
   require('./routes/admin/productCirculationRouter')
 );
+
+app.use('/home/staffs', require('./routes/home/staffRouter'));
+app.use('/home/showcases', require('./routes/home/showcaseRouter'));
 
 app.use(errorHandler);
 
