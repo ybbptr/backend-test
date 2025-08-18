@@ -8,7 +8,7 @@ const {
   getStaffs,
   removeStaff,
   updateStaff
-} = require('../../controller/home/staffController');
+} = require('../../controller/admin/staffController');
 
 Router.post('/add-staff', validate(validateStaff), addStaff).get(
   '/all-staff',

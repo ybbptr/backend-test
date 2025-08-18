@@ -7,6 +7,8 @@ const Vendor = require('../../model/vendorModel');
 const Employee = require('../../model/employeeModel');
 const Warehouse = require('../../model/warehouseModel');
 const Loan = require('../../model/loanModel');
+const Staff = require('../../model/staffModel');
+const Showcase = require('../../model/showcaseModel');
 const Shelf = require('../../model/shelfModel');
 const loanCirculationModel = require('../../model/loanCirculationModel');
 const productCirculationModel = require('../../model/productCirculationModel');
@@ -23,7 +25,9 @@ const getAdminDashboard = asyncHandler(async (req, res) => {
       loansCount,
       shelvesCount,
       loanCirculationsCount,
-      productCirculationsCount
+      productCirculationsCount,
+      showcaseCount,
+      staffCount
     ] = await Promise.all([
       Client.countDocuments(),
       Project.countDocuments(),
@@ -34,7 +38,9 @@ const getAdminDashboard = asyncHandler(async (req, res) => {
       Loan.countDocuments(),
       Shelf.countDocuments(),
       loanCirculationModel.countDocuments(),
-      productCirculationModel.countDocuments()
+      productCirculationModel.countDocuments(),
+      showcaseCount.countDocuments(),
+      staffCount.countDocuments()
     ]);
 
     res.status(200).json({
@@ -47,7 +53,9 @@ const getAdminDashboard = asyncHandler(async (req, res) => {
       loans: loansCount,
       shelves: shelvesCount,
       loan_circulations: loanCirculationsCount,
-      product_circulations: productCirculationsCount
+      product_circulations: productCirculationsCount,
+      showcases: showcaseCount,
+      staffs: staffCount
     });
   } catch (err) {
     throwError('Gagal mengambil data dashboard', 500);

@@ -15,10 +15,8 @@ const registerUser = asyncHandler(async (req, res) => {
     throwError('Email tidak tersedia!', 400, 'email');
   }
 
-  // Hashing password
   const hashedPassword = await bcrypt.hash(password, 10);
 
-  // Create user
   const user = await User.create({
     name,
     email,
@@ -26,7 +24,6 @@ const registerUser = asyncHandler(async (req, res) => {
     password: hashedPassword
   });
 
-  // Checking if user is valid
   if (user) {
     const accessToken = jwt.sign(
       {
@@ -36,7 +33,7 @@ const registerUser = asyncHandler(async (req, res) => {
         }
       },
       process.env.ACCESS_TOKEN_SECRET,
-      { expiresIn: '3h' }
+      { expiresIn: process.env.JWT_EXPIRES_IN }
     );
 
     res.status(201).json({
@@ -65,7 +62,6 @@ const userLogin = asyncHandler(async (req, res) => {
     res.status(404);
     throwError('Email tidak ditemukan!', 400, 'email');
   }
-  // Compare password with hashedpassword
   const isPasswordValid =
     user && (await bcrypt.compare(password, user.password));
 
@@ -80,7 +76,7 @@ const userLogin = asyncHandler(async (req, res) => {
         }
       },
       process.env.ACCESS_TOKEN_SECRET,
-      { expiresIn: '3h' }
+      { expiresIn: process.env.JWT_EXPIRES_IN }
     );
 
     let userRole;
@@ -116,7 +112,6 @@ const updateUser = asyncHandler(async (req, res) => {
     return throwError('Isi setidaknya salah satu field!', 400);
   }
 
-  // Build object update
   const updatedFields = {};
   if (name) updatedFields.name = name;
   if (email) updatedFields.email = email;
@@ -162,11 +157,9 @@ const updatePassword = asyncHandler(async (req, res) => {
     return await bcrypt.compare(currentPassword, hashedPassword);
   };
 
-  // Password tidak sesuai
   if (!(await isPasswordMatch(currentPassword, user.password)))
     return throwError('Password tidak sesuai', 400, 'password');
 
-  // Password tidak boleh sama dengan yg sebelumnya
   if (await isPasswordMatch(newPassword, user.password))
     return throwError(
       'Password tidak boleh sama dengan sebelumnya!',

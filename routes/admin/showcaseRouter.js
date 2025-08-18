@@ -8,7 +8,7 @@ const {
   getShowcases,
   removeShowcase,
   updateShowcase
-} = require('../../controller/home/showcaseController');
+} = require('../../controller/admin/showcaseController');
 
 Router.post('/add-showcase', validate(validateShowcase), addShowcase).get(
   '/all-showcase',

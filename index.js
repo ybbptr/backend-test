@@ -26,6 +26,8 @@ app.use(express.json());
 
 app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
 
+app.use('/auth', require('./routes/authRouter'));
+
 app.use('/api/orders', require('./routes/orderRouter'));
 app.use('/admin/products', require('./routes/admin/productRouter'));
 app.use('/api/comments', require('./routes/commentRouter'));
@@ -38,7 +40,8 @@ app.use('/admin/clients', require('./routes/admin/clientRouter'));
 app.use('/admin/loans', require('./routes/admin/loanRouter'));
 app.use('/admin/shelves', require('./routes/admin/shelfRouter'));
 app.use('/admin/projects', require('./routes/admin/projectRouter'));
-
+app.use('/admin/staffs', require('./routes/admin/staffRouter'));
+app.use('/admin/showcases', require('./routes/admin/showcaseRouter'));
 app.use('/admin/dashboard', require('./routes/admin/adminDashboardRouter'));
 
 app.use(
@@ -54,9 +57,6 @@ app.use(
   '/admin/product-circulation',
   require('./routes/admin/productCirculationRouter')
 );
-
-app.use('/home/staffs', require('./routes/home/staffRouter'));
-app.use('/home/showcases', require('./routes/home/showcaseRouter'));
 
 app.use(errorHandler);
 
