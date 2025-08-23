@@ -40,7 +40,7 @@ Router.post(
 Router.post('/login', validate(validateLogin), userLogin);
 // Router.post('/login', loginLimiter, validate(validateLogin), userLogin);
 Router.post('/logout', logoutUser);
-Router.post('/refresh', refreshToken);
+Router.post('/refresh-token', refreshToken);
 
 // PUT method
 Router.put(

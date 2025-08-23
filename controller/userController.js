@@ -3,6 +3,7 @@ const User = require('../model/userModel');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const throwError = require('../utils/throwError');
+const generateTokens = require('../utils/generateToken');
 
 const registerUser = asyncHandler(async (req, res) => {
   const { email, name, phone, password } = req.body || {};
@@ -11,9 +12,7 @@ const registerUser = asyncHandler(async (req, res) => {
   }
 
   const userExist = await User.findOne({ email });
-  if (userExist) {
-    throwError('Email tidak tersedia!', 400, 'email');
-  }
+  if (userExist) throwError('Email tidak tersedia!', 400, 'email');
 
   const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -25,63 +24,53 @@ const registerUser = asyncHandler(async (req, res) => {
   });
 
   if (user) {
-    const accessToken = jwt.sign(
-      {
-        user: {
-          id: user._id,
-          email: user.email,
-          role: user.role
-        }
-      },
-      process.env.ACCESS_TOKEN_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN }
-    );
+    const { accessToken, refreshToken } = await generateTokens(user);
 
-    res.cookie('token', accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 168 * 60 * 60 * 1000,
-      sameSite: 'none'
-    });
-
-    res.status(201).json({
-      message: 'Daftar akun berhasil',
-      role: user.role
-    });
+    res
+      .cookie('accessToken', accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 15 * 60 * 1000,
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+      })
+      .cookie('refreshToken', refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+      })
+      .status(201)
+      .json({
+        message: 'Daftar akun berhasil',
+        role: user.role
+      });
   } else {
     throwError('User data tidak valid!', 400);
   }
 });
 
-const userLogin = asyncHandler(async (req, res) => {
+const loginUser = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
-  if (!email || !password) throwError('Semua field harus di isi!', 400);
-
   const user = await User.findOne({ email });
-  if (!user) throwError('Email tidak ditemukan!', 404, 'email');
+  if (!user) throwError('Email tidak ditemukan', 401);
 
-  const isPasswordValid = await bcrypt.compare(password, user.password);
-  if (!isPasswordValid) throwError('Password invalid!', 401, 'password');
+  const isValid = await bcrypt.compare(password, user.password);
+  if (!isValid) throwError('Password invalid', 401);
 
-  const userRole = user.role;
+  const { accessToken, refreshToken } = await generateTokens(user);
 
-  const accessToken = jwt.sign(
-    { user: { id: user._id, email: user.email, role: userRole } },
-    process.env.ACCESS_TOKEN_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN }
-  );
-
-  res.cookie('token', accessToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 168 * 60 * 60 * 1000,
-    sameSite: 'none'
-  });
-
-  res.status(200).json({
-    message: 'Login berhasil',
-    role: userRole
-  });
+  res
+    .cookie('accessToken', accessToken, {
+      httpOnly: true,
+      secure: true,
+      maxAge: 30 * 60 * 1000
+    })
+    .cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: true,
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    })
+    .json({ message: 'Login berhasil', role: user.role });
 });
 
 const getCurrentUser = asyncHandler(async (req, res) => {
@@ -89,7 +78,7 @@ const getCurrentUser = asyncHandler(async (req, res) => {
   if (!user) {
     return throwError('User tidak ditemukan!', 404);
   }
-  res.status(200).json(user);
+  res.status(200).json({ authenticated: true, user });
 });
 
 const updateUser = asyncHandler(async (req, res) => {
@@ -165,33 +154,66 @@ const updatePassword = asyncHandler(async (req, res) => {
   res.status(200).json({ message: 'Password berhasil diganti!' });
 });
 
-const logoutUser = (req, res) => {
-  res.clearCookie('token').status(200).json({ message: 'Logout berhasil' });
-};
+const logoutUser = asyncHandler(async (req, res) => {
+  const token = req.cookies.refreshToken;
 
-const refreshToken = (req, res) => {
-  const refreshToken = req.cookies.refreshToken;
-  if (!refreshToken)
-    return res.status(401).json({ message: 'No refresh token' });
+  if (token) {
+    const payload = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
+    const user = await User.findById(payload.user.id);
+    if (user) {
+      user.refreshToken = null;
+      await user.save();
+    }
+  }
+
+  res
+    .clearCookie('accessToken', {
+      httpOnly: true,
+      sameSite: 'none',
+      secure: true
+    })
+    .clearCookie('refreshToken', {
+      httpOnly: true,
+      sameSite: 'none',
+      secure: true
+    })
+    .json({ message: 'Berhasil logout' });
+});
+
+const refreshToken = asyncHandler(async (req, res) => {
+  const token = req.cookies.refreshToken;
+  if (!token) return res.status(401).json({ message: 'No refresh token' });
 
   try {
-    const payload = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
+    const payload = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
 
-    const accessToken = jwt.sign(
-      { user: { id: payload.user.id, role: payload.user.role } },
+    const user = await User.findById(payload.user.id);
+    if (!user || user.refreshToken !== token) {
+      return res.status(403).json({ message: 'Refresh token invalid' });
+    }
+
+    const newAccessToken = jwt.sign(
+      { user: { id: user._id, role: user.role } },
       process.env.ACCESS_TOKEN_SECRET,
-      { expiresIn: '7d' }
+      { expiresIn: '30m' }
     );
 
-    res.json({ accessToken });
+    res.cookie('accessToken', newAccessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 30 * 60 * 1000,
+      sameSite: 'none'
+    });
+
+    res.json({ message: 'Access token berhasil di refresh' });
   } catch (err) {
     res.status(403).json({ message: 'Refresh token invalid' });
   }
-};
+});
 
 module.exports = {
   registerUser,
-  userLogin,
+  loginUser,
   getCurrentUser,
   updateUser,
   getAllUsers,

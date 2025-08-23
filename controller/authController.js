@@ -1,5 +1,6 @@
 const asyncHandler = require('express-async-handler');
 const throwError = require('../utils/throwError');
+const generateTokens = require('../utils/generateToken');
 const jwt = require('jsonwebtoken');
 const passport = require('../config/passport');
 const User = require('../model/userModel');
@@ -9,7 +10,7 @@ const googleCallback = asyncHandler(async (req, res, next) => {
     'google',
     { session: false },
     async (err, user, info) => {
-      if (err) throwError('Login Google gagal', 500);
+      if (err) return throwError('Login Google gagal', 500);
 
       if (!user) {
         const profile = info;
@@ -22,30 +23,20 @@ const googleCallback = asyncHandler(async (req, res, next) => {
         });
       }
 
-      const accessToken = jwt.sign(
-        {
-          user: {
-            email: user.email,
-            name: user.name,
-            id: user._id,
-            role: user.role
-          }
-        },
-        process.env.ACCESS_TOKEN_SECRET,
-        { expiresIn: process.env.JWT_EXPIRES_IN }
-      );
+      const { accessToken, refreshToken } = await generateTokens(user);
 
-      res.cookie('token', accessToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        maxAge: 168 * 60 * 60 * 1000,
-        sameSite: 'none'
-      });
-
-      res.status(200).json({
-        message: 'Login Google berhasil',
-        role: user.role
-      });
+      res
+        .cookie('accessToken', accessToken, {
+          httpOnly: true,
+          secure: true,
+          maxAge: 30 * 60 * 1000
+        })
+        .cookie('refreshToken', refreshToken, {
+          httpOnly: true,
+          secure: true,
+          maxAge: 7 * 24 * 60 * 60 * 1000
+        })
+        .json({ message: 'Login Google berhasil', role: user.role });
     }
   )(req, res, next);
 });

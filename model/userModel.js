@@ -41,7 +41,7 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ['admin', 'user'],
+      enum: ['admin', 'user', 'karyawan'],
       default: 'user'
     },
     oauthProvider: {
@@ -49,8 +49,10 @@ const userSchema = new mongoose.Schema(
       enum: ['google', 'facebook'],
       default: null
     },
-    oauthId: { type: String, default: null } // ID dari provider OAuth
+    oauthId: { type: String, default: null },
+    refreshToken: { type: String, default: null }
   },
+
   { timestamps: true }
 );
 
