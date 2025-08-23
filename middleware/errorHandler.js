@@ -6,7 +6,8 @@ const statusTitles = {
   [constants.FORBIDDEN]: 'Forbidden',
   [constants.NOT_FOUND]: 'Not Found',
   [constants.TOO_MANY_REQUEST]: 'Too many request',
-  [constants.SERVER_ERROR]: 'Server Error'
+  [constants.SERVER_ERROR]: 'Server Error',
+  [constants.BAD_GATEWAY]: 'Gateway Error'
 };
 
 const errorHandler = (err, req, res, next) => {

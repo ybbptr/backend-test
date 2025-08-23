@@ -12,10 +12,18 @@ const googleCallback = asyncHandler(async (req, res, next) => {
       if (err) return throwError('Login Google gagal', 500);
 
       if (!user) {
-        const profile = info;
+        if (!profile || !profile.emails || !profile.emails[0]) {
+          return res.status(400).json({
+            message: 'Data akun Google tidak lengkap atau login dibatalkan'
+          });
+        }
+
+        const email = profile.emails[0].value;
+        const name = profile.displayName || 'Google User';
+
         user = await User.create({
-          name: profile.displayName,
-          email: profile.emails[0].value,
+          name,
+          email,
           phone: '0000000000',
           oauthProvider: 'google',
           oauthId: profile.id
