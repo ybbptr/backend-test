@@ -32,8 +32,8 @@ app.use('/auth', require('./routes/authRouter'));
 
 app.use('/api/orders', require('./routes/orderRouter'));
 app.use('/admin/products', require('./routes/admin/productRouter'));
-app.use('/api/comments', require('./routes/commentRouter'));
-app.use('/api/users', require('./routes/userRouter'));
+app.use('/comments', require('./routes/commentRouter'));
+app.use('/users', require('./routes/userRouter'));
 
 app.use('/admin/employees', require('./routes/admin/employeeRouter'));
 app.use('/admin/warehouses', require('./routes/admin/warehouseRouter'));

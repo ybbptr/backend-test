@@ -56,7 +56,7 @@ Router.put(
 );
 
 // GET method
-Router.get('/current', validateToken, getCurrentUser);
-Router.get('/allUsers', validateToken, getAllUsers);
+Router.get('/current-user', validateToken, getCurrentUser);
+Router.get('/all-user', validateToken, getAllUsers);
 
 module.exports = Router;
