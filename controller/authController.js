@@ -1,4 +1,4 @@
-const asyncHandler = require('../middleware/asyncHandler');
+const asyncHandler = require('express-async-handler');
 const throwError = require('../utils/throwError');
 const jwt = require('jsonwebtoken');
 const passport = require('../config/passport');
