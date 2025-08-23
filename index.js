@@ -30,7 +30,7 @@ app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
 
 app.use('/auth', require('./routes/authRouter'));
 
-app.use('/api/orders', require('./routes/orderRouter'));
+app.use('/orders', require('./routes/orderRouter'));
 app.use('/admin/products', require('./routes/admin/productRouter'));
 app.use('/comments', require('./routes/commentRouter'));
 app.use('/users', require('./routes/userRouter'));

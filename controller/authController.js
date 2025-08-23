@@ -46,7 +46,7 @@ const googleCallback = asyncHandler(async (req, res, next) => {
         .cookie('token', accessToken, {
           httpOnly: true,
           secure: true,
-          maxAge: 24 * 60 * 60 * 1000 // 1 hari
+          maxAge: 168 * 60 * 60 * 1000 // 7 hari
         })
         .redirect(redirectUrl);
     }

@@ -41,7 +41,7 @@ const registerUser = asyncHandler(async (req, res) => {
       .cookie('token', accessToken, {
         httpOnly: true,
         secure: true,
-        maxAge: 24 * 60 * 60 * 1000
+        maxAge: 168 * 60 * 60 * 1000
       })
       .redirect(`${process.env.FRONTEND_REDIRECT_URL}/beranda`);
   } else {
@@ -78,7 +78,7 @@ const userLogin = asyncHandler(async (req, res) => {
     .cookie('token', accessToken, {
       httpOnly: true,
       secure: true,
-      maxAge: 24 * 60 * 60 * 1000
+      maxAge: 168 * 60 * 60 * 1000
     })
     .redirect(redirectUrl);
 });
@@ -168,6 +168,26 @@ const logoutUser = (req, res) => {
   res.clearCookie('token').status(200).json({ message: 'Logout berhasil' });
 };
 
+const refreshToken = (req, res) => {
+  const refreshToken = req.cookies.refreshToken;
+  if (!refreshToken)
+    return res.status(401).json({ message: 'No refresh token' });
+
+  try {
+    const payload = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
+
+    const accessToken = jwt.sign(
+      { user: { id: payload.user.id, role: payload.user.role } },
+      process.env.ACCESS_TOKEN_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({ accessToken });
+  } catch (err) {
+    res.status(403).json({ message: 'Refresh token invalid' });
+  }
+};
+
 module.exports = {
   registerUser,
   userLogin,
@@ -175,5 +195,6 @@ module.exports = {
   updateUser,
   getAllUsers,
   updatePassword,
-  logoutUser
+  logoutUser,
+  refreshToken
 };
