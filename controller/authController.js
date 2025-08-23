@@ -35,20 +35,17 @@ const googleCallback = asyncHandler(async (req, res, next) => {
         { expiresIn: process.env.JWT_EXPIRES_IN }
       );
 
-      let redirectUrl;
-      if (userRole === 'admin')
-        redirectUrl = `${process.env.FRONTEND_REDIRECT_URL}/dasbor-admin`;
-      else if (userRole === 'karyawan')
-        redirectUrl = `${process.env.FRONTEND_REDIRECT_URL}/dasbor-karyawan`;
-      else redirectUrl = `${process.env.FRONTEND_REDIRECT_URL}/beranda`;
+      res.cookie('token', accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 168 * 60 * 60 * 1000,
+        sameSite: 'none'
+      });
 
-      res
-        .cookie('token', accessToken, {
-          httpOnly: true,
-          secure: true,
-          maxAge: 168 * 60 * 60 * 1000 // 7 hari
-        })
-        .redirect(redirectUrl);
+      res.status(200).json({
+        message: 'Login Google berhasil',
+        role: user.role
+      });
     }
   )(req, res, next);
 });

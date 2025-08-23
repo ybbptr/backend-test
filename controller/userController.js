@@ -37,13 +37,17 @@ const registerUser = asyncHandler(async (req, res) => {
       { expiresIn: process.env.JWT_EXPIRES_IN }
     );
 
-    res
-      .cookie('token', accessToken, {
-        httpOnly: true,
-        secure: true,
-        maxAge: 168 * 60 * 60 * 1000
-      })
-      .redirect(`${process.env.FRONTEND_REDIRECT_URL}/beranda`);
+    res.cookie('token', accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 168 * 60 * 60 * 1000,
+      sameSite: 'none'
+    });
+
+    res.status(201).json({
+      message: 'Daftar akun berhasil',
+      role: user.role
+    });
   } else {
     throwError('User data tidak valid!', 400);
   }
@@ -67,20 +71,17 @@ const userLogin = asyncHandler(async (req, res) => {
     { expiresIn: process.env.JWT_EXPIRES_IN }
   );
 
-  let redirectUrl;
-  if (userRole === 'admin')
-    redirectUrl = `${process.env.FRONTEND_REDIRECT_URL}/dasbor-admin`;
-  else if (userRole === 'karyawan')
-    redirectUrl = `${process.env.FRONTEND_REDIRECT_URL}/dasbor-karyawan`;
-  else redirectUrl = `${process.env.FRONTEND_REDIRECT_URL}/beranda`;
+  res.cookie('token', accessToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 168 * 60 * 60 * 1000,
+    sameSite: 'none'
+  });
 
-  res
-    .cookie('token', accessToken, {
-      httpOnly: true,
-      secure: true,
-      maxAge: 168 * 60 * 60 * 1000
-    })
-    .redirect(redirectUrl);
+  res.status(200).json({
+    message: 'Login berhasil',
+    role: userRole
+  });
 });
 
 const getCurrentUser = asyncHandler(async (req, res) => {
