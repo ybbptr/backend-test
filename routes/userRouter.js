@@ -1,7 +1,7 @@
 const express = require('express');
 const {
   registerUser,
-  userLogin,
+  loginUser,
   getCurrentUser,
   updateUser,
   getAllUsers,
@@ -37,7 +37,7 @@ Router.post(
   validate(validateRegister),
   registerUser
 );
-Router.post('/login', validate(validateLogin), userLogin);
+Router.post('/login', validate(validateLogin), loginUser);
 // Router.post('/login', loginLimiter, validate(validateLogin), userLogin);
 Router.post('/logout', logoutUser);
 Router.post('/refresh-token', refreshToken);
