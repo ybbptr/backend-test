@@ -5,6 +5,12 @@ const passport = require('../config/passport');
 const User = require('../model/userModel');
 
 const googleCallback = asyncHandler(async (req, res, next) => {
+  if (req.query.error === 'access_denied') {
+    return res.redirect(
+      `${process.env.FRONTEND_REDIRECT_URL}/masuk?error=google_cancelled`
+    );
+  }
+
   passport.authenticate(
     'google',
     { session: false },
