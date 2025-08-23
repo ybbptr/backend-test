@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const User = require('../model/userModel');
 
 const generateTokens = async (user) => {
   const accessToken = jwt.sign(
@@ -14,7 +15,7 @@ const generateTokens = async (user) => {
   );
 
   user.refreshToken = refreshToken;
-  await user.save();
+  await User.findByIdAndUpdate(user._id, { refreshToken });
 
   return { accessToken, refreshToken };
 };

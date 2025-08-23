@@ -68,7 +68,7 @@ const loginUser = asyncHandler(async (req, res) => {
     .cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: true,
-      maxAge: 7 * 24 * 60 * 60 * 1000
+      maxAge: 168 * 60 * 60 * 1000
     })
     .json({ message: 'Login berhasil', role: user.role });
 });
@@ -78,7 +78,7 @@ const getCurrentUser = asyncHandler(async (req, res) => {
   if (!user) {
     return throwError('User tidak ditemukan!', 404);
   }
-  res.status(200).json({ authenticated: true, user });
+  res.status(200).json(user);
 });
 
 const updateUser = asyncHandler(async (req, res) => {

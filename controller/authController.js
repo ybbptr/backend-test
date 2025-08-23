@@ -1,7 +1,6 @@
 const asyncHandler = require('express-async-handler');
 const throwError = require('../utils/throwError');
 const generateTokens = require('../utils/generateToken');
-const jwt = require('jsonwebtoken');
 const passport = require('../config/passport');
 const User = require('../model/userModel');
 
@@ -34,7 +33,7 @@ const googleCallback = asyncHandler(async (req, res, next) => {
         .cookie('refreshToken', refreshToken, {
           httpOnly: true,
           secure: true,
-          maxAge: 7 * 24 * 60 * 60 * 1000
+          maxAge: 168 * 60 * 60 * 1000
         })
         .json({ message: 'Login Google berhasil', role: user.role });
     }
