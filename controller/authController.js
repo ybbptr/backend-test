@@ -35,10 +35,9 @@ const googleCallback = asyncHandler(async (req, res, next) => {
         { expiresIn: process.env.JWT_EXPIRES_IN }
       );
 
-      res.status(200).json({
-        accessToken,
-        role: user.role
-      });
+      res.redirect(
+        `${process.env.FRONTEND_REDIRECT_URL}?token=${accessToken}&role=${user.role}`
+      );
     }
   )(req, res, next);
 });
