@@ -39,8 +39,8 @@ const getAdminDashboard = asyncHandler(async (req, res) => {
       Shelf.countDocuments(),
       loanCirculationModel.countDocuments(),
       productCirculationModel.countDocuments(),
-      showcaseCount.countDocuments(),
-      staffCount.countDocuments()
+      Showcase.countDocuments(),
+      Staff.countDocuments()
     ]);
 
     res.status(200).json({
