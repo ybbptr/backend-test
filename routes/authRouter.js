@@ -13,6 +13,6 @@ router.get(
   })
 );
 
-router.get('/google/callback', validateToken, googleCallback);
+router.get('/google/callback', googleCallback);
 
 module.exports = router;
