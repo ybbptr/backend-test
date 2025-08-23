@@ -29,49 +29,7 @@ const registerUser = asyncHandler(async (req, res) => {
       {
         user: {
           id: user._id,
-          email: user.email
-        }
-      },
-      process.env.ACCESS_TOKEN_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN }
-    );
-
-    res.status(201).json({
-      user: {
-        _id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role
-      },
-      accessToken
-    });
-  } else {
-    throwError('User data tidak valid!', 400);
-  }
-});
-
-const userLogin = asyncHandler(async (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) {
-    return throwError('Semua field harus di isi!', 400);
-  }
-
-  const user = await User.findOne({ email });
-  if (!user) {
-    res.status(404);
-    throwError('Email tidak ditemukan!', 400, 'email');
-  }
-  const isPasswordValid =
-    user && (await bcrypt.compare(password, user.password));
-
-  if (isPasswordValid) {
-    const accessToken = jwt.sign(
-      {
-        user: {
           email: user.email,
-          name: user.name,
-          id: user.id,
           role: user.role
         }
       },
@@ -79,21 +37,54 @@ const userLogin = asyncHandler(async (req, res) => {
       { expiresIn: process.env.JWT_EXPIRES_IN }
     );
 
-    let userRole;
-    const isAdmin =
-      user.email === process.env.ADMIN_ACCESS &&
-      (await bcrypt.compare(password, user.password));
-    if (isAdmin) userRole = 'admin';
-    else userRole = 'user';
-
-    res.status(200).json({ accessToken, role: userRole });
+    res
+      .cookie('token', accessToken, {
+        httpOnly: true,
+        secure: true,
+        maxAge: 24 * 60 * 60 * 1000
+      })
+      .redirect(`${process.env.FRONTEND_REDIRECT_URL}/beranda`);
   } else {
-    throwError('Password invalid!', 401, 'password');
+    throwError('User data tidak valid!', 400);
   }
 });
 
+const userLogin = asyncHandler(async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) throwError('Semua field harus di isi!', 400);
+
+  const user = await User.findOne({ email });
+  if (!user) throwError('Email tidak ditemukan!', 404, 'email');
+
+  const isPasswordValid = await bcrypt.compare(password, user.password);
+  if (!isPasswordValid) throwError('Password invalid!', 401, 'password');
+
+  const userRole = user.role;
+
+  const accessToken = jwt.sign(
+    { user: { id: user._id, email: user.email, role: userRole } },
+    process.env.ACCESS_TOKEN_SECRET,
+    { expiresIn: process.env.JWT_EXPIRES_IN }
+  );
+
+  let redirectUrl;
+  if (userRole === 'admin')
+    redirectUrl = `${process.env.FRONTEND_REDIRECT_URL}/dasbor-admin`;
+  else if (userRole === 'karyawan')
+    redirectUrl = `${process.env.FRONTEND_REDIRECT_URL}/dasbor-karyawan`;
+  else redirectUrl = `${process.env.FRONTEND_REDIRECT_URL}/beranda`;
+
+  res
+    .cookie('token', accessToken, {
+      httpOnly: true,
+      secure: true,
+      maxAge: 24 * 60 * 60 * 1000
+    })
+    .redirect(redirectUrl);
+});
+
 const getCurrentUser = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user.id).select('-password -role');
+  const user = await User.findById(req.user.id).select('-password');
   if (!user) {
     return throwError('User tidak ditemukan!', 404);
   }
@@ -173,11 +164,16 @@ const updatePassword = asyncHandler(async (req, res) => {
   res.status(200).json({ message: 'Password berhasil diganti!' });
 });
 
+const logoutUser = (req, res) => {
+  res.clearCookie('token').status(200).json({ message: 'Logout berhasil' });
+};
+
 module.exports = {
   registerUser,
   userLogin,
   getCurrentUser,
   updateUser,
   getAllUsers,
-  updatePassword
+  updatePassword,
+  logoutUser
 };

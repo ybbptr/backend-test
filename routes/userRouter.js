@@ -5,7 +5,8 @@ const {
   getCurrentUser,
   updateUser,
   getAllUsers,
-  updatePassword
+  updatePassword,
+  logoutUser
 } = require('../controller/userController');
 const validateToken = require('../middleware/validations/validateTokenHandler');
 const validateRegister = require('../middleware/validations/validateRegister');
@@ -37,6 +38,7 @@ Router.post(
 );
 Router.post('/login', validate(validateLogin), userLogin);
 // Router.post('/login', loginLimiter, validate(validateLogin), userLogin);
+Router.post('/logout', logoutUser);
 
 // PUT method
 Router.put(
@@ -45,6 +47,7 @@ Router.put(
   validate(validateUpdate),
   updateUser
 );
+
 Router.put(
   '/change-password',
   validate(validateNewPassword),

@@ -3,15 +3,14 @@ const jwt = require('jsonwebtoken');
 const throwError = require('../../utils/throwError');
 
 const validateToken = asyncHandler(async (req, res, next) => {
-  const authHeader = req.headers.authorization || req.headers.Authorization;
+  const token = req.cookies.token;
 
-  if (!authHeader || !authHeader.startsWith('Bearer'))
-    throwError('Token tidak ditemukan atau format tidak valid', 401);
-
-  const token = authHeader.split(' ')[1];
+  if (!token) {
+    throwError('Token tidak ditemukan di cookie', 401);
+  }
 
   jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
-    if (err) throwError('Pengguna tidak memiliki izin akses', 401);
+    if (err) throwError('Token tidak valid', 403);
     req.user = decoded.user;
     next();
   });

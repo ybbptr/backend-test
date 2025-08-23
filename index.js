@@ -1,5 +1,6 @@
 const express = require('express');
 const http = require('http');
+const cookieParser = require('cookie-parser');
 const connectDb = require('./config/dbConnection');
 const errorHandler = require('./middleware/errorHandler');
 const dotenv = require('dotenv').config();
@@ -23,6 +24,7 @@ app.use(
 
 // app.set('trust proxy', 1);
 app.use(express.json());
+app.use(cookieParser());
 
 app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
 
