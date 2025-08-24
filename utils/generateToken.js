@@ -14,7 +14,6 @@ const generateTokens = async (user) => {
     { expiresIn: '7d' }
   );
 
-  user.refreshToken = refreshToken;
   await User.findByIdAndUpdate(user._id, { refreshToken });
 
   return { accessToken, refreshToken };

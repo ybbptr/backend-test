@@ -1,9 +1,17 @@
 const asyncHandler = require('express-async-handler');
-const User = require('../model/userModel');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+
+const User = require('../model/userModel');
 const throwError = require('../utils/throwError');
 const generateTokens = require('../utils/generateToken');
+
+const isProd = process.env.NODE_ENV === 'production';
+const baseCookie = {
+  httpOnly: true,
+  secure: isProd,
+  sameSite: isProd ? 'none' : 'lax'
+};
 
 const registerUser = asyncHandler(async (req, res) => {
   const { email, name, phone, password } = req.body || {};
@@ -15,7 +23,6 @@ const registerUser = asyncHandler(async (req, res) => {
   if (userExist) throwError('Email tidak tersedia!', 400, 'email');
 
   const hashedPassword = await bcrypt.hash(password, 10);
-
   const user = await User.create({
     name,
     email,
@@ -23,32 +30,23 @@ const registerUser = asyncHandler(async (req, res) => {
     password: hashedPassword
   });
 
-  if (user) {
-    const { accessToken, refreshToken } = await generateTokens(user);
+  if (!user) throwError('User data tidak valid!', 400);
 
-    res
-      .cookie('accessToken', accessToken, {
-        httpOnly: true,
-        secure: true,
-        maxAge: 15 * 60 * 1000,
-        sameSite: 'none',
-        path: '/'
-      })
-      .cookie('refreshToken', refreshToken, {
-        httpOnly: true,
-        secure: true,
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-        sameSite: 'none',
-        path: '/users'
-      })
-      .status(201)
-      .json({
-        message: 'Daftar akun berhasil',
-        role: user.role
-      });
-  } else {
-    throwError('User data tidak valid!', 400);
-  }
+  const { accessToken, refreshToken } = await generateTokens(user);
+
+  res
+    .cookie('accessToken', accessToken, {
+      ...baseCookie,
+      path: '/', // global
+      maxAge: 30 * 60 * 1000 // 30 menit
+    })
+    .cookie('refreshToken', refreshToken, {
+      ...baseCookie,
+      path: '/users', // prefix untuk /users/refresh-token
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 hari
+    })
+    .status(201)
+    .json({ message: 'Daftar akun berhasil', role: user.role });
 });
 
 const loginUser = asyncHandler(async (req, res) => {
@@ -63,40 +61,38 @@ const loginUser = asyncHandler(async (req, res) => {
 
   res
     .cookie('accessToken', accessToken, {
-      httpOnly: true,
-      secure: true,
-      maxAge: 30 * 60 * 1000,
-      sameSite: 'none',
-      path: '/'
+      ...baseCookie,
+      path: '/',
+      maxAge: 30 * 60 * 1000
     })
     .cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: true,
-      maxAge: 168 * 60 * 60 * 1000,
-      sameSite: 'none',
-      path: '/users'
+      ...baseCookie,
+      path: '/users',
+      maxAge: 7 * 24 * 60 * 60 * 1000
     })
     .json({ message: 'Login berhasil', role: user.role });
 });
 
 const getCurrentUser = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user.id).select('-password');
-  if (!user) {
-    return throwError('User tidak ditemukan!', 404);
-  }
+  if (!user) return throwError('User tidak ditemukan!', 404);
   res.status(200).json(user);
 });
 
 const updateUser = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user.id).select('-password -role');
-  if (!user) {
-    res.status(404);
-    throwError('User data tidak valid!', 400);
-  }
+  const me = await User.findById(req.user.id).select('-password -role');
+  if (!me) throwError('User data tidak valid!', 400);
 
   const { name, email, phone } = req.body || {};
   if (!name && !email && !phone) {
     return throwError('Isi setidaknya salah satu field!', 400);
+  }
+
+  if (email) {
+    const exists = await User.findOne({ email });
+    if (exists && exists.id !== me.id) {
+      throwError('Email tidak tersedia!', 400, 'email');
+    }
   }
 
   const updatedFields = {};
@@ -104,30 +100,19 @@ const updateUser = asyncHandler(async (req, res) => {
   if (email) updatedFields.email = email;
   if (phone) updatedFields.phone = phone;
 
-  if (email) {
-    const userExist = await User.findOne({ email });
-    if (userExist && userExist.id !== user.id) {
-      throwError('Email tidak tersedia!', 400, 'email');
-    }
-  }
-
-  const updatedUser = await User.findByIdAndUpdate(user.id, updatedFields, {
+  const updatedUser = await User.findByIdAndUpdate(me.id, updatedFields, {
     new: true,
     runValidators: true
   }).select('-password -role');
-  res.status(200).json({
-    message: 'Berhasil di update!',
-    user: updatedUser
-  });
+
+  res.status(200).json({ message: 'Berhasil di update!', user: updatedUser });
 });
 
 const getAllUsers = asyncHandler(async (req, res) => {
-  const admin = await User.findById(req.user.id).select('-password');
-
-  if (!admin) {
-    return throwError('Anda tidak memiliki izin untuk mengakses data!', 401);
+  const me = await User.findById(req.user.id).select('role');
+  if (!me || me.role !== 'admin') {
+    return throwError('Anda tidak memiliki izin untuk mengakses data!', 403);
   }
-
   const users = await User.find({ role: 'user' }).select('-password -role');
   res.status(200).json({ users });
 });
@@ -135,59 +120,54 @@ const getAllUsers = asyncHandler(async (req, res) => {
 const updatePassword = asyncHandler(async (req, res) => {
   const { currentPassword, newPassword } = req.body || {};
 
-  const user = await User.findById(req.user.id).select('-role');
+  const user = await User.findById(req.user.id).select('+password');
   if (!user) return throwError('Pengguna tidak ditemukan', 401);
 
-  const hashedPassword = await bcrypt.hash(newPassword, 10);
-
-  const isPasswordMatch = async (currentPassword, hashedPassword) => {
-    return await bcrypt.compare(currentPassword, hashedPassword);
-  };
-
-  if (!(await isPasswordMatch(currentPassword, user.password)))
+  const isCurrentMatch = await bcrypt.compare(currentPassword, user.password);
+  if (!isCurrentMatch)
     return throwError('Password tidak sesuai', 400, 'password');
 
-  if (await isPasswordMatch(newPassword, user.password))
+  const isNewSame = await bcrypt.compare(newPassword, user.password);
+  if (isNewSame)
     return throwError(
       'Password tidak boleh sama dengan sebelumnya!',
       400,
       'newPassword'
     );
 
-  user.password = hashedPassword;
+  user.password = await bcrypt.hash(newPassword, 10);
   await user.save();
 
   res.status(200).json({ message: 'Password berhasil diganti!' });
 });
 
 const logoutUser = asyncHandler(async (req, res) => {
-  const token = req.cookies.refreshToken;
-
-  if (token) {
-    const payload = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
-    const user = await User.findById(payload.user.id);
-    if (user) {
-      user.refreshToken = null;
-      await user.save();
+  try {
+    const token = req.cookies?.refreshToken;
+    if (token) {
+      try {
+        const payload = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
+        await User.findByIdAndUpdate(payload.user.id, { refreshToken: null });
+      } catch (_) {
+        // abaikan, tetap clear cookie
+      }
     }
-  }
 
-  res
-    .clearCookie('accessToken', {
-      httpOnly: true,
-      sameSite: 'none',
-      secure: true
-    })
-    .clearCookie('refreshToken', {
-      httpOnly: true,
-      sameSite: 'none',
-      secure: true
-    })
-    .json({ message: 'Berhasil logout' });
+    res
+      .clearCookie('accessToken', { ...baseCookie, path: '/' })
+      .clearCookie('refreshToken', { ...baseCookie, path: '/users' })
+      .json({ message: 'Berhasil logout' });
+  } catch (_) {
+    res
+      .clearCookie('accessToken', { ...baseCookie, path: '/' })
+      .clearCookie('refreshToken', { ...baseCookie, path: '/users' })
+      .status(200)
+      .json({ message: 'Berhasil logout' });
+  }
 });
 
 const refreshToken = asyncHandler(async (req, res) => {
-  const token = req.cookies.refreshToken;
+  const token = req.cookies?.refreshToken;
   if (!token) return res.status(401).json({ message: 'No refresh token' });
 
   try {
@@ -195,7 +175,7 @@ const refreshToken = asyncHandler(async (req, res) => {
 
     const user = await User.findById(payload.user.id);
     if (!user || user.refreshToken !== token) {
-      return res.status(403).json({ message: 'Refresh token invalid' });
+      return res.status(401).json({ message: 'Refresh token invalid' });
     }
 
     const newAccessToken = jwt.sign(
@@ -205,15 +185,17 @@ const refreshToken = asyncHandler(async (req, res) => {
     );
 
     res.cookie('accessToken', newAccessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 30 * 60 * 1000,
-      sameSite: 'none'
+      ...baseCookie,
+      path: '/', // penting: global
+      maxAge: 30 * 60 * 1000
     });
 
-    res.json({ message: 'Access token berhasil di refresh' });
+    return res.json({ message: 'Access token berhasil di refresh' });
   } catch (err) {
-    res.status(403).json({ message: 'Refresh token invalid' });
+    res
+      .clearCookie('accessToken', { ...baseCookie, path: '/' })
+      .clearCookie('refreshToken', { ...baseCookie, path: '/users' });
+    return res.status(401).json({ message: 'Refresh token invalid/expired' });
   }
 });
 
