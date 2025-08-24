@@ -34,6 +34,8 @@ const registerUser = asyncHandler(async (req, res) => {
 
   const { accessToken, refreshToken } = await generateTokens(user);
 
+  res.clearCookie('refreshToken', { ...baseCookie, path: '/' });
+
   res
     .cookie('accessToken', accessToken, {
       ...baseCookie,
@@ -58,6 +60,8 @@ const loginUser = asyncHandler(async (req, res) => {
   if (!isValid) throwError('Password invalid', 401);
 
   const { accessToken, refreshToken } = await generateTokens(user);
+
+  res.clearCookie('refreshToken', { ...baseCookie, path: '/' });
 
   res
     .cookie('accessToken', accessToken, {
