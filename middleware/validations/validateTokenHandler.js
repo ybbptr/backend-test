@@ -4,6 +4,7 @@ const throwError = require('../../utils/throwError');
 
 const validateToken = asyncHandler(async (req, res, next) => {
   const token = req.cookies.accessToken;
+  console.log('Cookies in validateToken:', req.cookies);
 
   if (!token) {
     throwError(`Token tidak ditemukan di cookie, ${token}`, 401);
