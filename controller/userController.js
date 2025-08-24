@@ -29,15 +29,17 @@ const registerUser = asyncHandler(async (req, res) => {
     res
       .cookie('accessToken', accessToken, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
+        secure: true,
         maxAge: 15 * 60 * 1000,
-        sameSite: 'none'
+        sameSite: 'none',
+        path: '/'
       })
       .cookie('refreshToken', refreshToken, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
+        secure: true,
         maxAge: 7 * 24 * 60 * 60 * 1000,
-        sameSite: 'none'
+        sameSite: 'none',
+        path: '/users'
       })
       .status(201)
       .json({
@@ -63,12 +65,16 @@ const loginUser = asyncHandler(async (req, res) => {
     .cookie('accessToken', accessToken, {
       httpOnly: true,
       secure: true,
-      maxAge: 30 * 60 * 1000
+      maxAge: 30 * 60 * 1000,
+      sameSite: 'none',
+      path: '/'
     })
     .cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: true,
-      maxAge: 168 * 60 * 60 * 1000
+      maxAge: 168 * 60 * 60 * 1000,
+      sameSite: 'none',
+      path: '/users'
     })
     .json({ message: 'Login berhasil', role: user.role });
 });

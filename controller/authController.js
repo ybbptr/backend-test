@@ -42,12 +42,16 @@ const googleCallback = asyncHandler(async (req, res, next) => {
         .cookie('accessToken', accessToken, {
           httpOnly: true,
           secure: true,
-          maxAge: 30 * 60 * 1000
+          maxAge: 30 * 60 * 1000,
+          sameSite: 'none',
+          path: '/'
         })
         .cookie('refreshToken', refreshToken, {
           httpOnly: true,
           secure: true,
-          maxAge: 168 * 60 * 60 * 1000
+          maxAge: 168 * 60 * 60 * 1000,
+          sameSite: 'none',
+          path: '/users'
         })
         .json({ message: 'Login Google berhasil', role: user.role });
     }
