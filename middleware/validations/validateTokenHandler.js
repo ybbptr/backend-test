@@ -6,7 +6,7 @@ const validateToken = asyncHandler(async (req, res, next) => {
   const token = req.cookies.accessToken;
 
   if (!token) {
-    throwError('Token tidak ditemukan di cookie', 401);
+    throwError(`Token tidak ditemukan di cookie, ${token}`, 401);
   }
 
   try {
