@@ -61,7 +61,14 @@ const requestRegisterOtp = asyncHandler(async (req, res) => {
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
 
-  await sendOtpEmail(email, otp, {
+  res.json({
+    message: 'OTP dikirim ke email',
+    pendingId: upserted._id,
+    resendIn: Math.floor(RESEND_BLOCK_MS / 1000),
+    codeLength: CODE_LEN
+  });
+
+  sendOtpEmail(email, otp, {
     action: 'Verifikasi Pendaftaran',
     brand: 'SOILAB',
     brandUrl: 'https://soilab.id',
@@ -69,14 +76,7 @@ const requestRegisterOtp = asyncHandler(async (req, res) => {
     logoUrl:
       'https://backend-test-production-51c5.up.railway.app/assets/soilab-logo.png',
     primaryColor: '#0e172b'
-  });
-
-  res.json({
-    message: 'OTP dikirim ke email',
-    pendingId: upserted._id,
-    resendIn: Math.floor(RESEND_BLOCK_MS / 1000),
-    codeLength: CODE_LEN
-  });
+  }).catch((err) => console.error('Gagal kirim email:', err.message));
 });
 
 const resendRegisterOtp = asyncHandler(async (req, res) => {
