@@ -51,7 +51,7 @@ const googleCallback = asyncHandler(async (req, res, next) => {
           sameSite: 'none',
           path: '/users'
         })
-        .json({ message: 'Login Google berhasil', role: user.role });
+        .redirect(`${process.env.FRONTEND_REDIRECT_URL}`);
     }
   )(req, res, next);
 });
