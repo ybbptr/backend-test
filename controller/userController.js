@@ -3,8 +3,12 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
 const User = require('../model/userModel');
+const PendingRegistration = require('../model/pendingRegistrationModel');
 const throwError = require('../utils/throwError');
 const generateTokens = require('../utils/generateToken');
+
+const { generateOtp, hashOtp, verifyOtp, CODE_LEN } = require('../utils/otp');
+const { sendOtpEmail } = require('../utils/mailer');
 
 const isProd = process.env.NODE_ENV === 'production';
 const baseCookie = {
@@ -13,43 +17,213 @@ const baseCookie = {
   sameSite: isProd ? 'none' : 'lax'
 };
 
-const registerUser = asyncHandler(async (req, res) => {
+const OTP_TTL_MS = Number(process.env.OTP_TTL_MINUTES || 3) * 60 * 1000; // 3 menit
+const RESEND_BLOCK_MS = Number(process.env.OTP_RESEND_SECONDS || 180) * 1000; // 180 detik
+const DOC_TTL_MS = Number(process.env.OTP_DOC_TTL_MINUTES || 60) * 60 * 1000; // 1 jam
+const MAX_ATTEMPTS = 5;
+
+const requestRegisterOtp = asyncHandler(async (req, res) => {
   const { email, name, phone, password } = req.body || {};
-  if (!email || !password || !name || !phone) {
+  if (!email || !password || !name || !phone)
     throwError('Semua field harus di isi!', 400);
+
+  const used = await User.findOne({ email });
+  if (used) throwError('Email tidak tersedia!', 400, 'email');
+
+  const existing = await PendingRegistration.findOne({ email });
+  const now = Date.now();
+  if (
+    existing &&
+    existing.resendAfter &&
+    existing.resendAfter.getTime() > now
+  ) {
+    const wait = Math.ceil((existing.resendAfter.getTime() - now) / 1000);
+    throwError(`Tunggu ${wait} detik untuk kirim ulang OTP.`, 429);
   }
 
-  const userExist = await User.findOne({ email });
-  if (userExist) throwError('Email tidak tersedia!', 400, 'email');
+  const passwordHash = await bcrypt.hash(password, 10);
+  const otp = generateOtp();
+  const otpHash = await hashOtp(otp);
 
-  const hashedPassword = await bcrypt.hash(password, 10);
-  const user = await User.create({
-    name,
-    email,
-    phone,
-    password: hashedPassword
+  const upserted = await PendingRegistration.findOneAndUpdate(
+    { email },
+    {
+      email,
+      name,
+      phone,
+      passwordHash,
+      otpHash,
+      otpExpiresAt: new Date(now + OTP_TTL_MS),
+      resendAfter: new Date(now + RESEND_BLOCK_MS),
+      attempts: 0,
+      expiresAt: new Date(now + DOC_TTL_MS)
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+
+  await sendOtpEmail(email, otp, {
+    action: 'Verifikasi Pendaftaran',
+    brand: 'SOILAB',
+    brandUrl: 'https://soilab.id',
+    supportEmail: 'support@soilab.id',
+    logoUrl:
+      'https://backend-test-production-51c5.up.railway.app/assets/soilab-logo.png',
+    primaryColor: '#0e172b'
   });
 
-  if (!user) throwError('User data tidak valid!', 400);
+  res.json({
+    message: 'OTP dikirim ke email',
+    pendingId: upserted._id,
+    resendIn: Math.floor(RESEND_BLOCK_MS / 1000),
+    codeLength: CODE_LEN
+  });
+});
+
+const resendRegisterOtp = asyncHandler(async (req, res) => {
+  const { pendingId } = req.body || {};
+  if (!pendingId) throwError('pendingId wajib diisi', 400);
+
+  const doc = await PendingRegistration.findById(pendingId);
+  if (!doc) throwError('Sesi OTP tidak ditemukan atau kadaluarsa', 404);
+
+  const now = Date.now();
+  if (doc.resendAfter && doc.resendAfter.getTime() > now) {
+    const wait = Math.ceil((doc.resendAfter.getTime() - now) / 1000);
+    throwError(`Tunggu ${wait} detik untuk kirim ulang`, 429);
+  }
+
+  const otp = generateOtp();
+  doc.otpHash = await hashOtp(otp);
+  doc.otpExpiresAt = new Date(now + OTP_TTL_MS);
+  doc.resendAfter = new Date(now + RESEND_BLOCK_MS);
+  doc.resendCount = (doc.resendCount || 0) + 1;
+  await doc.save();
+
+  await sendOtpEmail(email, otp, {
+    action: 'Verifikasi Pendaftaran',
+    brand: 'SOILAB',
+    brandUrl: 'https://soilab.id',
+    supportEmail: 'support@soilab.id',
+    logoUrl:
+      'https://backend-test-production-51c5.up.railway.app/assets/soilab-logo.png',
+    primaryColor: '#0e172b'
+  });
+
+  res.json({
+    message: 'OTP baru telah dikirim',
+    resendInSeconds: Math.floor(RESEND_BLOCK_MS / 1000),
+    codeLength: CODE_LEN
+  });
+});
+
+const verifyRegisterOtp = asyncHandler(async (req, res) => {
+  const { pendingId, code } = req.body || {};
+  if (!pendingId || !code)
+    throwError('pendingId dan kode otp wajib diisi', 400);
+
+  const doc = await PendingRegistration.findById(pendingId);
+  if (!doc) throwError('Sesi OTP tidak ditemukan atau kadaluarsa', 404);
+
+  if (doc.otpExpiresAt.getTime() < Date.now()) {
+    await PendingRegistration.findByIdAndDelete(pendingId);
+    throwError('Kode OTP kadaluarsa. Silakan kirim ulang.', 400, 'otp');
+  }
+  if (doc.attempts >= MAX_ATTEMPTS) {
+    await PendingRegistration.findByIdAndDelete(pendingId);
+    throwError('Terlalu banyak percobaan. Mulai ulang proses.', 429);
+  }
+
+  const submitted = String(code).replace(/\D/g, '');
+  if (submitted.length !== CODE_LEN) {
+    doc.attempts += 1;
+    await doc.save();
+    throwError(`Kode OTP harus ${CODE_LEN} digit.`, 400, 'otp');
+  }
+
+  const isValid = await verifyOtp(submitted, doc.otpHash);
+  if (!isValid) {
+    doc.attempts += 1;
+    await doc.save();
+    const attemptsLeft = MAX_ATTEMPTS - doc.attempts;
+    return res.status(400).json({
+      code: 'OTP_WRONG',
+      message: 'Kode OTP salah.',
+      attemptsLeft
+    });
+  }
+
+  const exists = await User.findOne({ email: doc.email });
+  if (exists) {
+    await PendingRegistration.findByIdAndDelete(pendingId);
+    throwError('Email tidak tersedia!', 400, 'email');
+  }
+
+  const user = await User.create({
+    name: doc.name,
+    email: doc.email,
+    phone: doc.phone,
+    password: doc.passwordHash,
+    authProvider: 'local',
+    emailVerified: true
+  });
+
+  await PendingRegistration.findByIdAndDelete(pendingId);
 
   const { accessToken, refreshToken } = await generateTokens(user);
 
-  res.clearCookie('refreshToken', { ...baseCookie, path: '/' });
-
   res
+    .clearCookie('refreshToken', { ...baseCookie, path: '/' })
     .cookie('accessToken', accessToken, {
       ...baseCookie,
-      path: '/', // global
-      maxAge: 30 * 60 * 1000 // 30 menit
+      path: '/',
+      maxAge: 30 * 60 * 1000
     })
     .cookie('refreshToken', refreshToken, {
       ...baseCookie,
-      path: '/users', // prefix untuk /users/refresh-token
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 hari
+      path: '/users',
+      maxAge: 7 * 24 * 60 * 60 * 1000
     })
     .status(201)
-    .json({ message: 'Daftar akun berhasil', role: user.role });
+    .json({ message: 'Verifikasi berhasil & akun dibuat', role: user.role });
 });
+
+// const registerUser = asyncHandler(async (req, res) => {
+//   const { email, name, phone, password } = req.body || {};
+//   if (!email || !password || !name || !phone) {
+//     throwError('Semua field harus di isi!', 400);
+//   }
+
+//   const userExist = await User.findOne({ email });
+//   if (userExist) throwError('Email tidak tersedia!', 400, 'email');
+
+//   const hashedPassword = await bcrypt.hash(password, 10);
+//   const user = await User.create({
+//     name,
+//     email,
+//     phone,
+//     password: hashedPassword
+//   });
+
+//   if (!user) throwError('User data tidak valid!', 400);
+
+//   const { accessToken, refreshToken } = await generateTokens(user);
+
+//   res.clearCookie('refreshToken', { ...baseCookie, path: '/' });
+
+//   res
+//     .cookie('accessToken', accessToken, {
+//       ...baseCookie,
+//       path: '/', // global
+//       maxAge: 30 * 60 * 1000 // 30 menit
+//     })
+//     .cookie('refreshToken', refreshToken, {
+//       ...baseCookie,
+//       path: '/users', // prefix untuk /users/refresh-token
+//       maxAge: 7 * 24 * 60 * 60 * 1000 // 7 hari
+//     })
+//     .status(201)
+//     .json({ message: 'Daftar akun berhasil', role: user.role });
+// });
 
 const loginUser = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
@@ -152,9 +326,7 @@ const logoutUser = asyncHandler(async (req, res) => {
       try {
         const payload = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
         await User.findByIdAndUpdate(payload.user.id, { refreshToken: null });
-      } catch (_) {
-        // abaikan, tetap clear cookie
-      }
+      } catch (_) {}
     }
 
     res
@@ -190,7 +362,7 @@ const refreshToken = asyncHandler(async (req, res) => {
 
     res.cookie('accessToken', newAccessToken, {
       ...baseCookie,
-      path: '/', // penting: global
+      path: '/',
       maxAge: 30 * 60 * 1000
     });
 
@@ -204,12 +376,15 @@ const refreshToken = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
-  registerUser,
+  // registerUser,
   loginUser,
   getCurrentUser,
   updateUser,
   getAllUsers,
   updatePassword,
   logoutUser,
-  refreshToken
+  refreshToken,
+  requestRegisterOtp,
+  resendRegisterOtp,
+  verifyRegisterOtp
 };

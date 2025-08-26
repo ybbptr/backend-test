@@ -31,9 +31,13 @@ const userSchema = new mongoose.Schema(
     password: {
       type: String,
       minlength: [8, 'Password minimal 8 karakter'],
+      required: function () {
+        return this.authProvider === 'local';
+      },
+      select: false,
       validate: {
         validator: function (value) {
-          if (!value) return true; // skip validasi jika password kosong (untuk OAuth)
+          if (!value) return true;
           return /\d/.test(value);
         },
         message: 'Password harus mengandung minimal satu angka'
@@ -46,9 +50,10 @@ const userSchema = new mongoose.Schema(
     },
     oauthProvider: {
       type: String,
-      enum: ['google', 'facebook'],
-      default: null
+      enum: ['google', 'facebook', 'local'],
+      default: 'local'
     },
+    emailVerified: { type: Boolean, default: false },
     oauthId: { type: String, default: null },
     refreshToken: { type: String, default: null }
   },

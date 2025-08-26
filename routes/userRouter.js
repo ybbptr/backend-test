@@ -2,7 +2,10 @@ const express = require('express');
 const Router = express.Router();
 
 const {
-  registerUser,
+  // registerUser,
+  requestRegisterOtp,
+  resendRegisterOtp,
+  verifyRegisterOtp,
   loginUser,
   getCurrentUser,
   updateUser,
@@ -34,11 +37,19 @@ const registerLimiter = createRateLimiter({
 });
 
 // POST
+// Router.post(
+//   '/register',
+//   /*registerLimiter,*/ validate(validateRegister),
+//   registerUser
+// );
+
 Router.post(
-  '/register',
-  /*registerLimiter,*/ validate(validateRegister),
-  registerUser
+  '/register/request-otp',
+  validate(validateRegister),
+  requestRegisterOtp
 );
+Router.post('/register/resend-otp', resendRegisterOtp);
+Router.post('/register/verify-otp', verifyRegisterOtp);
 Router.post('/login', /*loginLimiter,*/ validate(validateLogin), loginUser);
 Router.post('/logout', logoutUser);
 Router.post('/refresh-token', refreshToken);

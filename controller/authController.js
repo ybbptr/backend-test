@@ -6,7 +6,7 @@ const User = require('../model/userModel');
 
 const googleCallback = asyncHandler(async (req, res, next) => {
   if (req.query.error === 'access_denied')
-    return res.redirect(`${process.env.FRONTEND_REDIRECT_URL}`);
+    return res.redirect(`${process.env.FRONTEND_REDIRECT_URL}/masuk`);
 
   passport.authenticate(
     'google',
@@ -29,7 +29,8 @@ const googleCallback = asyncHandler(async (req, res, next) => {
           email,
           phone: '0000000000',
           oauthProvider: 'google',
-          oauthId: profile.id
+          oauthId: profile.id,
+          emailVerified: true
         });
       }
 
@@ -50,8 +51,7 @@ const googleCallback = asyncHandler(async (req, res, next) => {
           sameSite: 'none',
           path: '/users'
         })
-        .json({ message: 'Login Google berhasil', role: user.role })
-        .redirect(`${process.env.FRONTEND_REDIRECT_URL}/oauth/callback`);
+        .json({ message: 'Login Google berhasil', role: user.role });
     }
   )(req, res, next);
 });
