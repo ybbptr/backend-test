@@ -71,11 +71,10 @@ const requestRegisterOtp = asyncHandler(async (req, res) => {
     codeLength: CODE_LEN
   });
 
-  // 2) KIRIM EMAIL DI LATAR BELAKANG + LOG ERROR JELAS
   setImmediate(async () => {
     try {
       console.log('[MAIL] sending to', to, 'code', code);
-      await sendOtpEmail(to, code, {
+      const data = await sendOtpEmail(to, code, {
         action: 'Verifikasi Pendaftaran',
         brand: 'SOILAB',
         brandUrl: 'https://soilab.id',
@@ -84,7 +83,7 @@ const requestRegisterOtp = asyncHandler(async (req, res) => {
           'https://backend-test-production-51c5.up.railway.app/assets/soilab-logo.png',
         primaryColor: '#0e172b'
       });
-      console.log('[MAIL] sent to', to);
+      console.log('[MAIL] sent id=', data?.id, 'to', to);
     } catch (err) {
       console.error('[MAIL] FAILED for', to, '-', err?.message || err);
     }
