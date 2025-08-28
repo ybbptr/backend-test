@@ -17,7 +17,7 @@ const baseCookie = {
   sameSite: isProd ? 'none' : 'lax'
 };
 
-const OTP_TTL_MS = Number(process.env.OTP_TTL_MINUTES || 3) * 60 * 1000; // 3 menit
+const OTP_TTL_MS = Number(process.env.OTP_TTL_MINUTES || 1) * 60 * 1000; // 1 menit
 const RESEND_BLOCK_MS = Number(process.env.OTP_RESEND_SECONDS || 180) * 1000; // 180 detik
 const DOC_TTL_MS = Number(process.env.OTP_DOC_TTL_MINUTES || 60) * 60 * 1000; // 1 jam
 const MAX_ATTEMPTS = 5;
@@ -91,7 +91,7 @@ const requestRegisterOtp = asyncHandler(async (req, res) => {
 });
 
 const resendRegisterOtp = asyncHandler(async (req, res) => {
-  const { pendingId } = req.body || {};
+  const { pendingId, email } = req.body || {};
   if (!pendingId) throwError('pendingId wajib diisi', 400);
 
   const doc = await PendingRegistration.findById(pendingId);
@@ -110,20 +110,31 @@ const resendRegisterOtp = asyncHandler(async (req, res) => {
   doc.resendCount = (doc.resendCount || 0) + 1;
   await doc.save();
 
-  await sendOtpEmail(email, otp, {
-    action: 'Verifikasi Pendaftaran',
-    brand: 'SOILAB',
-    brandUrl: 'https://soilab.id',
-    supportEmail: 'support@soilab.id',
-    logoUrl:
-      'https://backend-test-production-51c5.up.railway.app/assets/soilab-logo.png',
-    primaryColor: '#0e172b'
-  });
+  const to = String(email).trim().toLowerCase();
+  const code = otp;
 
   res.json({
     message: 'OTP baru telah dikirim',
     resendInSeconds: Math.floor(RESEND_BLOCK_MS / 1000),
     codeLength: CODE_LEN
+  });
+
+  setImmediate(async () => {
+    try {
+      console.log('[MAIL] sending to', to, 'code', code);
+      const data = await sendOtpEmail(to, code, {
+        action: 'Verifikasi Pendaftaran',
+        brand: 'SOILAB',
+        brandUrl: 'https://soilab.id',
+        supportEmail: 'support@soilab.id',
+        logoUrl:
+          'https://backend-test-production-51c5.up.railway.app/assets/soilab-logo.png',
+        primaryColor: '#0e172b'
+      });
+      console.log('[MAIL] sent id=', data?.id, 'to', to);
+    } catch (err) {
+      console.error('[MAIL] FAILED for', to, '-', err?.message || err);
+    }
   });
 });
 
@@ -272,27 +283,19 @@ const updateUser = asyncHandler(async (req, res) => {
   const me = await User.findById(req.user.id).select('-role');
   if (!me) throwError('User data tidak valid!', 400);
 
-  const { name, email, phone } = req.body || {};
-  if (!name && !email && !phone) {
+  const { name, phone } = req.body || {};
+  if (!name && !phone) {
     return throwError('Isi setidaknya salah satu field!', 400);
-  }
-
-  if (email) {
-    const exists = await User.findOne({ email });
-    if (exists && exists.id !== me.id) {
-      throwError('Email tidak tersedia!', 400, 'email');
-    }
   }
 
   const updatedFields = {};
   if (name) updatedFields.name = name;
-  if (email) updatedFields.email = email;
   if (phone) updatedFields.phone = phone;
 
   const updatedUser = await User.findByIdAndUpdate(me.id, updatedFields, {
     new: true,
     runValidators: true
-  }).select('-password -role');
+  }).select('-role');
 
   res.status(200).json({ message: 'Berhasil di update!', user: updatedUser });
 });
@@ -302,7 +305,7 @@ const getAllUsers = asyncHandler(async (req, res) => {
   if (!me || me.role !== 'admin') {
     return throwError('Anda tidak memiliki izin untuk mengakses data!', 403);
   }
-  const users = await User.find({ role: 'user' }).select('-password -role');
+  const users = await User.find({ role: 'user' }).select('-role');
   res.status(200).json({ users });
 });
 
