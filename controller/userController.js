@@ -2,6 +2,7 @@ const asyncHandler = require('express-async-handler');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
+const OtpChallenge = require('../model/otpChallengeModel');
 const User = require('../model/userModel');
 const PendingRegistration = require('../model/pendingRegistrationModel');
 const throwError = require('../utils/throwError');
@@ -18,10 +19,11 @@ const baseCookie = {
 };
 
 const OTP_TTL_MS = Number(process.env.OTP_TTL_MINUTES || 1) * 60 * 1000; // 1 menit
-const RESEND_BLOCK_MS = Number(process.env.OTP_RESEND_SECONDS || 180) * 1000; // 180 detik
+const RESEND_BLOCK_MS = Number(process.env.OTP_RESEND_SECONDS || 60) * 1000; // 60 detik
 const DOC_TTL_MS = Number(process.env.OTP_DOC_TTL_MINUTES || 60) * 60 * 1000; // 1 jam
 const MAX_ATTEMPTS = 5;
 
+// ---------------------------------- REGISTER OTP ----------------------------------
 const requestRegisterOtp = asyncHandler(async (req, res) => {
   const { email, name, phone, password } = req.body || {};
   if (!email || !password || !name || !phone)
@@ -144,7 +146,8 @@ const verifyRegisterOtp = asyncHandler(async (req, res) => {
     throwError('pendingId dan kode otp wajib diisi', 400);
 
   const doc = await PendingRegistration.findById(pendingId);
-  if (!doc) throwError('Sesi OTP tidak ditemukan atau kadaluarsa', 404);
+  if (!doc)
+    throwError('Sesi ini telah habis. Silahkan daftar ulang atau kembali', 404);
 
   if (doc.otpExpiresAt.getTime() < Date.now()) {
     await PendingRegistration.findByIdAndDelete(pendingId);
@@ -208,6 +211,192 @@ const verifyRegisterOtp = asyncHandler(async (req, res) => {
     .status(201)
     .json({ message: 'Verifikasi berhasil & akun dibuat', role: user.role });
 });
+// ---------------------------------- REGISTER OTP END ----------------------------------
+
+// --------------------------------- CHANGE EMAIL OTP START ---------------------------------
+const requestEmailUpdateOtp = asyncHandler(async (req, res) => {
+  const userId = req.user?._id;
+  const { password, newEmail } = req.body || {};
+  if (!password || !newEmail)
+    throwError('Password dan email baru wajib diisi', 400);
+
+  const user = await User.findById(userId).select('+password');
+  if (!user) throwError('User tidak ditemukan', 404);
+
+  if (user.oauthProvider && user.oauthProvider !== 'local') {
+    throwError('Akun OAuth tidak dapat mengubah email.', 403);
+  }
+
+  const ok = await bcrypt.compare(password, user.password);
+  if (!ok) throwError('Password salah.', 401, 'password');
+
+  const email = String(newEmail).trim().toLowerCase();
+  if (email === user.email)
+    throwError(
+      'Email baru tidak boleh sama dengan email saat ini.',
+      400,
+      'email'
+    );
+
+  const used = await User.findOne({ email });
+  if (used) throwError('Email baru sudah digunakan.', 400, 'email');
+
+  const existing = await OtpChallenge.findOne({
+    user: userId,
+    type: 'EMAIL_UPDATE'
+  });
+  const now = Date.now();
+  if (existing && existing.resendAfter.getTime() > now) {
+    const wait = Math.ceil((existing.resendAfter.getTime() - now) / 1000);
+    throwError(`Tunggu ${wait} detik untuk kirim ulang OTP.`, 429);
+  }
+
+  const code = generateOtp();
+  const otpHash = await hashOtp(code);
+
+  const challenge = await OtpChallenge.findOneAndUpdate(
+    { user: userId, type: 'EMAIL_UPDATE' },
+    {
+      user: userId,
+      type: 'EMAIL_UPDATE',
+      email,
+      otpHash,
+      otpExpiresAt: new Date(now + OTP_TTL_MS),
+      resendAfter: new Date(now + RESEND_BLOCK_MS),
+      attempts: 0,
+      expiresAt: new Date(now + DOC_TTL_MS)
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+
+  res.json({
+    message: 'OTP dikirim ke email baru',
+    challengeId: challenge._id,
+    resendIn: Math.floor(RESEND_BLOCK_MS / 1000),
+    codeLength: CODE_LEN
+  });
+
+  setImmediate(async () => {
+    try {
+      await sendOtpEmail(email, code, {
+        action: 'Verifikasi Perubahan Email',
+        brand: 'SOILAB',
+        brandUrl: 'https://soilab.id',
+        supportEmail: 'support@soilab.id',
+        primaryColor: '#0e172b'
+      });
+    } catch (e) {
+      console.error('[MAIL EMAIL_UPDATE FAILED]', e?.message || e);
+    }
+  });
+});
+
+const resendEmailUpdateOtp = asyncHandler(async (req, res) => {
+  const userId = req.user?._id;
+  const { challengeId } = req.body || {};
+  if (!challengeId) throwError('challengeId wajib diisi', 400);
+
+  const ch = await OtpChallenge.findById(challengeId);
+  if (!ch || String(ch.user) !== String(userId) || ch.type !== 'EMAIL_UPDATE') {
+    throwError('Sesi OTP tidak ditemukan atau tidak valid', 404);
+  }
+
+  const now = Date.now();
+  if (ch.resendAfter.getTime() > now) {
+    const wait = Math.ceil((ch.resendAfter.getTime() - now) / 1000);
+    throwError(`Tunggu ${wait} detik untuk kirim ulang.`, 429);
+  }
+
+  const code = generateOtp();
+  ch.otpHash = await hashOtp(code);
+  ch.otpExpiresAt = new Date(now + OTP_TTL_MS);
+  ch.resendAfter = new Date(now + RESEND_BLOCK_MS);
+  ch.resendCount = (ch.resendCount || 0) + 1;
+  await ch.save();
+
+  res.json({
+    message: 'OTP baru telah dikirim',
+    resendIn: Math.floor(RESEND_BLOCK_MS / 1000)
+  });
+
+  setImmediate(async () => {
+    try {
+      await sendOtpEmail(ch.email, code, {
+        action: 'Verifikasi Perubahan Email',
+        brand: 'SOILAB',
+        brandUrl: 'https://soilab.id',
+        supportEmail: 'support@soilab.id',
+        primaryColor: '#0e172b'
+      });
+    } catch (e) {
+      console.error('[MAIL EMAIL_UPDATE RESEND FAILED]', e?.message || e);
+    }
+  });
+});
+
+const verifyEmailUpdateOtp = asyncHandler(async (req, res) => {
+  const userId = req.user?._id;
+  const { challengeId, code } = req.body || {};
+  if (!challengeId || !code)
+    throwError('challengeId dan kode otp wajib diisi', 400);
+
+  const ch = await OtpChallenge.findById(challengeId);
+  if (!ch || String(ch.user) !== String(userId) || ch.type !== 'EMAIL_UPDATE') {
+    throwError('Sesi OTP tidak ditemukan atau tidak valid', 404);
+  }
+
+  if (ch.otpExpiresAt.getTime() < Date.now()) {
+    await OtpChallenge.findByIdAndDelete(challengeId);
+    throwError('Kode OTP kadaluarsa. Silakan kirim ulang.', 400, 'otp');
+  }
+  if (ch.attempts >= MAX_ATTEMPTS) {
+    await OtpChallenge.findByIdAndDelete(challengeId);
+    throwError('Terlalu banyak percobaan. Mulai ulang proses.', 429);
+  }
+
+  const submitted = String(code).replace(/\D/g, '');
+  if (submitted.length !== CODE_LEN) {
+    ch.attempts += 1;
+    await ch.save();
+    throwError(`Kode OTP harus ${CODE_LEN} digit.`, 400, 'otp');
+  }
+
+  const ok = await verifyOtp(submitted, ch.otpHash);
+  if (!ok) {
+    ch.attempts += 1;
+    await ch.save();
+    throwError('Kode OTP salah.', 400, 'otp');
+  }
+
+  const exists = await User.findOne({ email: ch.email });
+  if (exists) {
+    await OtpChallenge.findByIdAndDelete(challengeId);
+    throwError('Email baru sudah digunakan.', 400, 'email');
+  }
+
+  const user = await User.findById(userId);
+  user.email = ch.email;
+  user.emailVerified = true;
+  await user.save();
+
+  await OtpChallenge.findByIdAndDelete(challengeId);
+
+  const { accessToken, refreshToken } = await generateTokens(user);
+  res
+    .clearCookie('refreshToken', { ...baseCookie, path: '/' })
+    .cookie('accessToken', accessToken, {
+      ...baseCookie,
+      path: '/',
+      maxAge: 30 * 60 * 1000
+    })
+    .cookie('refreshToken', refreshToken, {
+      ...baseCookie,
+      path: '/users',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    })
+    .json({ message: 'Email berhasil diperbarui', email: user.email });
+});
+// ---------------------------------- CHANGE EMAIL OTP ----------------------------------
 
 // const registerUser = asyncHandler(async (req, res) => {
 //   const { email, name, phone, password } = req.body || {};
@@ -389,6 +578,13 @@ const refreshToken = asyncHandler(async (req, res) => {
   }
 });
 
+const deleteTestAccount = asyncHandler(async (req, res) => {
+  const user = await User.findOneAndDelete({ email: 'delivered@resend.dev' });
+  if (!user) return throwError('Akun tester tidak ditemukan', 404);
+
+  return res.status(200).json({ message: 'Akun testing berhasil di hapus' });
+});
+
 module.exports = {
   // registerUser,
   loginUser,
@@ -400,5 +596,9 @@ module.exports = {
   refreshToken,
   requestRegisterOtp,
   resendRegisterOtp,
-  verifyRegisterOtp
+  verifyRegisterOtp,
+  requestEmailUpdateOtp,
+  resendEmailUpdateOtp,
+  verifyEmailUpdateOtp,
+  deleteTestAccount
 };

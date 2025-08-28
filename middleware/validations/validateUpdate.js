@@ -1,13 +1,6 @@
 const Joi = require('joi');
 
 const updateSchema = Joi.object({
-  email: Joi.string()
-    .email({ tlds: { allow: false } })
-    .messages({
-      'string.email': 'Email harus berupa alamat email yang valid',
-      'any.required': 'Email wajib diisi'
-    }),
-
   name: Joi.string().min(3).messages({
     'string.min': 'Nama minimal terdiri dari 3 karakter',
     'any.required': 'Nama wajib diisi'
