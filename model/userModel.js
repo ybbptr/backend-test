@@ -34,7 +34,6 @@ const userSchema = new mongoose.Schema(
       required: function () {
         return this.authProvider === 'local';
       },
-      select: false,
       validate: {
         validator: function (value) {
           if (!value) return true;
