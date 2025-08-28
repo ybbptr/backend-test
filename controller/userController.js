@@ -61,22 +61,34 @@ const requestRegisterOtp = asyncHandler(async (req, res) => {
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
 
+  const to = String(email).trim().toLowerCase();
+  const code = otp;
+
   res.json({
-    message: 'OTP dikirim ke email',
+    message: 'OTP diproses',
     pendingId: upserted._id,
     resendIn: Math.floor(RESEND_BLOCK_MS / 1000),
     codeLength: CODE_LEN
   });
 
-  sendOtpEmail(email, otp, {
-    action: 'Verifikasi Pendaftaran',
-    brand: 'SOILAB',
-    brandUrl: 'https://soilab.id',
-    supportEmail: 'support@soilab.id',
-    logoUrl:
-      'https://backend-test-production-51c5.up.railway.app/assets/soilab-logo.png',
-    primaryColor: '#0e172b'
-  }).catch((err) => console.error('Gagal kirim email:', err.message));
+  // 2) KIRIM EMAIL DI LATAR BELAKANG + LOG ERROR JELAS
+  setImmediate(async () => {
+    try {
+      console.log('[MAIL] sending to', to, 'code', code);
+      await sendOtpEmail(to, code, {
+        action: 'Verifikasi Pendaftaran',
+        brand: 'SOILAB',
+        brandUrl: 'https://soilab.id',
+        supportEmail: 'support@soilab.id',
+        logoUrl:
+          'https://backend-test-production-51c5.up.railway.app/assets/soilab-logo.png',
+        primaryColor: '#0e172b'
+      });
+      console.log('[MAIL] sent to', to);
+    } catch (err) {
+      console.error('[MAIL] FAILED for', to, '-', err?.message || err);
+    }
+  });
 });
 
 const resendRegisterOtp = asyncHandler(async (req, res) => {
