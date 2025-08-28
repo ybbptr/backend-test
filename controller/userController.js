@@ -238,7 +238,7 @@ const verifyRegisterOtp = asyncHandler(async (req, res) => {
 
 const loginUser = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
-  const user = await User.findOne({ email });
+  const user = await User.findOne({ email }).select('+password');
   if (!user) throwError('Email tidak ditemukan', 401);
 
   const isValid = await bcrypt.compare(password, user.password);
@@ -263,13 +263,13 @@ const loginUser = asyncHandler(async (req, res) => {
 });
 
 const getCurrentUser = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user.id).select('-password');
+  const user = await User.findById(req.user.id);
   if (!user) return throwError('User tidak ditemukan!', 404);
   res.status(200).json(user);
 });
 
 const updateUser = asyncHandler(async (req, res) => {
-  const me = await User.findById(req.user.id).select('-password -role');
+  const me = await User.findById(req.user.id).select('-role');
   if (!me) throwError('User data tidak valid!', 400);
 
   const { name, email, phone } = req.body || {};
