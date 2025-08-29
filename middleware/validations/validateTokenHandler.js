@@ -2,21 +2,19 @@ const asyncHandler = require('express-async-handler');
 const jwt = require('jsonwebtoken');
 const throwError = require('../../utils/throwError');
 
-const validateToken = asyncHandler(async (req, res, next) => {
-  // pastikan cookie-parser sudah di app.use(cookieParser())
+const validateToken = asyncHandler(async (req, _res, next) => {
+  const bearer = req.headers.authorization;
   const token =
     req.cookies?.accessToken ||
-    (req.headers.authorization?.startsWith('Bearer ')
-      ? req.headers.authorization.split(' ')[1]
-      : null);
+    (bearer && bearer.startsWith('Bearer ') ? bearer.split(' ')[1] : null);
 
   if (!token) throwError('Token tidak ditemukan', 401);
 
   try {
     const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
-    req.user = decoded.user;
+    req.user = { id: decoded.sub, role: decoded.role };
     return next();
-  } catch (err) {
+  } catch (_err) {
     throwError('Token tidak valid atau expired', 401);
   }
 });

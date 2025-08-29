@@ -240,7 +240,7 @@ const confirmPassword = asyncHandler(async (req, res) => {
 
 // --------------------------------- CHANGE EMAIL OTP START ---------------------------------
 const requestEmailUpdateOtp = asyncHandler(async (req, res) => {
-  const userId = req.user?._id;
+  const userId = req.user?.id;
   const { pcToken, newEmail } = req.body || {};
   if (!pcToken || !newEmail)
     throwError('Konfirmasi password & email baru wajib diisi', 400);
@@ -311,7 +311,7 @@ const requestEmailUpdateOtp = asyncHandler(async (req, res) => {
 });
 
 const resendEmailUpdateOtp = asyncHandler(async (req, res) => {
-  const userId = req.user?._id;
+  const userId = req.user?.id;
   const { challengeId } = req.body || {};
   if (!challengeId) throwError('challengeId wajib diisi', 400);
 
@@ -354,7 +354,7 @@ const resendEmailUpdateOtp = asyncHandler(async (req, res) => {
 });
 
 const verifyEmailUpdateOtp = asyncHandler(async (req, res) => {
-  const userId = req.user?._id;
+  const userId = req.user?.id;
   const { challengeId, code } = req.body || {};
   if (!challengeId || !code)
     throwError('challengeId dan kode otp wajib diisi', 400);
