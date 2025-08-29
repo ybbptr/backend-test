@@ -62,10 +62,7 @@ app.use(
   require('./routes/admin/productCirculationRouter')
 );
 
-app.use(
-  '/employee/projects',
-  require('./routes/admin/productCirculationRouter')
-);
+app.use('/employee/projects', require('./routes/employee/dailyProgressRouter'));
 
 app.use(errorHandler);
 
