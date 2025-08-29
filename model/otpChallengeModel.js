@@ -10,7 +10,7 @@ const otpChallengeSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ['EMAIL_UPDATE', 'PASSWORD_RESET', 'PASSWORD_CHANGE'],
+      enum: ['EMAIL_UPDATE', 'FORGOT_PASWORD', 'PASSWORD_CHANGE'],
       required: true
     },
 

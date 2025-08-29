@@ -10,6 +10,11 @@ const generateTokens = require('../utils/generateToken');
 
 const { generateOtp, hashOtp, verifyOtp, CODE_LEN } = require('../utils/otp');
 const { sendOtpEmail } = require('../utils/mailer');
+const {
+  signPcToken,
+  verifyPcToken,
+  PC_TTL_SECONDS
+} = require('../utils/passwordConfirm');
 
 const isProd = process.env.NODE_ENV === 'production';
 const baseCookie = {
@@ -213,30 +218,44 @@ const verifyRegisterOtp = asyncHandler(async (req, res) => {
 });
 // ---------------------------------- REGISTER OTP END ----------------------------------
 
+// POST /users/security/confirm-password
+// body: { password, purpose }   // purpose : 'EMAIL_UPDATE' | 'PASSWORD_CHANGE' | 'FORGOT_PASSWORD'
+const confirmPassword = asyncHandler(async (req, res) => {
+  const userId = req.user?._id;
+  const { password, purpose } = req.body || {};
+  if (!password || !purpose)
+    throwError('Password dan purpose wajib diisi', 400);
+
+  const user = await User.findById(userId).select('+password oauthProvider');
+  if (!user) throwError('User tidak ditemukan', 404);
+  if (user.oauthProvider && user.oauthProvider !== 'local') {
+    throwError('Akun OAuth tidak dapat konfirmasi password.', 403);
+  }
+  const ok = await bcrypt.compare(password, user.password);
+  if (!ok) throwError('Password salah.', 401, 'password');
+
+  const pcToken = signPcToken({ userId, purpose });
+  res.json({ pcToken, expiresIn: PC_TTL_SECONDS });
+});
+
 // --------------------------------- CHANGE EMAIL OTP START ---------------------------------
 const requestEmailUpdateOtp = asyncHandler(async (req, res) => {
   const userId = req.user?._id;
-  const { password, newEmail } = req.body || {};
-  if (!password || !newEmail)
-    throwError('Password dan email baru wajib diisi', 400);
+  const { pcToken, newEmail } = req.body || {};
+  if (!pcToken || !newEmail)
+    throwError('Konfirmasi password & email baru wajib diisi', 400);
 
-  const user = await User.findById(userId).select('+password');
+  verifyPcToken(pcToken, { userId, purpose: 'EMAIL_UPDATE' });
+
+  const user = await User.findById(userId).select('email oauthProvider');
   if (!user) throwError('User tidak ditemukan', 404);
-
   if (user.oauthProvider && user.oauthProvider !== 'local') {
     throwError('Akun OAuth tidak dapat mengubah email.', 403);
   }
 
-  const ok = await bcrypt.compare(password, user.password);
-  if (!ok) throwError('Password salah.', 401, 'password');
-
   const email = String(newEmail).trim().toLowerCase();
   if (email === user.email)
-    throwError(
-      'Email baru tidak boleh sama dengan email saat ini.',
-      400,
-      'email'
-    );
+    throwError('Email baru tidak boleh sama.', 400, 'email');
 
   const used = await User.findOne({ email });
   if (used) throwError('Email baru sudah digunakan.', 400, 'email');
@@ -261,7 +280,7 @@ const requestEmailUpdateOtp = asyncHandler(async (req, res) => {
       type: 'EMAIL_UPDATE',
       email,
       otpHash,
-      otpExpiresAt: new Date(now + OTP_TTL_MS),
+      otpExpiresAt: new Date(now + OTP_TTL_MS), // TTL 15 menit sesuai set kamu
       resendAfter: new Date(now + RESEND_BLOCK_MS),
       attempts: 0,
       expiresAt: new Date(now + DOC_TTL_MS)
@@ -597,6 +616,7 @@ module.exports = {
   requestRegisterOtp,
   resendRegisterOtp,
   verifyRegisterOtp,
+  confirmPassword,
   requestEmailUpdateOtp,
   resendEmailUpdateOtp,
   verifyEmailUpdateOtp,

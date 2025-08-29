@@ -16,7 +16,8 @@ const {
   requestEmailUpdateOtp,
   resendEmailUpdateOtp,
   verifyEmailUpdateOtp,
-  deleteTestAccount
+  deleteTestAccount,
+  confirmPassword
 } = require('../controller/userController');
 
 const validateToken = require('../middleware/validations/validateTokenHandler');
@@ -55,6 +56,7 @@ Router.post(
 Router.post('/register/resend-otp', resendRegisterOtp);
 Router.post('/register/verify-otp', verifyRegisterOtp);
 
+Router.post('/security/confirm-password', validateToken, confirmPassword);
 Router.post('/update-email/request-otp', validateToken, requestEmailUpdateOtp);
 Router.post('/update-email/resend-otp', validateToken, resendEmailUpdateOtp);
 Router.post('/update-email/verify-otp', validateToken, verifyEmailUpdateOtp);
