@@ -12,7 +12,7 @@ const {
 
 const validateToken = require('../../middleware/validations/validateTokenHandler');
 
-router.get('/', validateToken, getProjects);
+router.get('/all-project', validateToken, getProjects);
 router.get('/:id', validateToken, getProject);
 
 router.get('/:projectId/daily-progress', validateToken, getAllDailyProgress);
