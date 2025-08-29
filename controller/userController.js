@@ -222,6 +222,7 @@ const verifyRegisterOtp = asyncHandler(async (req, res) => {
 // body: { password, purpose }   // purpose : 'EMAIL_UPDATE' | 'PASSWORD_CHANGE' | 'FORGOT_PASSWORD'
 const confirmPassword = asyncHandler(async (req, res) => {
   const userId = req.user?._id;
+  console.log('[AUTH] req.user =', req.user);
   const { password, purpose } = req.body || {};
   if (!password || !purpose)
     throwError('Password dan purpose wajib diisi', 400);
