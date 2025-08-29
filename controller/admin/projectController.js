@@ -1,7 +1,61 @@
 const asyncHandler = require('express-async-handler');
+const mongoose = require('mongoose');
 const throwError = require('../../utils/throwError');
 const Project = require('../../model/projectModel');
 const Client = require('../../model/clientModel');
+const DailyProgress = require('../../model/dailyProgressModel');
+
+// helper: merge edit admin utk progress.{sondir|bor|cptu}
+function mergeProgressEdits(project, progressUpdates) {
+  if (!progressUpdates || typeof progressUpdates !== 'object') return;
+
+  const methods = ['sondir', 'bor', 'cptu'];
+  project.progress = project.progress || {};
+
+  for (const m of methods) {
+    const src = progressUpdates[m];
+    if (!src || typeof src !== 'object') continue;
+
+    const node = (project.progress[m] = project.progress[m] || {
+      total_points: 0,
+      completed_points: 0,
+      max_depth: 0
+    });
+
+    let total = node.total_points;
+    let done = node.completed_points;
+    let depth = node.max_depth;
+
+    if (src.total_points !== undefined) {
+      const v = Number(src.total_points);
+      if (!Number.isFinite(v) || v < 0)
+        throwError(`${m} Total titik invalid`, 400);
+      total = v;
+    }
+    if (src.completed_points !== undefined) {
+      const v = Number(src.completed_points);
+      if (!Number.isFinite(v) || v < 0)
+        throwError(`${m} Titik selesai invalid`, 400);
+      done = v;
+    }
+    if (done > total) {
+      throwError(
+        `${m} completed_points (${done}) > total_points (${total})`,
+        400
+      );
+    }
+    if (src.max_depth !== undefined) {
+      const v = Number(src.max_depth);
+      if (!Number.isFinite(v) || v < 0)
+        throwError(`${m} Kedalaman maksimum invalid`, 400);
+      depth = v;
+    }
+
+    node.total_points = total;
+    node.completed_points = done;
+    node.max_depth = depth;
+  }
+}
 
 const addProject = asyncHandler(async (req, res) => {
   const {
@@ -61,11 +115,34 @@ const getProject = asyncHandler(async (req, res) => {
 });
 
 const removeProject = asyncHandler(async (req, res) => {
-  const project = await Project.findById(req.params.id);
-  if (!project) throwError('Proyek tidak terdaftar!', 400);
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  await project.deleteOne();
-  res.status(200).json({ message: 'Proyek berhasil dihapus.' });
+  try {
+    if (req.user?.role !== 'admin') throwError('Forbidden', 403);
+
+    const { id } = req.params;
+    const project = await Project.findById(id).session(session);
+    if (!project) throwError('Proyek tidak terdaftar!', 404);
+
+    // hapus semua daily progress milik project ini
+    const delDP = await DailyProgress.deleteMany({ project: id }).session(
+      session
+    );
+
+    await Project.deleteOne({ _id: id }).session(session);
+
+    await session.commitTransaction();
+    res.status(200).json({
+      message: 'Proyek dan seluruh laporan harian berhasil dihapus.',
+      deleted_daily_progress: delDP.deletedCount || 0
+    });
+  } catch (e) {
+    await session.abortTransaction();
+    throw e;
+  } finally {
+    session.endSession();
+  }
 });
 
 const updateProject = asyncHandler(async (req, res) => {
@@ -108,6 +185,7 @@ const updateProject = asyncHandler(async (req, res) => {
   project.used = used ?? project.used;
   project.remaining = remaining ?? project.remaining;
 
+  mergeProgressEdits(project, req.body?.progress);
   await project.save();
   res.status(200).json(project);
 });

@@ -1,4 +1,3 @@
-// models/DailyProgress.js
 const mongoose = require('mongoose');
 const { Schema, Types } = mongoose;
 
@@ -38,6 +37,7 @@ dailyProgressSchema.index(
   { project: 1, author: 1, local_date: 1 },
   { unique: true }
 );
-dailyProgressSchema.index({ project: 1, local_date: 1 });
+dailyProgressSchema.index({ project: 1, local_date: -1, _id: -1 });
+dailyProgressSchema.index({ project: 1, author: 1, local_date: -1, _id: -1 });
 
 module.exports = mongoose.model('DailyProgress', dailyProgressSchema);
