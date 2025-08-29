@@ -426,33 +426,11 @@ const verifyEmailUpdateOtp = asyncHandler(async (req, res) => {
 // body (logged-out): { email }
 // body (logged-in):  {}  ambil req.user.id untuk ambil email
 const requestPasswordResetOtp = asyncHandler(async (req, res) => {
-  // Optional auth
-  let authUserId = null;
-  try {
-    const bearer = req.headers.authorization;
-    const token =
-      req.cookies?.accessToken ||
-      (bearer?.startsWith('Bearer ') ? bearer.split(' ')[1] : null);
-    if (token) {
-      const { sub, role } = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
-      req.user = { id: sub, role }; // kalau valid, anggap login
-      authUserId = sub;
-    }
-  } catch {}
+  const emailRaw = req.body?.email;
+  if (!emailRaw) throwError('Email wajib diisi', 400);
+  const email = String(emailRaw).trim().toLowerCase();
 
-  const rawEmail = req.body?.email;
-
-  let user = null;
-  if (authUserId) {
-    if (!Types.ObjectId.isValid(authUserId)) throwError('Unauthorized', 401);
-    user = await User.findById(authUserId).select('email');
-  } else if (rawEmail) {
-    user = await User.findOne({
-      email: String(rawEmail).trim().toLowerCase()
-    }).select('email _id');
-  } else {
-    throwError('Email wajib diisi', 400);
-  }
+  const user = await User.findOne(email).select('email _id');
 
   if (!user) {
     return res.json({
