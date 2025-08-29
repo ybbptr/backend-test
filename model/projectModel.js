@@ -9,7 +9,7 @@ const projectSchema = new mongoose.Schema({
     required: true
   },
   start_date: { type: Date, required: true },
-  end_date: Date,
+  end_date: { type: Date, default: null },
   progress: {
     sondir: {
       total_points: { type: Number, default: 0 }, // jumlah titik
@@ -33,5 +33,7 @@ const projectSchema = new mongoose.Schema({
   used: { type: Number, default: 0 }, // terpakai
   remaining: { type: Number, default: 0 } // selisih (sisa)
 });
+
+projectSchema.index({ start_date: 1 });
 
 module.exports = mongoose.model('Project', projectSchema);

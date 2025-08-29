@@ -23,10 +23,13 @@ const orderSchema = Joi.object({
       'string.pattern.base': 'Nomor telepon berupa angka 10 - 15 digit!',
       'any.required': 'Nomor telepon wajib diisi!'
     }),
-  service: Joi.string().valid('SIS', 'SLS', 'topography').required().messages({
-    'any.only': 'Jenis layanan tidak valid',
-    'any.required': 'Jenis layanan wajib dipilih'
-  }),
+  service: Joi.string()
+    .valid('Soil Investigation Services', 'Laboratory Services')
+    .required()
+    .messages({
+      'any.only': 'Jenis layanan tidak valid',
+      'any.required': 'Jenis layanan wajib dipilih'
+    }),
   message: Joi.string().min(2).required().messages({
     'string.min': 'Pesan minimal terdiri dari 2 karakter!',
     'any.required': 'Pesan wajib diisi'
