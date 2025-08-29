@@ -430,7 +430,7 @@ const requestPasswordResetOtp = asyncHandler(async (req, res) => {
   if (!emailRaw) throwError('Email wajib diisi', 400);
   const email = String(emailRaw).trim().toLowerCase();
 
-  const user = await User.findOne(email).select('email _id');
+  const user = await User.findOne({ email }).select('email _id');
 
   if (!user) {
     return res.json({

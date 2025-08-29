@@ -1,3 +1,4 @@
+// controllers/createOrder.js
 const asyncHandler = require('express-async-handler');
 const throwError = require('../utils/throwError');
 const { Resend } = require('resend');
@@ -10,6 +11,7 @@ const createOrder = asyncHandler(async (req, res) => {
     throwError('Nama, email, dan layanan wajib diisi', 400);
   }
 
+  // Kumpulkan lampiran (multer single/multiple)
   const attachments = [];
   if (req.file) {
     attachments.push({
@@ -85,14 +87,16 @@ const createOrder = asyncHandler(async (req, res) => {
     </div>
   `.trim();
 
+  // email Testing
   const from = 'onboarding@resend.dev';
-  const to = process.env.COMPANY_EMAIL;
+  const to = 'delivered@resend.dev';
 
   const payload = {
-    from: `SOILAB Orders <${from}>`,
+    from: `Layanan SOILAB <${from}>`,
     to,
     subject,
     html,
+    reply_to: email,
     ...(attachments.length ? { attachments } : {})
   };
 
