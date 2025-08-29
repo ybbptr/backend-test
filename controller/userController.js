@@ -1,6 +1,7 @@
 const asyncHandler = require('express-async-handler');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const { Types } = require('mongoose');
 
 const OtpChallenge = require('../model/otpChallengeModel');
 const User = require('../model/userModel');
@@ -13,8 +14,11 @@ const { sendOtpEmail } = require('../utils/mailer');
 const {
   signPcToken,
   verifyPcToken,
-  PC_TTL_SECONDS
-} = require('../utils/passwordConfirm');
+  signPasswordResetToken,
+  verifyPasswordResetToken,
+  PC_TTL_SECONDS,
+  PR_TOKEN_TTL
+} = require('../utils/authTokens');
 
 const isProd = process.env.NODE_ENV === 'production';
 const baseCookie = {
@@ -222,7 +226,6 @@ const verifyRegisterOtp = asyncHandler(async (req, res) => {
 // body: { password, purpose }   // purpose : 'EMAIL_UPDATE' | 'PASSWORD_CHANGE' | 'FORGOT_PASSWORD'
 const confirmPassword = asyncHandler(async (req, res) => {
   const userId = req.user?.id;
-  console.log('[AUTH] req.user =', req.user);
   const { password, purpose } = req.body || {};
   if (!password || !purpose)
     throwError('Password dan purpose wajib diisi', 400);
@@ -318,7 +321,7 @@ const resendEmailUpdateOtp = asyncHandler(async (req, res) => {
 
   const ch = await OtpChallenge.findById(challengeId);
   if (!ch || String(ch.user) !== String(userId) || ch.type !== 'EMAIL_UPDATE') {
-    throwError('Sesi OTP tidak ditemukan atau tidak valid', 404);
+    throwError('Sesi ini telah habis. Silahkan daftar ulang atau kembali', 404);
   }
 
   const now = Date.now();
@@ -362,7 +365,7 @@ const verifyEmailUpdateOtp = asyncHandler(async (req, res) => {
 
   const ch = await OtpChallenge.findById(challengeId);
   if (!ch || String(ch.user) !== String(userId) || ch.type !== 'EMAIL_UPDATE') {
-    throwError('Sesi OTP tidak ditemukan atau tidak valid', 404);
+    throwError('Sesi ini telah habis. Silahkan daftar ulang atau kembali', 404);
   }
 
   if (ch.otpExpiresAt.getTime() < Date.now()) {
@@ -416,7 +419,231 @@ const verifyEmailUpdateOtp = asyncHandler(async (req, res) => {
     })
     .json({ message: 'Email berhasil diperbarui', email: user.email });
 });
-// ---------------------------------- CHANGE EMAIL OTP ----------------------------------
+// ---------------------------------- CHANGE EMAIL OTP END----------------------------------
+
+// ---------------------------------- PASSWORD RESET OTP START----------------------------------
+// POST /users/forgot-password/request-otp
+// body (logged-out): { email }
+// body (logged-in):  {}  ambil req.user.id untuk ambil email
+const requestPasswordResetOtp = asyncHandler(async (req, res) => {
+  // Optional auth
+  let authUserId = null;
+  try {
+    const bearer = req.headers.authorization;
+    const token =
+      req.cookies?.accessToken ||
+      (bearer?.startsWith('Bearer ') ? bearer.split(' ')[1] : null);
+    if (token) {
+      const { sub, role } = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
+      req.user = { id: sub, role }; // kalau valid, anggap login
+      authUserId = sub;
+    }
+  } catch {}
+
+  const rawEmail = req.body?.email;
+
+  let user = null;
+  if (authUserId) {
+    if (!Types.ObjectId.isValid(authUserId)) throwError('Unauthorized', 401);
+    user = await User.findById(authUserId).select('email');
+  } else if (rawEmail) {
+    user = await User.findOne({
+      email: String(rawEmail).trim().toLowerCase()
+    }).select('email _id');
+  } else {
+    throwError('Email wajib diisi', 400);
+  }
+
+  if (!user) {
+    return res.json({
+      message:
+        'Jika email terdaftar, kami telah mengirim kode OTP ke email tersebut.',
+      sent: true
+    });
+  }
+
+  const existing = await OtpChallenge.findOne({
+    user: user._id,
+    type: 'PASSWORD_RESET'
+  });
+  const now = Date.now();
+  if (
+    existing &&
+    existing.resendAfter &&
+    existing.resendAfter.getTime() > now
+  ) {
+    const wait = Math.ceil((existing.resendAfter.getTime() - now) / 1000);
+    throwError(`Tunggu ${wait} detik untuk kirim ulang OTP.`, 429);
+  }
+
+  const code = generateOtp();
+  const otpHash = await hashOtp(code);
+
+  const challenge = await OtpChallenge.findOneAndUpdate(
+    { user: user._id, type: 'PASSWORD_RESET' },
+    {
+      user: user._id,
+      type: 'PASSWORD_RESET',
+      email: user.email,
+      otpHash,
+      otpExpiresAt: new Date(now + OTP_TTL_MS_RESET),
+      resendAfter: new Date(now + RESEND_BLOCK_MS),
+      attempts: 0,
+      expiresAt: new Date(now + DOC_TTL_MS)
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+
+  res.json({
+    message:
+      'Jika email terdaftar, kami telah mengirim kode OTP ke email tersebut.',
+    sent: true,
+    challengeId: challenge._id,
+    resendIn: Math.floor(RESEND_BLOCK_MS / 1000),
+    codeLength: CODE_LEN,
+    ttlMinutes: Math.floor(OTP_TTL_MS_RESET / 60000)
+  });
+
+  setImmediate(async () => {
+    try {
+      await sendOtpEmail(user.email, code, {
+        action: 'Reset Password',
+        brand: 'SOILAB',
+        brandUrl: 'https://soilab.id',
+        supportEmail: 'support@soilab.id',
+        primaryColor: '#0e172b'
+      });
+    } catch (e) {
+      console.error('[MAIL PASSWORD_RESET FAILED]', e?.message || e);
+    }
+  });
+});
+
+// POST /users/forgot-password/resend-otp
+// body: { challengeId }
+const resendPasswordResetOtp = asyncHandler(async (req, res) => {
+  const { challengeId } = req.body || {};
+  if (!challengeId) throwError('challengeId wajib diisi', 400);
+
+  const ch = await OtpChallenge.findById(challengeId);
+  if (!ch || ch.type !== 'PASSWORD_RESET')
+    throwError('Sesi ini telah habis. Silahkan ulangi kembali', 404);
+
+  const now = Date.now();
+  if (ch.resendAfter && ch.resendAfter.getTime() > now) {
+    const wait = Math.ceil((ch.resendAfter.getTime() - now) / 1000);
+    throwError(`Tunggu ${wait} detik untuk kirim ulang OTP.`, 429);
+  }
+
+  const code = generateOtp();
+  ch.otpHash = await hashOtp(code);
+  ch.otpExpiresAt = new Date(now + OTP_TTL_MS_RESET);
+  ch.resendAfter = new Date(now + RESEND_BLOCK_MS);
+  ch.resendCount = (ch.resendCount || 0) + 1;
+  await ch.save();
+
+  res.json({
+    message: 'OTP baru dikirim',
+    resendIn: Math.floor(RESEND_BLOCK_MS / 1000)
+  });
+
+  setImmediate(async () => {
+    try {
+      await sendOtpEmail(ch.email, code, {
+        action: 'Reset Password',
+        brand: 'SOILAB',
+        brandUrl: 'https://soilab.id',
+        supportEmail: 'support@soilab.id',
+        primaryColor: '#0e172b'
+      });
+    } catch (e) {
+      console.error('[MAIL PASSWORD_RESET RESEND FAILED]', e?.message || e);
+    }
+  });
+});
+
+// POST /users/forgot-password/verify-otp
+// body: { challengeId, code }
+const verifyPasswordResetOtp = asyncHandler(async (req, res) => {
+  const { challengeId, code } = req.body || {};
+  if (!challengeId || !code) throwError('challengeId dan otp wajib diisi', 400);
+
+  const ch = await OtpChallenge.findById(challengeId);
+  if (!ch || ch.type !== 'PASSWORD_RESET')
+    throwError('Sesi ini telah habis. Silahkan ulangi kembali', 404);
+
+  if (ch.otpExpiresAt.getTime() < Date.now()) {
+    await OtpChallenge.findByIdAndDelete(challengeId);
+    throwError('Kode OTP kadaluarsa. Silakan minta yang baru.', 400, 'otp');
+  }
+  if (ch.attempts >= MAX_ATTEMPTS) {
+    await OtpChallenge.findByIdAndDelete(challengeId);
+    throwError('Terlalu banyak percobaan. Mulai ulang proses.', 429);
+  }
+
+  const submitted = String(code).replace(/\D/g, '');
+  if (submitted.length !== CODE_LEN) {
+    ch.attempts += 1;
+    await ch.save();
+    throwError(`Kode OTP harus ${CODE_LEN} digit.`, 400, 'otp');
+  }
+
+  const ok = await verifyOtp(submitted, ch.otpHash);
+  if (!ok) {
+    ch.attempts += 1;
+    await ch.save();
+    throwError('Kode OTP salah.', 400, 'otp');
+  }
+
+  const prToken = signPasswordResetToken(ch.user);
+  res.json({ prToken, expiresIn: PR_TOKEN_TTL || 300 }); // 5 menit
+});
+
+// POST /users/forgot-password/reset
+// body: { prToken, newPassword }
+const resetPasswordWithToken = asyncHandler(async (req, res) => {
+  const { prToken, newPassword } = req.body || {};
+  if (!prToken || !newPassword)
+    throwError('Token reset & password baru wajib diisi', 400);
+
+  let payload;
+  try {
+    payload = verifyPasswordResetToken(prToken);
+  } catch {
+    throwError('Token reset tidak valid / kedaluwarsa', 401);
+  }
+
+  const user = await User.findById(payload.sub).select('+password');
+  if (!user) throwError('User tidak ditemukan', 404);
+
+  if (user.oauthProvider && user.oauthProvider !== 'local') {
+    throwError('Akun OAuth tidak dapat reset password lokal.', 403);
+  }
+
+  const hash = await bcrypt.hash(newPassword, 10);
+  user.password = hash;
+  await user.save();
+
+  await OtpChallenge.findOneAndDelete({
+    user: user._id,
+    type: 'PASSWORD_RESET'
+  });
+
+  const { accessToken, refreshToken } = await generateTokens(user);
+
+  res
+    .cookie('accessToken', accessToken, {
+      ...baseCookie,
+      path: '/',
+      maxAge: 30 * 60 * 1000
+    })
+    .cookie('refreshToken', refreshToken, {
+      ...baseCookie,
+      path: '/users',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    })
+    .json({ message: 'Password berhasil diperbarui' });
+});
 
 // const registerUser = asyncHandler(async (req, res) => {
 //   const { email, name, phone, password } = req.body || {};
@@ -621,5 +848,9 @@ module.exports = {
   requestEmailUpdateOtp,
   resendEmailUpdateOtp,
   verifyEmailUpdateOtp,
+  requestPasswordResetOtp,
+  resendPasswordResetOtp,
+  verifyPasswordResetOtp,
+  resetPasswordWithToken,
   deleteTestAccount
 };

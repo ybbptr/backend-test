@@ -16,8 +16,12 @@ const {
   requestEmailUpdateOtp,
   resendEmailUpdateOtp,
   verifyEmailUpdateOtp,
-  deleteTestAccount,
-  confirmPassword
+  requestPasswordResetOtp,
+  resendPasswordResetOtp,
+  resetPasswordWithToken,
+  verifyPasswordResetOtp,
+  confirmPassword,
+  deleteTestAccount
 } = require('../controller/userController');
 
 const validateToken = require('../middleware/validations/validateTokenHandler');
@@ -60,6 +64,11 @@ Router.post('/security/confirm-password', validateToken, confirmPassword);
 Router.post('/update-email/request-otp', validateToken, requestEmailUpdateOtp);
 Router.post('/update-email/resend-otp', validateToken, resendEmailUpdateOtp);
 Router.post('/update-email/verify-otp', validateToken, verifyEmailUpdateOtp);
+
+Router.post('/forgot-password/request-otp', requestPasswordResetOtp);
+Router.post('/forgot-password/resend-otp', resendPasswordResetOtp);
+Router.post('/forgot-password/verify-otp', verifyPasswordResetOtp);
+Router.post('/forgot-password/reset-password', resetPasswordWithToken);
 
 Router.post('/login', /*loginLimiter,*/ validate(validateLogin), loginUser);
 Router.post('/logout', logoutUser);
