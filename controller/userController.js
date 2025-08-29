@@ -486,7 +486,7 @@ const requestPasswordResetOtp = asyncHandler(async (req, res) => {
       type: 'PASSWORD_RESET',
       email: user.email,
       otpHash,
-      otpExpiresAt: new Date(now + OTP_TTL_MS_RESET),
+      otpExpiresAt: new Date(now + OTP_TTL_MS),
       resendAfter: new Date(now + RESEND_BLOCK_MS),
       attempts: 0,
       expiresAt: new Date(now + DOC_TTL_MS)
@@ -501,7 +501,7 @@ const requestPasswordResetOtp = asyncHandler(async (req, res) => {
     challengeId: challenge._id,
     resendIn: Math.floor(RESEND_BLOCK_MS / 1000),
     codeLength: CODE_LEN,
-    ttlMinutes: Math.floor(OTP_TTL_MS_RESET / 60000)
+    ttlMinutes: Math.floor(OTP_TTL_MS / 60000)
   });
 
   setImmediate(async () => {
@@ -537,7 +537,7 @@ const resendPasswordResetOtp = asyncHandler(async (req, res) => {
 
   const code = generateOtp();
   ch.otpHash = await hashOtp(code);
-  ch.otpExpiresAt = new Date(now + OTP_TTL_MS_RESET);
+  ch.otpExpiresAt = new Date(now + OTP_TTL_MS);
   ch.resendAfter = new Date(now + RESEND_BLOCK_MS);
   ch.resendCount = (ch.resendCount || 0) + 1;
   await ch.save();
