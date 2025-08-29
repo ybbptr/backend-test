@@ -221,7 +221,7 @@ const verifyRegisterOtp = asyncHandler(async (req, res) => {
 // POST /users/security/confirm-password
 // body: { password, purpose }   // purpose : 'EMAIL_UPDATE' | 'PASSWORD_CHANGE' | 'FORGOT_PASSWORD'
 const confirmPassword = asyncHandler(async (req, res) => {
-  const userId = req.user?._id;
+  const userId = req.user?.id;
   console.log('[AUTH] req.user =', req.user);
   const { password, purpose } = req.body || {};
   if (!password || !purpose)
