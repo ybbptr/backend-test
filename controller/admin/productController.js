@@ -2,41 +2,81 @@ const asyncHandler = require('express-async-handler');
 const throwError = require('../../utils/throwError');
 const Warehouse = require('../../model/warehouseModel');
 const Product = require('../../model/productModel');
+const { uploadBuffer, getFileUrl, deleteFile } = require('../../utils/wasabi');
 const Shelf = require('../../model/shelfModel');
 const Loan = require('../../model/loanModel');
 const productCirculationModel = require('../../model/productCirculationModel');
-const cloudinary = require('cloudinary');
 const mongoose = require('mongoose');
+const path = require('path');
+
+const formatDate = () => {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+
+  return `${yyyy}${mm}${dd}`;
+};
 
 const addProduct = asyncHandler(async (req, res) => {
   const {
-    product_code,
-    product_name,
-    description,
+    purchase_date,
+    price,
+    category,
+    brand,
+    type,
     quantity,
-    warehouse,
     condition,
-    shelf
+    warehouse,
+    shelf,
+    product_code
   } = req.body || {};
 
-  if (!product_code || !product_name) throwError('Field ini harus diisi', 400);
+  const files = req.files || {};
 
-  const imageUrl = req.file
-    ? req.file.path
-    : 'https://res.cloudinary.com/dwnvblf1g/image/upload/v1746338190/placeholder_aanaig.png';
+  let productImageMeta = null;
+  if (files.product_image && files.product_image[0]) {
+    const file = files.product_image[0];
+    const ext = path.extname(file.originalname);
+    const date = formatDate();
+    const key = `inventaris/${product_code}/${category}_${brand}_${type}_${date}${ext}`;
+    await uploadBuffer(key, file.buffer);
+    productImageMeta = {
+      key,
+      contentType: file.mimetype,
+      size: file.size,
+      uploadedAt: new Date()
+    };
+  }
 
-  const imagePublicId = req.file ? req.file.filename : null;
+  let invoiceMeta = null;
+  if (files.invoice && files.invoice[0]) {
+    const file = files.invoice[0];
+    const ext = path.extname(file.originalname);
+    const date = formatDate();
+    const key = `inventaris/${product_code}/invoice_${date}${ext}`;
+    await uploadBuffer(key, file.buffer);
+    invoiceMeta = {
+      key,
+      contentType: file.mimetype,
+      size: file.size,
+      uploadedAt: new Date()
+    };
+  }
 
   const product = await Product.create({
-    imageUrl,
-    imagePublicId,
-    product_code,
-    product_name,
-    description,
+    purchase_date,
+    price,
+    category,
+    brand,
+    type,
     quantity,
-    warehouse,
     condition,
-    shelf
+    warehouse,
+    shelf,
+    product_code,
+    product_image: productImageMeta,
+    invoice: invoiceMeta
   });
 
   res.status(201).json(product);
@@ -48,7 +88,32 @@ const getProducts = asyncHandler(async (req, res) => {
     { path: 'shelf', select: 'shelf_name shelf_code' }
   ]);
 
-  res.status(200).json(products);
+  if (!products) {
+    throwError('Tidak ada barang tersedia!', 404);
+  }
+
+  const productsWithUrls = await Promise.all(
+    products.map(async (p) => {
+      let imageUrl = null;
+      if (p.product_image?.key) {
+        imageUrl = await getSignedUrl(p.product_image.key, 60 * 5);
+        t;
+      }
+
+      let invoiceUrl = null;
+      if (p.invoice?.key) {
+        invoiceUrl = await getSignedUrl(p.invoice.key, 60 * 5);
+      }
+
+      return {
+        ...p.toObject(),
+        product_image_url: imageUrl,
+        invoice_url: invoiceUrl
+      };
+    })
+  );
+
+  res.status(200).json(productsWithUrls);
 });
 
 const getProduct = asyncHandler(async (req, res) => {
@@ -58,7 +123,21 @@ const getProduct = asyncHandler(async (req, res) => {
   ]);
   if (!product) throwError('Barang tidak tersedia!', 400);
 
-  res.status(200).json(product);
+  let imageUrl = null;
+  if (product.product_image?.key) {
+    imageUrl = await getSignedUrl(product.product_image.key, 60 * 5); // 5 menit
+  }
+
+  let invoiceUrl = null;
+  if (product.invoice?.key) {
+    invoiceUrl = await getSignedUrl(product.invoice.key, 60 * 5);
+  }
+
+  res.status(200).json({
+    ...product.toObject(),
+    product_image_url: imageUrl,
+    invoice_url: invoiceUrl
+  });
 });
 
 const removeProduct = asyncHandler(async (req, res) => {
@@ -69,8 +148,12 @@ const removeProduct = asyncHandler(async (req, res) => {
     const product = await Product.findById(req.params.id);
     if (!product) throwError('Barang tidak tersedia!', 400);
 
-    if (product.imagePublicId != null) {
-      await cloudinary.uploader.destroy(product.imagePublicId);
+    // hapus file di Wasabi
+    if (product.product_image?.key) {
+      await deleteFile(product.product_image.key);
+    }
+    if (product.invoice?.key) {
+      await deleteFile(product.invoice.key);
     }
 
     await Loan.updateMany(
@@ -94,11 +177,14 @@ const removeProduct = asyncHandler(async (req, res) => {
 const updateProduct = asyncHandler(async (req, res) => {
   const {
     product_code,
-    product_name,
-    description,
+    purchase_date,
+    price,
+    category,
+    brand,
+    type,
     quantity,
-    warehouse,
     condition,
+    warehouse,
     shelf
   } = req.body;
 
@@ -123,26 +209,56 @@ const updateProduct = asyncHandler(async (req, res) => {
   const shelfChanged =
     shelf && previousShelf && shelf.toString() !== previousShelf.toString();
 
-  let imageUrl = product.imageUrl;
-  let imagePublicId = product.imagePublicId;
+  if (req.files) {
+    if (req.files.product_image && req.files.product_image[0]) {
+      const file = req.files.product_image[0];
+      const ext = path.extname(file.originalname);
+      const key = `inventaris/${product_code}/image_${Date.now()}${ext}`;
 
-  if (req.file) {
-    if (imagePublicId) {
-      await cloudinary.uploader.destroy(imagePublicId);
+      if (product.product_image?.key) {
+        await deleteFile(product.product_image.key);
+      }
+
+      await uploadBuffer(key, file.buffer);
+
+      product.product_image = {
+        key,
+        contentType: file.mimetype,
+        size: file.size,
+        uploadedAt: new Date()
+      };
     }
-    imageUrl = req.file.path;
-    imagePublicId = req.file.filename;
+
+    if (req.files.invoice && req.files.invoice[0]) {
+      const file = req.files.invoice[0];
+      const ext = path.extname(file.originalname);
+      const key = `inventaris/${product_code}/invoice_${Date.now()}${ext}`;
+
+      if (product.invoice?.key) {
+        await deleteFile(product.invoice.key);
+      }
+
+      await uploadBuffer(key, file.buffer);
+
+      product.invoice = {
+        key,
+        contentType: file.mimetype,
+        size: file.size,
+        uploadedAt: new Date()
+      };
+    }
   }
 
   product.product_code = product_code || product.product_code;
-  product.product_name = product_name || product.product_name;
-  product.description = description || product.description;
+  product.purchase_date = purchase_date || product.purchase_date;
+  product.price = price || product.price;
+  product.category = category || product.category;
+  product.brand = brand || product.brand;
+  product.type = type || product.type;
   product.quantity = quantity || product.quantity;
-  product.warehouse = warehouse || product.warehouse;
   product.condition = condition || product.condition;
+  product.warehouse = warehouse || product.warehouse;
   product.shelf = shelf || product.shelf;
-  product.imageUrl = imageUrl;
-  product.imagePublicId = imagePublicId;
 
   await product.save();
 
@@ -151,13 +267,14 @@ const updateProduct = asyncHandler(async (req, res) => {
       product: product._id,
       product_code: product.product_code,
       product_name: product.product_name,
-      imageUrl: product.imageUrl,
+      product_image: product.product_image,
       warehouse_from: previousWarehouse,
       shelf_from: previousShelf,
       warehouse_to: product.warehouse,
       shelf_to: product.shelf
     });
   }
+
   res.status(200).json(product);
 });
 

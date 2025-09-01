@@ -2,26 +2,62 @@ const Joi = require('joi');
 const mongoose = require('mongoose');
 
 const productSchema = Joi.object({
-  product_code: Joi.string().required().messages({
-    'any.required': 'Kode barang wajib diisi!',
-    'string.empty': 'Kode barang tidak boleh kosong!'
+  purchase_date: Joi.date().required().messages({
+    'any.required': 'Tanggal pembelian wajib diisi',
+    'date.base': 'Tanggal pembelian harus berupa tanggal yang valid'
   }),
-  product_name: Joi.string().required().messages({
-    'any.required': 'Nama barang wajib diisi!',
-    'string.empty': 'Nama barang tidak boleh kosong!'
+
+  price: Joi.number().required().messages({
+    'any.required': 'Harga wajib diisi',
+    'number.base': 'Harga harus berupa angka'
   }),
-  description: Joi.string().allow('', null),
-  quantity: Joi.number().integer().min(0).messages({
-    'number.base': 'Kuantitas barang harus berupa angka!'
-  }),
-  condition: Joi.string()
-    .valid('Rusak ringan', 'Rusak berat', 'Baik', 'Baru')
-    .default('Baik')
+
+  category: Joi.string()
+    .valid(
+      'Bor',
+      'CPTU',
+      'Sondir',
+      'Topography',
+      'Geolistrik',
+      'Aksesoris',
+      'Alat lab',
+      'Perlengkapan lainnya'
+    )
+    .required()
     .messages({
-      'any.only':
-        'Persetujuan harus salah satu dari: Rusak ringan, Rusak berat, Baik, Baru!',
-      'any.required': 'Kondisi wajib diisi!'
+      'any.required': 'Jenis alat wajib diisi',
+      'any.only': 'Jenis alat harus salah satu dari daftar yang tersedia'
     }),
+
+  brand: Joi.string().allow('', null).messages({
+    'string.base': 'Merk harus berupa teks',
+    'any.required': 'Merk wajib diisi'
+  }),
+
+  product_code: Joi.string().required().messages({
+    'any.required': 'Kode barang wajib diisi',
+    'string.base': 'Kode barang harus berupa teks'
+  }),
+
+  type: Joi.string().allow('', null).messages({
+    'string.base': 'Tipe harus berupa teks',
+    'any.required': 'Tipe wajib diisi'
+  }),
+
+  quantity: Joi.number().min(0).required().messages({
+    'any.required': 'Jumlah wajib diisi',
+    'number.base': 'Jumlah harus berupa angka',
+    'number.min': 'Jumlah tidak boleh kurang dari 0'
+  }),
+
+  condition: Joi.string()
+    .valid('Maintenance', 'Rusak', 'Baik')
+    .required()
+    .messages({
+      'any.required': 'Kondisi wajib diisi',
+      'any.only': 'Kondisi harus salah satu dari: Maintenance, Rusak, atau Baik'
+    }),
+
   warehouse: Joi.string()
     .custom((value, helpers) => {
       if (!mongoose.Types.ObjectId.isValid(value)) {
@@ -34,6 +70,7 @@ const productSchema = Joi.object({
       'any.invalid': 'ID gudang tidak valid!',
       'any.required': 'Gudang wajib diisi!'
     }),
+
   shelf: Joi.string()
     .custom((value, helpers) => {
       if (!mongoose.Types.ObjectId.isValid(value)) {
