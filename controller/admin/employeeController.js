@@ -11,6 +11,8 @@ const addEmployee = asyncHandler(async (req, res) => {
     name,
     nik,
     age,
+    phone,
+    address,
     employment_type,
     religion,
     height,
@@ -35,6 +37,8 @@ const addEmployee = asyncHandler(async (req, res) => {
     name,
     nik,
     age,
+    phone,
+    address,
     employment_type,
     religion,
     height,
@@ -100,6 +104,8 @@ const updateEmployee = asyncHandler(async (req, res) => {
     name,
     nik,
     age,
+    phone,
+    address,
     employment_type,
     religion,
     height,
@@ -123,6 +129,8 @@ const updateEmployee = asyncHandler(async (req, res) => {
   employee.name = name || employee.name;
   employee.nik = nik || employee.nik;
   employee.age = age || employee.age;
+  employee.phone = phone || employee.phone;
+  employee.address = address || employee.address;
   employee.employment_type = employment_type || employee.employment_type;
   employee.religion = religion || employee.religion;
   employee.height = height || employee.height;

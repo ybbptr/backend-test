@@ -36,6 +36,18 @@ const employeeValidation = Joi.object({
     'number.integer': 'Umur harus bilangan bulat',
     'any.required': 'Umur wajib diisi'
   }),
+  address: Joi.string().required().messages({
+    'string.base': 'Alamat harus berupa teks',
+    'any.required': 'Alamat wajib diisi'
+  }),
+  phone: Joi.string()
+    .pattern(/^[0-9]{10,15}$/)
+    .required()
+    .messages({
+      'any.required': 'Nomor telepon wajib diisi!',
+      'string.pattern.base':
+        'Nomor telepon harus terdiri dari 10 sampai 15 digit angka'
+    }),
   employment_type: Joi.string()
     .valid('Freelance', 'Karyawan')
     .required()

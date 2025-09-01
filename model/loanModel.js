@@ -9,12 +9,19 @@ const loanSchema = new mongoose.Schema(
       ref: 'Employee',
       required: true
     },
-    loan_date: { type: Date, required: true },
-    return_date: { type: Date, required: true },
     nik: { type: String, required: true },
     address: { type: String, required: true },
     phone: { type: String, required: true },
-
+    warehouse: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Warehouse',
+      required: true
+    },
+    shelf: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Shelf',
+      required: true
+    },
     borrowed_items: [
       {
         product: {
@@ -31,7 +38,8 @@ const loanSchema = new mongoose.Schema(
           type: mongoose.Schema.Types.ObjectId,
           ref: 'Project',
           required: true
-        }, // relasi proyek
+        },
+
         condition: { type: String }
       }
     ],
@@ -46,14 +54,14 @@ const loanSchema = new mongoose.Schema(
 );
 
 loanSchema.pre('save', async function (next) {
-  if (!this.loanCode) {
+  if (!this.loan_number) {
     const counter = await Counter.findByIdAndUpdate(
       { _id: 'loan_code' },
       { $inc: { seq: 1 } },
       { new: true, upsert: true }
     );
 
-    this.loanCode = `PA-${String(counter.seq).padStart(3, '0')}`;
+    this.loan_number = `PA-${String(counter.seq).padStart(3, '0')}`;
   }
   next();
 });

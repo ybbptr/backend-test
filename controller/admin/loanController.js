@@ -1,10 +1,12 @@
 const asyncHandler = require('express-async-handler');
 const mongoose = require('mongoose');
 const throwError = require('../../utils/throwError');
+const generateLoanPdf = require('../../utils/generateLoanPdf');
 const Loan = require('../../model/loanModel');
 const Employee = require('../../model/employeeModel');
 const Product = require('../../model/productModel');
 const Warehouse = require('../../model/warehouseModel');
+const Shelf = require('../../model/shelfModel');
 const loanCirculationModel = require('../../model/loanCirculationModel');
 
 const addLoan = asyncHandler(async (req, res) => {
@@ -15,6 +17,8 @@ const addLoan = asyncHandler(async (req, res) => {
     nik,
     address,
     phone,
+    warehouse,
+    shelf,
     borrowed_items,
     approval
   } = req.body || {};
@@ -26,6 +30,8 @@ const addLoan = asyncHandler(async (req, res) => {
     !nik ||
     !address ||
     !phone ||
+    !warehouse ||
+    !shelf ||
     !Array.isArray(borrowed_items) ||
     borrowed_items.length === 0
   ) {
@@ -82,6 +88,8 @@ const addLoan = asyncHandler(async (req, res) => {
           nik,
           address,
           phone,
+          warehouse,
+          shelf,
           borrowed_items: processedItems,
           approval
         }
@@ -146,6 +154,8 @@ const getLoans = asyncHandler(async (req, res) => {
   const loans = await Loan.find(filter)
     .populate([
       { path: 'borrower', select: 'name' },
+      { path: 'warehouse', select: 'warehouse_name' },
+      { path: 'shelf', select: 'shelf_name' },
       {
         path: 'borrowed_items.product',
         select: 'brand product_code quantity condition'
@@ -173,8 +183,13 @@ const getLoans = asyncHandler(async (req, res) => {
 const getLoan = asyncHandler(async (req, res) => {
   const loan_item = await Loan.findById(req.params.id).populate([
     { path: 'borrower', select: 'name' },
-    { path: 'product', select: 'brand product_code quantity condition' },
-    { path: 'project', select: 'project_name' }
+    { path: 'warehouse', select: 'warehouse_name' },
+    { path: 'shelf', select: 'shelf_name' },
+    {
+      path: 'borrowed_items.product',
+      select: 'brand product_code quantity condition'
+    },
+    { path: 'borrowed_items.project', select: 'project_name' }
   ]);
   if (!loan_item) throwError('Pengajuan alat tidak terdaftar!', 400);
 
@@ -230,6 +245,8 @@ const updateLoan = asyncHandler(async (req, res) => {
       approval,
       nik,
       address,
+      warehouse,
+      shelf,
       phone,
       borrowed_items
     } = req.body || {};
@@ -317,6 +334,8 @@ const updateLoan = asyncHandler(async (req, res) => {
     loan_item.nik = nik || loan_item.nik;
     loan_item.address = address || loan_item.address;
     loan_item.phone = phone || loan_item.phone;
+    loan_item.warehouse = warehouse || loan_item.warehouse;
+    loan_item.shelf = shelf || loan_item.shelf;
     loan_item.approval = approval || loan_item.approval;
     if (borrowed_items) loan_item.borrowed_items = borrowed_items;
 
@@ -345,6 +364,39 @@ const getAllProduct = asyncHandler(async (req, res) => {
   res.json(product);
 });
 
+const getAllWarehouse = asyncHandler(async (req, res) => {
+  const warehouse = await Warehouse.find().select('warehouse_name shelves');
+
+  res.json(warehouse);
+});
+
+const getLoanPdf = asyncHandler(async (req, res) => {
+  const loan = await Loan.findById(req.params.id)
+    .populate('borrower', 'name nik phone address')
+    .populate(
+      'borrowed_items.product',
+      'product_name product_code brand product_image'
+    )
+    .populate('borrowed_items.project', 'project_name')
+    .lean();
+
+  if (!loan) throwError('Loan tidak ditemukan', 404);
+
+  loan.borrowed_items = loan.borrowed_items.map((it) => ({
+    ...it,
+    product_image_url: it.product?.product_image?.url || null
+  }));
+
+  const pdfBuffer = await generateLoanPdf(loan);
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader(
+    'Content-Disposition',
+    `inline; filename="loan-${loan.loanCode}.pdf"`
+  );
+  res.send(pdfBuffer);
+});
+
 module.exports = {
   addLoan,
   getLoans,
@@ -352,5 +404,7 @@ module.exports = {
   removeLoan,
   updateLoan,
   getAllEmployee,
-  getAllProduct
+  getAllProduct,
+  getAllWarehouse,
+  getLoanPdf
 };
