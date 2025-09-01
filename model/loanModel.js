@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const Counter = require('./Counter');
+const Counter = require('./loanCounter');
 
 const loanSchema = new mongoose.Schema(
   {
@@ -53,5 +53,8 @@ loanSchema.pre('save', async function (next) {
   }
   next();
 });
+
+loanSchema.index({ borrower: 1 });
+loanSchema.index({ 'borrowed_items.project': 1 });
 
 module.exports = mongoose.model('Loan', loanSchema);
