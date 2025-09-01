@@ -245,16 +245,16 @@ const updateProduct = asyncHandler(async (req, res) => {
   const product = await Product.findById(req.params.id);
   if (!product) throwError('Barang tidak ditemukan!', 404);
 
-  const previousWarehouse = product.warehouse;
-  const previousShelf = product.shelf;
+  // const previousWarehouse = product.warehouse;
+  // const previousShelf = product.shelf;
 
-  const warehouseChanged =
-    warehouse &&
-    previousWarehouse &&
-    warehouse.toString() !== previousWarehouse.toString();
+  // const warehouseChanged =
+  //   warehouse &&
+  //   previousWarehouse &&
+  //   warehouse.toString() !== previousWarehouse.toString();
 
-  const shelfChanged =
-    shelf && previousShelf && shelf.toString() !== previousShelf.toString();
+  // const shelfChanged =
+  //   shelf && previousShelf && shelf.toString() !== previousShelf.toString();
 
   if (req.files) {
     if (req.files.product_image && req.files.product_image[0]) {
@@ -298,32 +298,32 @@ const updateProduct = asyncHandler(async (req, res) => {
     }
   }
 
-  product.product_code = product_code || product.product_code;
-  product.purchase_date = purchase_date || product.purchase_date;
-  product.price = price || product.price;
-  product.category = category || product.category;
-  product.brand = brand || product.brand;
-  product.type = type || product.type;
-  product.quantity = quantity || product.quantity;
-  product.condition = condition || product.condition;
-  product.warehouse = warehouse || product.warehouse;
-  product.shelf = shelf || product.shelf;
-  product.description = description || product.description;
+  product.product_code = product_code ?? product.product_code;
+  product.purchase_date = purchase_date ?? product.purchase_date;
+  product.price = price ?? product.price;
+  product.category = category ?? product.category;
+  product.brand = brand ?? product.brand;
+  product.type = type ?? product.type;
+  product.quantity = quantity ?? product.quantity;
+  product.condition = condition ?? product.condition;
+  product.warehouse = warehouse ?? product.warehouse;
+  product.shelf = shelf ?? product.shelf;
+  product.description = description ?? product.description;
 
   await product.save();
 
-  if (warehouseChanged || shelfChanged) {
-    await productCirculationModel.create({
-      product: product._id,
-      product_code: product.product_code,
-      product_name: product.product_name,
-      product_image: product.product_image,
-      warehouse_from: previousWarehouse,
-      shelf_from: previousShelf,
-      warehouse_to: product.warehouse,
-      shelf_to: product.shelf
-    });
-  }
+  // if (warehouseChanged || shelfChanged) {
+  //   await productCirculationModel.create({
+  //     product: product._id,
+  //     product_code: product.product_code,
+  //     product_name: product.product_name,
+  //     product_image: product.product_image,
+  //     warehouse_from: previousWarehouse,
+  //     shelf_from: previousShelf,
+  //     warehouse_to: product.warehouse,
+  //     shelf_to: product.shelf
+  //   });
+  // }
 
   res.status(200).json(product);
 });

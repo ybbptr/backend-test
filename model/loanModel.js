@@ -27,7 +27,11 @@ const loanSchema = new mongoose.Schema(
         quantity: { type: Number, required: true },
         pickup_date: { type: Date, required: true },
         return_date: { type: Date },
-        project: { type: mongoose.Schema.Types.ObjectId, ref: 'Project' }, // relasi proyek
+        project: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Project',
+          required: true
+        }, // relasi proyek
         condition: { type: String }
       }
     ],

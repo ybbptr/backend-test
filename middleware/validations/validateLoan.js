@@ -1,9 +1,17 @@
 const Joi = require('joi');
+const mongoose = require('mongoose');
+
+const objectIdValidator = (value, helpers) => {
+  if (!mongoose.Types.ObjectId.isValid(value)) {
+    return helpers.error('any.invalid');
+  }
+  return value;
+};
 
 const loanSchema = Joi.object({
-  borrower: Joi.string().required().messages({
-    'any.required': 'Peminjam wajib diisi',
-    'string.empty': 'Peminjam tidak boleh kosong'
+  borrower: Joi.string().custom(objectIdValidator).required().messages({
+    'any.invalid': 'ID karyawan tidak valid!',
+    'any.required': 'Karyawan wajib diisi!'
   }),
 
   loan_date: Joi.date().required().messages({
@@ -39,8 +47,9 @@ const loanSchema = Joi.object({
   borrowed_items: Joi.array()
     .items(
       Joi.object({
-        product: Joi.string().required().messages({
-          'any.required': 'ID produk wajib diisi'
+        product: Joi.string().custom(objectIdValidator).required().messages({
+          'any.invalid': 'ID barang tidak valid!',
+          'any.required': 'Barang wajib diisi!'
         }),
         product_code: Joi.string().required().messages({
           'any.required': 'Kode barang wajib diisi'
@@ -56,7 +65,10 @@ const loanSchema = Joi.object({
           'date.base': 'Tanggal pengambilan harus berupa tanggal'
         }),
         return_date: Joi.date().allow(null),
-        project: Joi.string().allow(null),
+        project: Joi.string().custom(objectIdValidator).required().messages({
+          'any.invalid': 'ID project tidak valid!',
+          'any.required': 'Project wajib diisi!'
+        }),
         condition: Joi.string().allow('', null)
       })
     )

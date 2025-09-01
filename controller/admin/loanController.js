@@ -224,119 +224,101 @@ const updateLoan = asyncHandler(async (req, res) => {
 
   try {
     const {
-      loan_number,
       loan_date,
       return_date,
-      employee,
+      borrower,
       approval,
-      warehouse,
-      product,
-      loan_quantity
+      nik,
+      address,
+      phone,
+      borrowed_items
     } = req.body || {};
 
     const loan_item = await Loan.findById(req.params.id).session(session);
     if (!loan_item) throwError('Pengajuan tidak terdaftar!', 404);
 
-    const item = await Product.findById(product || loan_item.product).session(
-      session
-    );
-    if (!item) throwError('Produk tidak ditemukan', 404);
-
-    // ====== Kondisi update stok ======
-
-    // 1. Dari belum disetujui → Disetujui
+    // ====== Kondisi stok ======
+    // 1. Dari belum Disetujui → Disetujui
     if (loan_item.approval !== 'Disetujui' && approval === 'Disetujui') {
-      if (item.quantity < loan_quantity) {
-        throwError('Stok tidak mencukupi', 400);
+      for (const it of borrowed_items) {
+        const product = await Product.findById(it.product).session(session);
+        if (!product) throwError('Produk tidak ditemukan', 404);
+
+        if (product.quantity < it.quantity)
+          throwError('Stok tidak mencukupi', 400);
+        if (product.condition === 'Rusak')
+          throwError('Barang rusak, tidak dapat dipinjam', 400);
+
+        product.quantity -= it.quantity;
+        await product.save({ session });
       }
-      if (item.condition === 'Rusak berat' || item.condition === 'Rusak berat')
-        throwError('Barang rusak berat, tidak dapat dipinjam', 400);
-      if (item.warehouse.toString() === warehouse.toString()) {
-        throwError('Gudang asal dan tujuan tidak boleh sama', 400);
-      }
 
-      item.quantity -= loan_quantity;
-      item.loan_quantity = loan_quantity;
-
-      await item.save({ session });
-
-      await loanCirculationModel.create(
-        [
-          {
-            loan_id: loan_item._id,
-            product: item._id,
-            product_name: item.product_name,
-            loan_quantity,
-            warehouse_from: item.warehouse,
-            warehouse_to: warehouse,
-            imageUrl: item.imageUrl
-          }
-        ],
-        { session }
-      );
+      // buat sirkulasi baru
+      // const circulationPayload = borrowed_items.map((it) => ({
+      //   loan_id: loan_item._id,
+      //   product: it.product,
+      //   product_name: it.product_code,
+      //   loan_quantity: it.quantity,
+      //   warehouse_from: it.warehouse_from || null,
+      //   warehouse_to: it.warehouse_to || null
+      // }));
+      // await loanCirculationModel.create(circulationPayload, { session });
     }
 
-    // 2. Dari Disetujui → Ditolak/Diproses (balikin stok)
     if (loan_item.approval === 'Disetujui' && approval !== 'Disetujui') {
-      if (item.warehouse.toString() === warehouse.toString()) {
-        throwError('Gudang asal dan tujuan tidak boleh sama', 400);
+      for (const it of loan_item.borrowed_items) {
+        const product = await Product.findById(it.product).session(session);
+        if (!product) throwError('Produk tidak ditemukan', 404);
+
+        product.quantity += it.quantity;
+        await product.save({ session });
       }
-      if (item.condition === 'Rusak berat' || item.condition === 'Rusak berat')
-        throwError('Barang rusak berat, tidak dapat dipinjam', 400);
 
-      item.quantity += loan_item.loan_quantity;
-      item.loan_quantity = loan_quantity;
-
-      await item.save({ session });
-
-      await loanCirculationModel
-        .deleteMany({ loan_id: loan_item._id })
-        .session(session);
+      // await loanCirculationModel
+      //   .deleteMany({ loan_id: loan_item._id })
+      //   .session(session);
     }
 
     // 3. Sama-sama Disetujui, tapi jumlah berubah
     if (loan_item.approval === 'Disetujui' && approval === 'Disetujui') {
-      if (item.warehouse.toString() === warehouse.toString()) {
-        throwError('Gudang asal dan tujuan tidak boleh sama', 400);
-      }
-      if (item.condition === 'Rusak berat' || item.condition === 'Rusak berat')
-        throwError('Barang rusak berat, tidak dapat dipinjam', 400);
+      for (let i = 0; i < borrowed_items.length; i++) {
+        const newItem = borrowed_items[i];
+        const oldItem = loan_item.borrowed_items[i];
 
-      const diff = loan_quantity - loan_item.loan_quantity;
-      if (diff > 0) {
-        // Pinjam lebih banyak
-        if (item.quantity < diff) {
-          throwError('Stok tidak mencukupi', 400);
+        const product = await Product.findById(newItem.product).session(
+          session
+        );
+        if (!product) throwError('Produk tidak ditemukan', 404);
+
+        const diff = newItem.quantity - oldItem.quantity;
+        if (diff > 0) {
+          if (product.quantity < diff) throwError('Stok tidak mencukupi', 400);
+          product.quantity -= diff;
+        } else if (diff < 0) {
+          product.quantity += Math.abs(diff);
         }
-        item.quantity -= diff;
-      } else if (diff < 0) {
-        // Balikin sebagian
-        item.quantity += Math.abs(diff);
+
+        await product.save({ session });
+
+        // await loanCirculationModel.findOneAndUpdate(
+        //   { loan_id: loan_item._id, product: newItem.product },
+        //   {
+        //     loan_quantity: newItem.quantity,
+        //     product_name: newItem.product_code
+        //   },
+        //   { session }
+        // );
       }
-      item.loan_quantity = loan_quantity;
-
-      await item.save({ session });
-
-      await loanCirculationModel.findOneAndUpdate(
-        { loan_id: loan_item._id },
-        {
-          loan_quantity,
-          imageUrl: item.imageUrl,
-          product_name: item.product_name,
-          warehouse_to: warehouse
-        },
-        { session }
-      );
     }
 
-    loan_item.loan_number = loan_number || loan_item.loan_number;
     loan_item.loan_date = loan_date || loan_item.loan_date;
     loan_item.return_date = return_date || loan_item.return_date;
-    loan_item.employee = employee || loan_item.employee;
+    loan_item.borrower = borrower || loan_item.borrower;
+    loan_item.nik = nik || loan_item.nik;
+    loan_item.address = address || loan_item.address;
+    loan_item.phone = phone || loan_item.phone;
     loan_item.approval = approval || loan_item.approval;
-    loan_item.warehouse = warehouse || loan_item.warehouse;
-    loan_item.product = product || loan_item.product;
-    loan_item.loan_quantity = loan_quantity || loan_item.loan_quantity;
+    if (borrowed_items) loan_item.borrowed_items = borrowed_items;
 
     await loan_item.save({ session });
 
