@@ -46,8 +46,8 @@ const addLoan = asyncHandler(async (req, res) => {
         throwError('Stok barang kosong, tidak dapat dipinjam', 400);
       if (item.quantity < loan_quantity)
         throwError('Stok barang tidak mencukupi', 400);
-      if (item.condition === 'Rusak berat' || item.condition === 'Rusak berat')
-        throwError('Barang rusak berat, tidak dapat dipinjam', 400);
+      if (item.condition === 'Rusak')
+        throwError('Barang rusak, tidak dapat dipinjam', 400);
 
       if (item.warehouse.toString() === warehouse.toString()) {
         throwError('Gudang asal dan tujuan tidak boleh sama', 400);
