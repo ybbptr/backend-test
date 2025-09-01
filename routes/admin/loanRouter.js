@@ -25,9 +25,9 @@ Router.post(
   .get('/all-loan', getLoans)
   .get('/all-employee', getAllEmployee)
   .get('/all-product', getAllProduct)
-  .get('/all-warehouse', getAllWarehouse)
-  .get('/:id/pdf', getLoanPdf);
+  .get('/all-warehouse', getAllWarehouse);
 
+Router.get('/:id/pdf', getLoanPdf);
 Router.get('/:id', getLoan)
   .put(
     '/update/:id',

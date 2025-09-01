@@ -380,20 +380,31 @@ const getLoanPdf = asyncHandler(async (req, res) => {
     .populate('borrowed_items.project', 'project_name')
     .lean();
 
-  if (!loan) throwError('Loan tidak ditemukan', 404);
+  if (!loan) throwError('Data peminjaman tidak ditemukan', 404);
 
-  loan.borrowed_items = loan.borrowed_items.map((it) => ({
-    ...it,
-    product_image_url: it.product?.product_image?.url || null
-  }));
+  loan.borrowed_items = await Promise.all(
+    loan.borrowed_items.map(async (it) => ({
+      ...it,
+      product_image_url: it.product?.product_image?.key
+        ? await getFileUrl(it.product.product_image.key, 300) // expired 5 menit
+        : null
+    }))
+  );
 
   const pdfBuffer = await generateLoanPdf(loan);
 
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader(
-    'Content-Disposition',
-    `inline; filename="loan-${loan.loanCode}.pdf"`
-  );
+  if (req.query.download) {
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="loan-${loan.loan_number}.pdf"`
+    );
+  } else {
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="loan-${loan.loan_number}.pdf"`
+    );
+  }
+
   res.send(pdfBuffer);
 });
 
