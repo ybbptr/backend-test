@@ -221,8 +221,6 @@ const removeProduct = asyncHandler(async (req, res) => {
 });
 
 const updateProduct = asyncHandler(async (req, res) => {
-  console.log('req.body:', req.body);
-
   const {
     purchase_date,
     price,

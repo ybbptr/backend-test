@@ -58,6 +58,10 @@ Router.get('/all-product', getProducts)
 Router.get('/:id', getProduct);
 Router.put(
   '/update/:id',
+  uploadProductFiles.fields([
+    { name: 'product_image', maxCount: 1 },
+    { name: 'invoice', maxCount: 1 }
+  ]),
   validate(updateProductSchema),
   checkDuplicate(Product, { product_code: 'Kode barang' }),
   updateProduct
