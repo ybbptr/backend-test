@@ -365,13 +365,14 @@ const getAllProduct = asyncHandler(async (req, res) => {
 });
 
 const getAllWarehouse = asyncHandler(async (req, res) => {
-  const warehouse = await Warehouse.find().select('warehouse_name shelves');
+  const warehouse = await Warehouse.find().select('warehouse_name');
 
   res.json(warehouse);
 });
 
 const getShelves = asyncHandler(async (req, res) => {
-  const shelf = await Shelf.findOne(req.params.id).select('shelf_name');
+  const { id } = req.params.id;
+  const shelf = await Shelf.findOne(id).select('shelf_name');
   if (!shelf) throwError('ID Gudang tidak valid!');
   res.json(shelf);
 });
