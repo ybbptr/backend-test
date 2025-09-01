@@ -370,6 +370,12 @@ const getAllWarehouse = asyncHandler(async (req, res) => {
   res.json(warehouse);
 });
 
+const getShelves = asyncHandler(async (req, res) => {
+  const shelf = await Shelf.findOne(req.params.id).select('shelf_name');
+  if (!shelf) throwError('ID Gudang tidak valid!');
+  res.json(shelf);
+});
+
 const getLoanPdf = asyncHandler(async (req, res) => {
   const loan = await Loan.findById(req.params.id)
     .populate('borrower', 'name nik phone address')
@@ -417,5 +423,6 @@ module.exports = {
   getAllEmployee,
   getAllProduct,
   getAllWarehouse,
+  getShelves,
   getLoanPdf
 };
