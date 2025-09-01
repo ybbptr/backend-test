@@ -1,72 +1,81 @@
 const Joi = require('joi');
-const mongoose = require('mongoose');
 
 const loanSchema = Joi.object({
-  loan_number: Joi.string().required().messages({
-    'string.empty': 'Nomor peminjaman wajib diisi!',
-    'any.required': 'Nomor peminjaman wajib diisi!'
+  borrower: Joi.string().required().messages({
+    'any.required': 'Peminjam wajib diisi',
+    'string.empty': 'Peminjam tidak boleh kosong'
   }),
+
   loan_date: Joi.date().required().messages({
-    'date.base': 'Tanggal peminjaman harus berupa tanggal!',
-    'any.required': 'Tanggal peminjaman wajib diisi!'
+    'any.required': 'Tanggal pinjam wajib diisi',
+    'date.base': 'Tanggal pinjam harus berupa tanggal yang valid'
   }),
-  return_date: Joi.date()
-    .min(Joi.ref('loan_date')) // memastikan return_date >= loan_date
+
+  return_date: Joi.date().greater(Joi.ref('loan_date')).required().messages({
+    'any.required': 'Tanggal kembali wajib diisi',
+    'date.base': 'Tanggal kembali harus berupa tanggal yang valid',
+    'date.greater': 'Tanggal kembali harus lebih besar dari tanggal pinjam'
+  }),
+
+  nik: Joi.string().required().messages({
+    'any.required': 'NIK wajib diisi',
+    'string.empty': 'NIK tidak boleh kosong'
+  }),
+
+  address: Joi.string().required().messages({
+    'any.required': 'Alamat wajib diisi',
+    'string.empty': 'Alamat tidak boleh kosong'
+  }),
+
+  phone: Joi.string()
+    .pattern(/^[0-9]+$/)
     .required()
     .messages({
-      'date.base': 'Tanggal pengembalian harus berupa tanggal!',
-      'date.min':
-        'Tanggal pengembalian tidak boleh lebih awal dari tanggal peminjaman!',
-      'any.required': 'Tanggal pengembalian wajib diisi!'
+      'any.required': 'Nomor HP wajib diisi',
+      'string.empty': 'Nomor HP tidak boleh kosong',
+      'string.pattern.base': 'Nomor HP hanya boleh berisi angka'
     }),
-  employee: Joi.string()
-    .custom((value, helpers) => {
-      if (!mongoose.Types.ObjectId.isValid(value)) {
-        return helpers.error('any.invalid');
-      }
-      return value;
-    })
+
+  borrowed_items: Joi.array()
+    .items(
+      Joi.object({
+        product: Joi.string().required().messages({
+          'any.required': 'ID produk wajib diisi'
+        }),
+        product_code: Joi.string().required().messages({
+          'any.required': 'Kode barang wajib diisi'
+        }),
+        brand: Joi.string().allow('', null),
+        quantity: Joi.number().min(1).required().messages({
+          'any.required': 'Jumlah pinjam wajib diisi',
+          'number.base': 'Jumlah pinjam harus berupa angka',
+          'number.min': 'Jumlah pinjam minimal 1'
+        }),
+        pickup_date: Joi.date().required().messages({
+          'any.required': 'Tanggal pengambilan wajib diisi',
+          'date.base': 'Tanggal pengambilan harus berupa tanggal'
+        }),
+        return_date: Joi.date().allow(null),
+        project: Joi.string().allow(null),
+        condition: Joi.string().allow('', null)
+      })
+    )
+    .min(1)
     .required()
     .messages({
-      'any.invalid': 'Employee ID tidak valid!',
-      'any.required': 'Employee wajib diisi!'
+      'array.min': 'Minimal harus ada 1 barang yang dipinjam',
+      'any.required': 'Barang yang dipinjam wajib diisi'
     }),
-  product: Joi.string()
-    .custom((value, helpers) => {
-      if (!mongoose.Types.ObjectId.isValid(value)) {
-        return helpers.error('any.invalid');
-      }
-      return value;
-    })
-    .required()
-    .messages({
-      'any.invalid': 'Product ID tidak valid!',
-      'any.required': 'Barang wajib diisi!'
-    }),
+
   approval: Joi.string()
     .valid('Disetujui', 'Ditolak', 'Diproses')
     .default('Diproses')
     .messages({
       'any.only':
-        'Persetujuan harus salah satu dari: Disetujui, Ditolak, Diproses!',
-      'any.required': 'Persetujuan wajib diisi!'
-    }),
-  warehouse: Joi.string()
-    .custom((value, helpers) => {
-      if (!mongoose.Types.ObjectId.isValid(value)) {
-        return helpers.error('any.invalid');
-      }
-      return value;
+        'Status approval hanya boleh Disetujui, Ditolak, atau Diproses'
     })
-    .required()
-    .messages({
-      'any.invalid': 'ID gudang tidak valid!',
-      'any.required': 'Gudang wajib diisi!'
-    }),
-  loan_quantity: Joi.number().positive().allow(null).required().messages({
-    'any.required': 'Jumlah barang yang dipinjam wajib diisi!',
-    'number.positive': 'Masukkan angka yang valid!'
-  })
 });
 
-module.exports = loanSchema;
+module.exports = {
+  loanSchema
+};

@@ -21,6 +21,7 @@ const productSchema = new mongoose.Schema(
     },
     brand: { type: String, trim: true, required: true }, // merk
     type: { type: String, trim: true, required: true }, // type
+    description: String,
     quantity: { type: Number, default: 0, required: true },
     loan_quantity: { type: Number, default: 0 },
     condition: {

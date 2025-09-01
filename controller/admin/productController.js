@@ -29,7 +29,8 @@ const addProduct = asyncHandler(async (req, res) => {
     condition,
     warehouse,
     shelf,
-    product_code
+    product_code,
+    description
   } = req.body || {};
 
   const files = req.files || {};
@@ -75,6 +76,7 @@ const addProduct = asyncHandler(async (req, res) => {
     warehouse,
     shelf,
     product_code,
+    description,
     product_image: productImageMeta,
     invoice: invoiceMeta
   });
@@ -220,7 +222,6 @@ const removeProduct = asyncHandler(async (req, res) => {
 
 const updateProduct = asyncHandler(async (req, res) => {
   const {
-    product_code,
     purchase_date,
     price,
     category,
@@ -229,7 +230,9 @@ const updateProduct = asyncHandler(async (req, res) => {
     quantity,
     condition,
     warehouse,
-    shelf
+    shelf,
+    description,
+    product_code
   } = req.body;
 
   if (warehouse && !mongoose.Types.ObjectId.isValid(warehouse)) {
@@ -303,6 +306,7 @@ const updateProduct = asyncHandler(async (req, res) => {
   product.condition = condition || product.condition;
   product.warehouse = warehouse || product.warehouse;
   product.shelf = shelf || product.shelf;
+  product.description = description || product.description;
 
   await product.save();
 
