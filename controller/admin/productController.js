@@ -260,7 +260,8 @@ const updateProduct = asyncHandler(async (req, res) => {
     if (req.files.product_image && req.files.product_image[0]) {
       const file = req.files.product_image[0];
       const ext = path.extname(file.originalname);
-      const key = `inventaris/${product_code}/image_${Date.now()}${ext}`;
+      const date = formatDate();
+      const key = `inventaris/${product_code}/${category}_${brand}_${type}_${date}${ext}`;
 
       if (product.product_image?.key) {
         await deleteFile(product.product_image.key);
@@ -279,7 +280,8 @@ const updateProduct = asyncHandler(async (req, res) => {
     if (req.files.invoice && req.files.invoice[0]) {
       const file = req.files.invoice[0];
       const ext = path.extname(file.originalname);
-      const key = `inventaris/${product_code}/invoice_${Date.now()}${ext}`;
+      const date = formatDate();
+      const key = `inventaris/${product_code}/invoice_${date}${ext}`;
 
       if (product.invoice?.key) {
         await deleteFile(product.invoice.key);

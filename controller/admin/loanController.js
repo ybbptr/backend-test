@@ -115,21 +115,68 @@ const addLoan = asyncHandler(async (req, res) => {
 });
 
 const getLoans = asyncHandler(async (req, res) => {
-  const loan_items = await Loan.find().populate([
-    { path: 'borrower', select: 'name' },
-    { path: 'product', select: 'product_name product_code quantity' }
-  ]);
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
 
-  res.status(200).json(loan_items);
+  const { borrower, project, approval, nik, search, sort } = req.query;
+
+  const filter = {};
+  if (borrower) filter.borrower = borrower;
+  if (nik) filter.nik = { $regex: nik, $options: 'i' };
+  if (approval) filter.approval = approval;
+
+  if (project) filter['borrowed_items.project'] = project;
+
+  if (search) {
+    filter.$or = [
+      { loan_number: { $regex: search, $options: 'i' } },
+      { nik: { $regex: search, $options: 'i' } },
+      { address: { $regex: search, $options: 'i' } },
+      { phone: { $regex: search, $options: 'i' } }
+    ];
+  }
+
+  let sortOption = { createdAt: -1 };
+  if (sort) {
+    const [field, order] = sort.split(':');
+    sortOption = { [field]: order === 'asc' ? 1 : -1 };
+  }
+
+  const loans = await Loan.find(filter)
+    .populate([
+      { path: 'borrower', select: 'name' },
+      {
+        path: 'borrowed_items.product',
+        select: 'brand product_code quantity condition'
+      },
+      { path: 'borrowed_items.project', select: 'project_name' }
+    ])
+    .skip(skip)
+    .limit(limit)
+    .sort(sortOption)
+    .lean();
+
+  const totalItems = await Loan.countDocuments(filter);
+  const totalPages = Math.ceil(totalItems / limit);
+
+  res.status(200).json({
+    page,
+    limit,
+    totalItems,
+    totalPages,
+    sort: sortOption,
+    data: loans
+  });
 });
 
 const getLoan = asyncHandler(async (req, res) => {
   const loan_item = await Loan.findById(req.params.id).populate([
-    { path: 'employee', select: 'name' },
-    { path: 'product', select: 'product_name product_code quantity' },
-    { path: 'warehouse', select: 'warehouse_name warehouse_code' }
+    { path: 'borrower', select: 'name' },
+    { path: 'product', select: 'brand product_code quantity condition' },
+    { path: 'project', select: 'project_name' }
   ]);
-  if (!loan_item) throwError('Pengajuan tidak terdaftar!', 400);
+  if (!loan_item) throwError('Pengajuan alat tidak terdaftar!', 400);
 
   res.status(200).json(loan_item);
 });
@@ -142,30 +189,28 @@ const removeLoan = asyncHandler(async (req, res) => {
     const loan_item = await Loan.findById(req.params.id).session(session);
     if (!loan_item) throwError('Pengajuan tidak terdaftar!', 400);
 
-    const item = await Product.findById(loan_item.product).session(session);
-    if (!item) throwError('Produk tidak ditemukan', 404);
-
     if (loan_item.approval === 'Disetujui') {
-      item.quantity += loan_item.loan_quantity;
-      item.loan_quantity = loan_item.loan_quantity;
-      item.loan_quantity = 0;
+      for (const it of loan_item.borrowed_items) {
+        const product = await Product.findById(it.product).session(session);
+        if (!product) throwError('Produk tidak ditemukan', 404);
 
-      await item.save({ session });
+        product.quantity += it.quantity;
+        await product.save({ session });
+      }
     }
 
-    // ===== Hapus sirkulasi terkait =====
-    await loanCirculationModel
-      .deleteMany({ loan_id: loan_item._id })
-      .session(session);
+    // await loanCirculationModel
+    //   .deleteMany({ loan_id: loan_item._id })
+    //   .session(session);
 
     await loan_item.deleteOne({ session });
 
     await session.commitTransaction();
     session.endSession();
 
-    res
-      .status(200)
-      .json({ message: 'Pengajuan dan sirkulasi terkait berhasil dihapus.' });
+    res.status(200).json({
+      message: 'Pengajuan dan sirkulasi terkait berhasil dihapus.'
+    });
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
@@ -307,25 +352,15 @@ const updateLoan = asyncHandler(async (req, res) => {
 });
 
 const getAllEmployee = asyncHandler(async (req, res) => {
-  const employee = await Employee.find().select('name');
+  const employee = await Employee.find().select('name nik address phone');
 
   res.json(employee);
 });
 
 const getAllProduct = asyncHandler(async (req, res) => {
-  const product = await Product.find()
-    .select('product_code product_name warehouse condition')
-    .populate('warehouse', 'warehouse_code warehouse_name');
+  const product = await Product.find().select('product_code brand condition');
 
   res.json(product);
-});
-
-const getAllWarehouse = asyncHandler(async (req, res) => {
-  const warehouse = await Warehouse.find().select(
-    'warehouse_code warehouse_name'
-  );
-
-  res.json(warehouse);
 });
 
 module.exports = {
@@ -335,6 +370,5 @@ module.exports = {
   removeLoan,
   updateLoan,
   getAllEmployee,
-  getAllProduct,
-  getAllWarehouse
+  getAllProduct
 };

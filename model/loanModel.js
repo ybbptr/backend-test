@@ -49,7 +49,7 @@ loanSchema.pre('save', async function (next) {
       { new: true, upsert: true }
     );
 
-    this.loanCode = `p-${String(counter.seq).padStart(3, '0')}`;
+    this.loanCode = `PA-${String(counter.seq).padStart(3, '0')}`;
   }
   next();
 });

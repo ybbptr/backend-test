@@ -14,7 +14,10 @@ const {
 const Router = express.Router();
 const { imageUploader, pdfUploader } = require('../../utils/fileUploader');
 const validate = require('../../middleware/validations/validate');
-const validateProduct = require('../../middleware/validations/validateProduct');
+const {
+  createProductSchema,
+  updateProductSchema
+} = require('../../middleware/validations/validateProduct');
 
 const multer = require('multer');
 
@@ -43,7 +46,7 @@ Router.post(
     { name: 'product_image', maxCount: 1 },
     { name: 'invoice', maxCount: 1 }
   ]),
-  validate(validateProduct),
+  validate(createProductSchema),
   checkDuplicate(Product, { product_code: 'Kode barang' }),
   addProduct
 );
@@ -55,7 +58,7 @@ Router.get('/all-product', getProducts)
 Router.get('/:id', getProduct);
 Router.put(
   '/update/:id',
-  validate(validateProduct),
+  validate(updateProductSchema),
   checkDuplicate(Product, { product_code: 'Kode barang' }),
   updateProduct
 );

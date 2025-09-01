@@ -1,7 +1,20 @@
 const Joi = require('joi');
 const mongoose = require('mongoose');
 
-const productSchema = Joi.object({
+/* =======================
+   VALIDATOR HELPER
+======================= */
+const objectIdValidator = (value, helpers) => {
+  if (!mongoose.Types.ObjectId.isValid(value)) {
+    return helpers.error('any.invalid');
+  }
+  return value;
+};
+
+/* =======================
+   CREATE PRODUCT SCHEMA
+======================= */
+const createProductSchema = Joi.object({
   purchase_date: Joi.date().required().messages({
     'any.required': 'Tanggal pembelian wajib diisi',
     'date.base': 'Tanggal pembelian harus berupa tanggal yang valid'
@@ -30,8 +43,7 @@ const productSchema = Joi.object({
     }),
 
   brand: Joi.string().allow('', null).messages({
-    'string.base': 'Merk harus berupa teks',
-    'any.required': 'Merk wajib diisi'
+    'string.base': 'Merk harus berupa teks'
   }),
 
   product_code: Joi.string().required().messages({
@@ -40,8 +52,7 @@ const productSchema = Joi.object({
   }),
 
   type: Joi.string().allow('', null).messages({
-    'string.base': 'Tipe harus berupa teks',
-    'any.required': 'Tipe wajib diisi'
+    'string.base': 'Tipe harus berupa teks'
   }),
 
   quantity: Joi.number().min(0).required().messages({
@@ -58,31 +69,79 @@ const productSchema = Joi.object({
       'any.only': 'Kondisi harus salah satu dari: Maintenance, Rusak, atau Baik'
     }),
 
-  warehouse: Joi.string()
-    .custom((value, helpers) => {
-      if (!mongoose.Types.ObjectId.isValid(value)) {
-        return helpers.error('any.invalid');
-      }
-      return value;
-    })
-    .required()
-    .messages({
-      'any.invalid': 'ID gudang tidak valid!',
-      'any.required': 'Gudang wajib diisi!'
-    }),
+  warehouse: Joi.string().custom(objectIdValidator).required().messages({
+    'any.invalid': 'ID gudang tidak valid!',
+    'any.required': 'Gudang wajib diisi!'
+  }),
 
-  shelf: Joi.string()
-    .custom((value, helpers) => {
-      if (!mongoose.Types.ObjectId.isValid(value)) {
-        return helpers.error('any.invalid');
-      }
-      return value;
-    })
-    .required()
-    .messages({
-      'any.invalid': 'ID lemari tidak valid!',
-      'any.required': 'Lemari wajib diisi!'
-    })
+  shelf: Joi.string().custom(objectIdValidator).required().messages({
+    'any.invalid': 'ID lemari tidak valid!',
+    'any.required': 'Lemari wajib diisi!'
+  }),
+
+  description: Joi.string().allow('', null)
 });
 
-module.exports = productSchema;
+/* =======================
+   UPDATE PRODUCT SCHEMA
+======================= */
+const updateProductSchema = Joi.object({
+  purchase_date: Joi.date().messages({
+    'date.base': 'Tanggal pembelian harus berupa tanggal yang valid'
+  }),
+
+  price: Joi.number().messages({
+    'number.base': 'Harga harus berupa angka'
+  }),
+
+  category: Joi.string()
+    .valid(
+      'Bor',
+      'CPTU',
+      'Sondir',
+      'Topography',
+      'Geolistrik',
+      'Aksesoris',
+      'Alat lab',
+      'Perlengkapan lainnya'
+    )
+    .messages({
+      'any.only': 'Jenis alat harus salah satu dari daftar yang tersedia'
+    }),
+
+  brand: Joi.string().allow('', null).messages({
+    'string.base': 'Merk harus berupa teks'
+  }),
+
+  product_code: Joi.string().messages({
+    'string.base': 'Kode barang harus berupa teks'
+  }),
+
+  type: Joi.string().allow('', null).messages({
+    'string.base': 'Tipe harus berupa teks'
+  }),
+
+  quantity: Joi.number().min(0).messages({
+    'number.base': 'Jumlah harus berupa angka',
+    'number.min': 'Jumlah tidak boleh kurang dari 0'
+  }),
+
+  condition: Joi.string().valid('Maintenance', 'Rusak', 'Baik').messages({
+    'any.only': 'Kondisi harus salah satu dari: Maintenance, Rusak, atau Baik'
+  }),
+
+  warehouse: Joi.string().custom(objectIdValidator).messages({
+    'any.invalid': 'ID gudang tidak valid!'
+  }),
+
+  shelf: Joi.string().custom(objectIdValidator).messages({
+    'any.invalid': 'ID lemari tidak valid!'
+  }),
+
+  description: Joi.string().allow('', null)
+});
+
+module.exports = {
+  createProductSchema,
+  updateProductSchema
+};
