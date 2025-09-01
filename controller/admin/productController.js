@@ -83,37 +83,81 @@ const addProduct = asyncHandler(async (req, res) => {
 });
 
 const getProducts = asyncHandler(async (req, res) => {
-  const products = await Product.find().populate([
-    { path: 'warehouse', select: 'warehouse_name warehouse_code' },
-    { path: 'shelf', select: 'shelf_name shelf_code' }
-  ]);
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
 
-  if (!products) {
-    throwError('Tidak ada barang tersedia!', 404);
+  const {
+    product_code,
+    type,
+    condition,
+    warehouse,
+    shelf,
+    brand,
+    category,
+    search,
+    sort
+  } = req.query;
+
+  const filter = {};
+  if (product_code)
+    filter.product_code = { $regex: product_code, $options: 'i' };
+  if (type) filter.type = { $regex: type, $options: 'i' };
+  if (condition) filter.condition = condition;
+  if (warehouse) filter.warehouse = warehouse;
+  if (shelf) filter.shelf = shelf;
+  if (brand) filter.brand = { $regex: brand, $options: 'i' };
+  if (category) filter.category = category;
+  if (search) {
+    filter.$or = [
+      { product_code: { $regex: search, $options: 'i' } },
+      { product_name: { $regex: search, $options: 'i' } }
+    ];
   }
+
+  let sortOption = { createdAt: -1 };
+  if (sort) {
+    const [field, order] = sort.split(':');
+    sortOption = { [field]: order === 'asc' ? 1 : -1 };
+  }
+
+  const products = await Product.find(filter)
+    .populate([
+      { path: 'warehouse', select: 'warehouse_name warehouse_code' },
+      { path: 'shelf', select: 'shelf_name shelf_code' }
+    ])
+    .skip(skip)
+    .limit(limit)
+    .sort(sortOption)
+    .lean();
+
+  const totalItems = await Product.countDocuments(filter);
+  const totalPages = Math.ceil(totalItems / limit);
 
   const productsWithUrls = await Promise.all(
     products.map(async (p) => {
       let imageUrl = null;
       if (p.product_image?.key) {
-        imageUrl = await getSignedUrl(p.product_image.key, 60 * 5);
-        t;
+        imageUrl = await getFileUrl(p.product_image.key, 60 * 5);
       }
 
       let invoiceUrl = null;
       if (p.invoice?.key) {
-        invoiceUrl = await getSignedUrl(p.invoice.key, 60 * 5);
+        invoiceUrl = await getFileUrl(p.invoice.key, 60 * 5);
       }
 
-      return {
-        ...p.toObject(),
-        product_image_url: imageUrl,
-        invoice_url: invoiceUrl
-      };
+      return { ...p, product_image_url: imageUrl, invoice_url: invoiceUrl };
     })
   );
 
-  res.status(200).json(productsWithUrls);
+  res.status(200).json({
+    page,
+    limit,
+    totalItems,
+    totalPages,
+    sort: sortOption,
+    data: productsWithUrls
+  });
 });
 
 const getProduct = asyncHandler(async (req, res) => {
@@ -125,12 +169,12 @@ const getProduct = asyncHandler(async (req, res) => {
 
   let imageUrl = null;
   if (product.product_image?.key) {
-    imageUrl = await getSignedUrl(product.product_image.key, 60 * 5); // 5 menit
+    imageUrl = await getFileUrl(product.product_image.key, 60 * 5); // 5 menit
   }
 
   let invoiceUrl = null;
   if (product.invoice?.key) {
-    invoiceUrl = await getSignedUrl(product.invoice.key, 60 * 5);
+    invoiceUrl = await getFileUrl(product.invoice.key, 60 * 5);
   }
 
   res.status(200).json({
