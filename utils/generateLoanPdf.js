@@ -12,7 +12,7 @@ async function generateLoanPdf(loan) {
   const content = template(loan);
 
   const browser = await puppeteer.launch({
-    executablePath: '/usr/bin/chromium-',
+    executablePath: '/usr/bin/chromium',
     headless: 'new',
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
