@@ -62,8 +62,11 @@ const addLoan = asyncHandler(async (req, res) => {
           throwError('Stok barang kosong, tidak dapat dipinjam', 400);
         if (item.quantity < quantity)
           throwError('Stok barang tidak mencukupi', 400);
-        if (item.condition === 'Rusak')
-          throwError('Barang rusak, tidak dapat dipinjam', 400);
+        if (item.condition === 'Rusak' || item.condition === 'Maintenance')
+          throwError(
+            'Barang rusak atau sedang maintenance, tidak dapat dipinjam',
+            400
+          );
 
         // Update stok
         item.quantity -= quantity;
@@ -266,8 +269,11 @@ const updateLoan = asyncHandler(async (req, res) => {
 
         if (product.quantity < it.quantity)
           throwError('Stok tidak mencukupi', 400);
-        if (product.condition === 'Rusak')
-          throwError('Barang rusak, tidak dapat dipinjam', 400);
+        if (item.condition === 'Rusak' || item.condition === 'Maintenance')
+          throwError(
+            'Barang rusak atau sedang maintenance, tidak dapat dipinjam',
+            400
+          );
 
         product.quantity -= it.quantity;
         await product.save({ session });
