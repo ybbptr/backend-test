@@ -30,8 +30,8 @@ const employeeSchema = new mongoose.Schema({
   end_date: Date,
   documents: {
     ktp: {
-      key: { type: String, required: true },
-      contentType: { type: String, required: true },
+      key: { type: String },
+      contentType: { type: String },
       size: { type: Number },
       uploadedAt: { type: Date, default: Date.now }
     },
