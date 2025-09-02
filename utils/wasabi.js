@@ -40,4 +40,13 @@ async function deleteFile(key) {
   return await s3.send(command);
 }
 
-module.exports = { uploadBuffer, getFileUrl, deleteFile };
+async function getFileStream(key) {
+  const command = new GetObjectCommand({
+    Bucket: process.env.WASABI_BUCKET,
+    Key: key
+  });
+  const { Body } = await s3.send(command);
+  return Body;
+}
+
+module.exports = { uploadBuffer, getFileUrl, deleteFile, getFileStream };

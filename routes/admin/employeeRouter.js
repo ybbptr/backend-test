@@ -5,7 +5,8 @@ const {
   getEmployee,
   getEmployees,
   removeEmployee,
-  updateEmployee
+  updateEmployee,
+  downloadEmployeeDocs
 } = require('../../controller/admin/employeeController');
 const Router = express.Router();
 const validate = require('../../middleware/validations/validate');
@@ -53,6 +54,7 @@ Router.post(
 Router.get('/email-employees', getAllUserEmails);
 Router.get('/all-employee', getEmployees);
 
+Router.get('/:id/download', downloadEmployeeDocs);
 Router.get('/:id', getEmployee);
 Router.delete('/remove/:id', removeEmployee);
 Router.put(

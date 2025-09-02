@@ -1,7 +1,13 @@
 const asyncHandler = require('express-async-handler');
 const throwError = require('../../utils/throwError');
-const { uploadBuffer, getFileUrl, deleteFile } = require('../../utils/wasabi');
+const {
+  uploadBuffer,
+  getFileUrl,
+  deleteFile,
+  getFileStream
+} = require('../../utils/wasabi');
 const path = require('path');
+const archiver = require('archiver');
 const formatDate = require('../../utils/formatDate');
 const User = require('../../model/userModel');
 const Employee = require('../../model/employeeModel');
@@ -316,11 +322,40 @@ const getAllUserEmails = asyncHandler(async (req, res) => {
   res.json(users);
 });
 
+const downloadEmployeeDocs = asyncHandler(async (req, res) => {
+  const employee = await Employee.findById(req.params.id);
+  if (!employee) throwError('Data karyawan tidak ada!', 404);
+
+  const docs = employee.documents || {};
+  const docEntries = Object.entries(docs).filter(([_, v]) => v?.key);
+
+  if (docEntries.length === 0) {
+    return res.status(404).json({ message: 'Tidak ada dokumen untuk diunduh' });
+  }
+
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename=employee-${employee._id}-docs.zip`
+  );
+
+  const archive = archiver('zip', { zlib: { level: 9 } });
+  archive.pipe(res);
+
+  for (const [docName, docValue] of docEntries) {
+    const stream = await getFileStream(docValue.key);
+    archive.append(stream, { name: `${docName}-${docValue.key}` });
+  }
+
+  await archive.finalize();
+});
+
 module.exports = {
   getAllUserEmails,
   addEmployee,
   getEmployee,
   getEmployees,
   removeEmployee,
-  updateEmployee
+  updateEmployee,
+  downloadEmployeeDocs
 };
