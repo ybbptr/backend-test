@@ -11,8 +11,6 @@ const loanCirculationModel = require('../../model/loanCirculationModel');
 
 const addLoan = asyncHandler(async (req, res) => {
   const {
-    loan_date,
-    return_date,
     borrower,
     nik,
     address,
@@ -24,8 +22,6 @@ const addLoan = asyncHandler(async (req, res) => {
   } = req.body || {};
 
   if (
-    !loan_date ||
-    !return_date ||
     !borrower ||
     !nik ||
     !address ||
@@ -83,8 +79,6 @@ const addLoan = asyncHandler(async (req, res) => {
       [
         {
           borrower,
-          loan_date,
-          return_date,
           nik,
           address,
           phone,
@@ -239,8 +233,6 @@ const updateLoan = asyncHandler(async (req, res) => {
 
   try {
     const {
-      loan_date,
-      return_date,
       borrower,
       approval,
       nik,
@@ -328,8 +320,6 @@ const updateLoan = asyncHandler(async (req, res) => {
       }
     }
 
-    loan_item.loan_date = loan_date || loan_item.loan_date;
-    loan_item.return_date = return_date || loan_item.return_date;
     loan_item.borrower = borrower || loan_item.borrower;
     loan_item.nik = nik || loan_item.nik;
     loan_item.address = address || loan_item.address;
