@@ -75,6 +75,7 @@ const addLoan = asyncHandler(async (req, res) => {
 
         // Update stok
         item.quantity -= quantity;
+        item.loan_quantity = (item.loan_quantity || 0) + quantity;
         await item.save({ session });
       }
 
@@ -222,6 +223,7 @@ const removeLoan = asyncHandler(async (req, res) => {
         if (!product) throwError('Produk tidak ditemukan', 404);
 
         product.quantity += it.quantity;
+        product.loan_quantity -= it.quantity;
         await product.save({ session });
       }
     }
@@ -285,6 +287,7 @@ const updateLoan = asyncHandler(async (req, res) => {
           );
 
         product.quantity -= it.quantity;
+        product.loan_quantity = (product.loan_quantity || 0) + it.quantity;
         await product.save({ session });
       }
     }
@@ -296,6 +299,7 @@ const updateLoan = asyncHandler(async (req, res) => {
         if (!product) throwError('Produk tidak ditemukan', 404);
 
         product.quantity += it.quantity;
+        product.loan_quantity -= it.quantity;
         await product.save({ session });
       }
     }
@@ -322,12 +326,12 @@ const updateLoan = asyncHandler(async (req, res) => {
           product.quantity += Math.abs(diff);
         }
 
+        product.loan_quantity = (product.loan_quantity || 0) + diff;
         await product.save({ session });
       }
     }
 
-    // ===== Rebuild borrowed_items =====
-    let processedItems = loan_item.borrowed_items; // default lama
+    let processedItems = loan_item.borrowed_items;
     if (borrowed_items) {
       processedItems = [];
       for (const it of borrowed_items) {
@@ -345,7 +349,6 @@ const updateLoan = asyncHandler(async (req, res) => {
       }
     }
 
-    // ===== Update field utama =====
     if (loan_date !== undefined) loan_item.loan_date = loan_date;
     if (pickup_date !== undefined) loan_item.pickup_date = pickup_date;
     if (return_date !== undefined) loan_item.return_date = return_date;
