@@ -114,6 +114,11 @@ const updateLoanSchema = Joi.object({
       'string.pattern.base': 'Nomor HP hanya boleh berisi angka'
     }),
   loan_date: Joi.date(),
+  inventory_manager: Joi.string()
+    .valid('Owan H.', 'Teguh F.', 'Korlap')
+    .messages({
+      'any.only': 'Penanggung jawab hanya Owan H., Teguh F., dan Korlap'
+    }),
   pickup_date: Joi.date(),
   return_date: Joi.date().greater(Joi.ref('pickup_date')).messages({
     'date.greater': 'Tanggal kembali harus lebih besar dari tanggal pengambilan'
