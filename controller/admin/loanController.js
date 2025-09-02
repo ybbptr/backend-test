@@ -49,7 +49,7 @@ const addLoan = asyncHandler(async (req, res) => {
     for (const it of borrowed_items) {
       const { product, quantity, project } = it;
 
-      if (!product || !quantity || project) {
+      if (!product || !quantity || !project) {
         throwError('Data barang yang dipinjam tidak lengkap', 400);
       }
 
@@ -257,7 +257,7 @@ const updateLoan = asyncHandler(async (req, res) => {
     const loan_item = await Loan.findById(req.params.id).session(session);
     if (!loan_item) throwError('Pengajuan tidak terdaftar!', 404);
 
-    // ====== Kondisi stok ======
+    // ===== Kondisi stok =====
     // 1. Dari belum Disetujui → Disetujui
     if (loan_item.approval !== 'Disetujui' && approval === 'Disetujui') {
       for (const it of borrowed_items) {
@@ -272,19 +272,9 @@ const updateLoan = asyncHandler(async (req, res) => {
         product.quantity -= it.quantity;
         await product.save({ session });
       }
-
-      // buat sirkulasi baru
-      // const circulationPayload = borrowed_items.map((it) => ({
-      //   loan_id: loan_item._id,
-      //   product: it.product,
-      //   product_name: it.product_code,
-      //   loan_quantity: it.quantity,
-      //   warehouse_from: it.warehouse_from || null,
-      //   warehouse_to: it.warehouse_to || null
-      // }));
-      // await loanCirculationModel.create(circulationPayload, { session });
     }
 
+    // 2. Dari Disetujui → Ditolak / Diproses (balikin stok)
     if (loan_item.approval === 'Disetujui' && approval !== 'Disetujui') {
       for (const it of loan_item.borrowed_items) {
         const product = await Product.findById(it.product).session(session);
@@ -293,17 +283,16 @@ const updateLoan = asyncHandler(async (req, res) => {
         product.quantity += it.quantity;
         await product.save({ session });
       }
-
-      // await loanCirculationModel
-      //   .deleteMany({ loan_id: loan_item._id })
-      //   .session(session);
     }
 
-    // 3. Sama-sama Disetujui, tapi jumlah berubah
+    // 3. Sama-sama Disetujui → cek selisih jumlah
     if (loan_item.approval === 'Disetujui' && approval === 'Disetujui') {
-      for (let i = 0; i < borrowed_items.length; i++) {
-        const newItem = borrowed_items[i];
-        const oldItem = loan_item.borrowed_items[i];
+      for (const newItem of borrowed_items) {
+        const oldItem = loan_item.borrowed_items.find(
+          (it) => it.product.toString() === newItem.product.toString()
+        );
+
+        if (!oldItem) throwError('Barang lama tidak ditemukan di loan', 400);
 
         const product = await Product.findById(newItem.product).session(
           session
@@ -319,29 +308,40 @@ const updateLoan = asyncHandler(async (req, res) => {
         }
 
         await product.save({ session });
-
-        // await loanCirculationModel.findOneAndUpdate(
-        //   { loan_id: loan_item._id, product: newItem.product },
-        //   {
-        //     loan_quantity: newItem.quantity,
-        //     product_name: newItem.product_code
-        //   },
-        //   { session }
-        // );
       }
     }
 
-    loan_item.loan_date = loan_date || loan_item.loan_date;
-    loan_item.pickup_date = pickup_date || loan_item.pickup_date;
-    loan_item.return_date = return_date || loan_item.return_date;
-    loan_item.borrower = borrower || loan_item.borrower;
-    loan_item.nik = nik || loan_item.nik;
-    loan_item.address = address || loan_item.address;
-    loan_item.phone = phone || loan_item.phone;
-    loan_item.warehouse = warehouse || loan_item.warehouse;
-    loan_item.shelf = shelf || loan_item.shelf;
-    loan_item.approval = approval || loan_item.approval;
-    if (borrowed_items) loan_item.borrowed_items = borrowed_items;
+    // ===== Rebuild borrowed_items =====
+    let processedItems = loan_item.borrowed_items; // default lama
+    if (borrowed_items) {
+      processedItems = [];
+      for (const it of borrowed_items) {
+        const product = await Product.findById(it.product).session(session);
+        if (!product) throwError('Produk tidak ditemukan', 404);
+
+        processedItems.push({
+          product: product._id,
+          product_code: product.product_code,
+          brand: product.brand,
+          quantity: it.quantity,
+          project: it.project || null,
+          condition: product.condition
+        });
+      }
+    }
+
+    // ===== Update field utama =====
+    if (loan_date !== undefined) loan_item.loan_date = loan_date;
+    if (pickup_date !== undefined) loan_item.pickup_date = pickup_date;
+    if (return_date !== undefined) loan_item.return_date = return_date;
+    if (borrower !== undefined) loan_item.borrower = borrower;
+    if (nik !== undefined) loan_item.nik = nik;
+    if (address !== undefined) loan_item.address = address;
+    if (phone !== undefined) loan_item.phone = phone;
+    if (warehouse !== undefined) loan_item.warehouse = warehouse;
+    if (shelf !== undefined) loan_item.shelf = shelf;
+    if (approval !== undefined) loan_item.approval = approval;
+    if (borrowed_items) loan_item.borrowed_items = processedItems;
 
     await loan_item.save({ session });
 
