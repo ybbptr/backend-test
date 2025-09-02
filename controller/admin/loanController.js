@@ -17,6 +17,7 @@ const addLoan = asyncHandler(async (req, res) => {
     borrower,
     nik,
     address,
+    position,
     phone,
     warehouse,
     shelf,
@@ -31,6 +32,7 @@ const addLoan = asyncHandler(async (req, res) => {
     !borrower ||
     !nik ||
     !address ||
+    !position ||
     !phone ||
     !warehouse ||
     !shelf ||
@@ -92,6 +94,7 @@ const addLoan = asyncHandler(async (req, res) => {
           pickup_date,
           nik,
           address,
+          position,
           phone,
           warehouse,
           shelf,
@@ -251,6 +254,7 @@ const updateLoan = asyncHandler(async (req, res) => {
       approval,
       nik,
       address,
+      position,
       warehouse,
       shelf,
       phone,
@@ -343,6 +347,7 @@ const updateLoan = asyncHandler(async (req, res) => {
     if (borrower !== undefined) loan_item.borrower = borrower;
     if (nik !== undefined) loan_item.nik = nik;
     if (address !== undefined) loan_item.address = address;
+    if (position !== undefined) loan_item.position = position;
     if (phone !== undefined) loan_item.phone = phone;
     if (warehouse !== undefined) loan_item.warehouse = warehouse;
     if (shelf !== undefined) loan_item.shelf = shelf;

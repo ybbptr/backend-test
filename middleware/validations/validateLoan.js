@@ -21,6 +21,10 @@ const createLoanSchema = Joi.object({
     'any.required': 'Alamat wajib diisi',
     'string.empty': 'Alamat tidak boleh kosong'
   }),
+  position: Joi.string().required().messages({
+    'any.required': 'Posisi karyawan wajib diisi',
+    'string.empty': 'Posisi karyawan tidak boleh kosong'
+  }),
   phone: Joi.string()
     .pattern(/^[0-9]+$/)
     .required()
@@ -96,6 +100,7 @@ const updateLoanSchema = Joi.object({
   }),
   nik: Joi.string(),
   address: Joi.string(),
+  position: Joi.string(),
   phone: Joi.string()
     .pattern(/^[0-9]+$/)
     .messages({

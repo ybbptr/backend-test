@@ -37,10 +37,9 @@
       .info-table td {
         padding: 6px 8px;
         border: none;
-        border-bottom: 1px solid #ccc; /* opsional, biar ada garis tipis */
       }
       .info-table tr:last-child td {
-        border-bottom: none; /* hilangkan garis terakhir */
+        border-bottom: none;
       }
     </style>
   </head>
@@ -49,14 +48,16 @@
 
     <table class="info-table">
       <tr>
+        <td>Tanggal Peminjaman</td>
+        <td>{{pickup_date}}</td>
+        <td>No. KTP</td>
+        <td>{{nik}}</td>
         <td>Nama Peminjam</td>
         <td>{{borrower.name}}</td>
-        <td>Tanggal Pinjam</td>
-        <td>{{loan_date}}</td>
       </tr>
       <tr>
-        <td>NIK</td>
-        <td>{{nik}}</td>
+        <td>Tanggal Pengembalian</td>
+        <td>{{return_date}}</td>
         <td>No HP</td>
         <td>{{phone}}</td>
       </tr>
@@ -65,8 +66,8 @@
         <td colspan="3">{{address}}</td>
       </tr>
       <tr>
-        <td>Kode Pinjam</td>
-        <td>{{loanCode}}</td>
+        <td>Kode Peminjaman</td>
+        <td>{{loan_number}}</td>
         <td>Status</td>
         <td>{{approval}}</td>
       </tr>
@@ -87,7 +88,7 @@
         <tr>
           <td>{{@index}}</td>
           <td>{{product_code}}</td>
-          <td>{{product.product_name}}</td>
+          <td>{{product.brand}}</td>
           <td>{{quantity}}</td>
           <td>{{project.project_name}}</td>
         </tr>

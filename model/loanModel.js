@@ -12,6 +12,7 @@ const loanSchema = new mongoose.Schema(
     nik: { type: String, required: true },
     address: { type: String, required: true },
     phone: { type: String, required: true },
+    position: { type: String, required: true },
     loan_date: { type: Date, required: true },
     pickup_date: { type: Date, required: true },
     return_date: { type: Date, required: true },
