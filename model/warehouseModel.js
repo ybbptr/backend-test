@@ -10,12 +10,10 @@ const warehouseSchema = new mongoose.Schema({
     uploadedAt: { type: Date, default: Date.now }
   },
   description: { type: String },
-  shelves: [
-    {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Shelf'
-    }
-  ]
+  shelves: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Shelf' }]
 });
+
+warehouseSchema.index({ warehouse_name: 1 });
+warehouseSchema.index({ warehouse_name: 'text', description: 'text' });
 
 module.exports = mongoose.model('Warehouse', warehouseSchema);

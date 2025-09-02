@@ -1,6 +1,7 @@
 const asyncHandler = require('express-async-handler');
 const throwError = require('../../utils/throwError');
 const { uploadBuffer, getFileUrl, deleteFile } = require('../../utils/wasabi');
+const formatDate = require('../../utils/formatDate');
 const path = require('path');
 
 const { checkDuplicateValue } = require('../../middleware/checkDuplicate');
@@ -30,8 +31,7 @@ const addWarehouse = asyncHandler(async (req, res) => {
     if (req.file) {
       const file = req.file;
       const ext = path.extname(file.originalname);
-      const date = new Date().toISOString().replace(/[:.]/g, '-');
-      const key = `warehouses/${warehouse_code}/warehouse_${date}${ext}`;
+      const key = `Gudang/${warehouse_code}/${warehouse_name}_${formatDate()}${ext}`;
 
       await uploadBuffer(key, file.buffer);
 
@@ -87,10 +87,59 @@ const addWarehouse = asyncHandler(async (req, res) => {
 });
 
 const getWarehouses = asyncHandler(async (req, res) => {
-  const warehouses = await Warehouse.find()
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
+
+  const { warehouse_code, warehouse_name, search, sort } = req.query;
+
+  const filter = {};
+  if (warehouse_code)
+    filter.warehouse_code = { $regex: warehouse_code, $options: 'i' };
+  if (warehouse_name)
+    filter.warehouse_name = { $regex: warehouse_name, $options: 'i' };
+  if (search) {
+    filter.$or = [
+      { warehouse_code: { $regex: search, $options: 'i' } },
+      { warehouse_name: { $regex: search, $options: 'i' } },
+      { description: { $regex: search, $options: 'i' } }
+    ];
+  }
+
+  let sortOption = { createdAt: -1 };
+  if (sort) {
+    const [field, order] = sort.split(':');
+    sortOption = { [field]: order === 'asc' ? 1 : -1 };
+  }
+
+  const warehouses = await Warehouse.find(filter)
     .populate('shelves', 'shelf_name shelf_code')
-    .exec();
-  res.status(200).json(warehouses);
+    .skip(skip)
+    .limit(limit)
+    .sort(sortOption)
+    .lean();
+
+  const totalItems = await Warehouse.countDocuments(filter);
+  const totalPages = Math.ceil(totalItems / limit);
+
+  const warehousesWithUrls = await Promise.all(
+    warehouses.map(async (w) => {
+      let imageUrl = null;
+      if (w.image?.key) {
+        imageUrl = await getFileUrl(w.image.key, 60 * 5);
+      }
+      return { ...w, image_url: imageUrl };
+    })
+  );
+
+  res.status(200).json({
+    page,
+    limit,
+    totalItems,
+    totalPages,
+    sort: sortOption,
+    data: warehousesWithUrls
+  });
 });
 
 const removeWarehouse = asyncHandler(async (req, res) => {
@@ -100,6 +149,10 @@ const removeWarehouse = asyncHandler(async (req, res) => {
   try {
     const warehouse = await Warehouse.findById(req.params.id).session(session);
     if (!warehouse) throwError('Gudang tidak ditemukan!', 404);
+
+    if (warehouse.warehouse_image?.key) {
+      await deleteFile(warehouse.warehouse_image.key);
+    }
 
     await Shelf.updateMany(
       { warehouse: warehouse._id },
@@ -125,37 +178,73 @@ const removeWarehouse = asyncHandler(async (req, res) => {
     res.status(200).json({ message: 'Gudang berhasil dihapus.' });
   } catch (err) {
     await session.abortTransaction();
-    throwError('Gagal menghapus gudang', 400);
+    throwError(err.message || 'Gagal menghapus gudang', 400);
   } finally {
     session.endSession();
   }
 });
 
 const updateWarehouse = asyncHandler(async (req, res) => {
-  const { warehouse_code, warehouse_name, image, description, shelves } =
+  const { warehouse_code, warehouse_name, description, shelves } =
     req.body || {};
 
   const warehouse = await Warehouse.findById(req.params.id);
-
   if (!warehouse) throwError('Gudang yang anda cari tidak ada!', 404);
+
+  if (req.file) {
+    const file = req.file;
+
+    if (warehouse.warehouse_image?.key) {
+      await deleteFile(warehouse.warehouse_image.key);
+    }
+
+    const ext = path.extname(file.originalname);
+    const key = `Gudang/${warehouse_code}/${warehouse_name}_${formatDate()}${ext}`;
+
+    await uploadBuffer(key, file.buffer);
+
+    warehouse.warehouse_image = {
+      key,
+      contentType: file.mimetype,
+      size: file.size,
+      uploadedAt: new Date()
+    };
+  }
 
   warehouse.warehouse_code = warehouse_code || warehouse.warehouse_code;
   warehouse.warehouse_name = warehouse_name || warehouse.warehouse_name;
-  warehouse.image = image || warehouse.image;
   warehouse.description = description || warehouse.description;
   warehouse.shelves = shelves || warehouse.shelves;
 
   await warehouse.save();
-  res.status(200).json(warehouse);
+
+  let imageUrl = null;
+  if (warehouse.warehouse_image?.key) {
+    imageUrl = await getFileUrl(warehouse.warehouse_image.key, 60 * 5);
+  }
+
+  res.status(200).json({
+    ...warehouse.toObject(),
+    image_url: imageUrl
+  });
 });
 
 const getWarehouse = asyncHandler(async (req, res) => {
   const warehouse = await Warehouse.findById(req.params.id)
     .populate('shelves', 'shelf_name shelf_code')
-    .exec();
-  if (!warehouse) throwError('Gudang yang anda cari tidak ada!', 400);
+    .lean();
 
-  res.status(200).json({ warehouse });
+  if (!warehouse) throwError('Gudang yang anda cari tidak ada!', 404);
+
+  let imageUrl = null;
+  if (warehouse.warehouse_image?.key) {
+    imageUrl = await getFileUrl(warehouse.warehouse_image.key, 60 * 5);
+  }
+
+  res.status(200).json({
+    ...warehouse,
+    image_url: imageUrl
+  });
 });
 
 module.exports = {

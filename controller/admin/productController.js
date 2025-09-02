@@ -31,8 +31,7 @@ const addProduct = asyncHandler(async (req, res) => {
   if (files.product_image && files.product_image[0]) {
     const file = files.product_image[0];
     const ext = path.extname(file.originalname);
-    const date = formatDate();
-    const key = `inventaris/${product_code}/${category}_${brand}_${type}_${date}${ext}`;
+    const key = `inventaris/${product_code}/${category}_${brand}_${type}_${formatDate()}${ext}`;
     await uploadBuffer(key, file.buffer);
     productImageMeta = {
       key,
