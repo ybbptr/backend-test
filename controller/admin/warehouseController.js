@@ -225,7 +225,7 @@ const updateWarehouse = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     ...warehouse.toObject(),
-    image_url: imageUrl
+    warehouse_image_url: imageUrl
   });
 });
 
@@ -243,7 +243,7 @@ const getWarehouse = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     ...warehouse,
-    image_url: imageUrl
+    warehouse_image_url: imageUrl
   });
 });
 
