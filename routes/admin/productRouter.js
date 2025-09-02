@@ -12,7 +12,6 @@ const {
 } = require('../../controller/admin/productController');
 
 const Router = express.Router();
-const { imageUploader, pdfUploader } = require('../../utils/fileUploader');
 const validate = require('../../middleware/validations/validate');
 const {
   createProductSchema,

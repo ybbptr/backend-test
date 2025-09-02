@@ -205,4 +205,4 @@ const employeeUpdateValidation = Joi.object({
   }).allow(null)
 });
 
-module.exports = { employeeCreateValidation };
+module.exports = { employeeCreateValidation, employeeUpdateValidation };
