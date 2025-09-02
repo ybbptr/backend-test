@@ -405,7 +405,7 @@ const getShelves = asyncHandler(async (req, res) => {
 
 const getLoanPdf = asyncHandler(async (req, res) => {
   const loan = await Loan.findById(req.params.id)
-    .populate('borrower', 'name nik phone address')
+    .populate('borrower', 'name nik phone address position')
     .populate(
       'borrowed_items.product',
       'product_name product_code brand product_image'
