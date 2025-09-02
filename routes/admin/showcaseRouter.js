@@ -1,7 +1,11 @@
 const express = require('express');
 const Router = express.Router();
 const validate = require('../../middleware/validations/validate');
-const validateShowcase = require('../../middleware/validations/validateShowcase');
+const {
+  createShowcaseSchema,
+  updateShowcaseSchema
+} = require('../../middleware/validations/validateShowcase');
+const { imageUploader } = require('../../utils/fileUploader');
 const {
   addShowcase,
   getShowcase,
@@ -10,13 +14,24 @@ const {
   updateShowcase
 } = require('../../controller/admin/showcaseController');
 
-Router.post('/add-showcase', validate(validateShowcase), addShowcase).get(
-  '/all-showcase',
-  getShowcases
+Router.post(
+  '/add-showcase',
+  imageUploader.single('img'),
+  validate(createShowcaseSchema),
+  addShowcase
 );
 
-Router.get('/:id', getShowcase)
-  .put('/update/:id', validate(validateShowcase), updateShowcase)
-  .delete('/remove/:id', removeShowcase);
+Router.get('/all-showcase', getShowcases);
+
+Router.get('/:id', getShowcase);
+
+Router.put(
+  '/update/:id',
+  imageUploader.single('img'),
+  validate(updateShowcaseSchema),
+  updateShowcase
+);
+
+Router.delete('/remove/:id', removeShowcase);
 
 module.exports = Router;

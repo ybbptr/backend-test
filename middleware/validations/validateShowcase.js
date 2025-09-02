@@ -1,26 +1,23 @@
 const Joi = require('joi');
 
-const showcaseSchema = Joi.object({
+const createShowcaseSchema = Joi.object({
   project_name: Joi.string().required().messages({
-    'string.base': 'Nama proyek harus berupa teks',
-    'string.empty': 'Nama proyek tidak boleh kosong',
-    'any.required': 'Nama proyek wajib diisi'
+    'any.required': 'Nama proyek wajib diisi',
+    'string.empty': 'Nama proyek tidak boleh kosong'
   }),
   location: Joi.string().required().messages({
-    'string.base': 'Lokasi proyek harus berupa teks',
-    'string.empty': 'Lokasi proyek tidak boleh kosong',
-    'any.required': 'Lokasi proyek wajib diisi'
+    'any.required': 'Lokasi proyek wajib diisi',
+    'string.empty': 'Lokasi proyek tidak boleh kosong'
   }),
-  imgUrl: Joi.string().uri().allow('').optional().messages({
-    'string.base': 'URL gambar harus berupa teks',
-    'string.uri': 'URL gambar tidak valid'
-  }),
-  date_start: Joi.string().allow('').optional().messages({
-    'string.base': 'Tanggal mulai harus berupa teks'
-  }),
-  date_end: Joi.string().allow('').optional().messages({
-    'string.base': 'Tanggal selesai harus berupa teks'
-  })
+  date_start: Joi.string().allow('', null),
+  date_end: Joi.string().allow('', null)
 });
 
-module.exports = showcaseSchema;
+const updateShowcaseSchema = Joi.object({
+  project_name: Joi.string().optional(),
+  location: Joi.string().optional(),
+  date_start: Joi.string().allow('', null).optional(),
+  date_end: Joi.string().allow('', null).optional()
+});
+
+module.exports = { createShowcaseSchema, updateShowcaseSchema };

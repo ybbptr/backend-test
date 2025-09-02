@@ -95,8 +95,8 @@ const getStaffs = asyncHandler(async (req, res) => {
       let imgUrl = null;
       let gifUrl = null;
 
-      if (s.img?.key) imgUrl = await getFileUrl(s.img.key);
-      if (s.gif?.key) gifUrl = await getFileUrl(s.gif.key);
+      if (s.img?.key) imgUrl = await getFileUrl(s.img.key, 86400);
+      if (s.gif?.key) gifUrl = await getFileUrl(s.gif.key, 86400);
 
       return { ...s, imgUrl, gifUrl };
     })
@@ -118,8 +118,8 @@ const getStaff = asyncHandler(async (req, res) => {
 
   let imgUrl = null;
   let gifUrl = null;
-  if (staff.img?.key) imgUrl = await getFileUrl(staff.img.key);
-  if (staff.gif?.key) gifUrl = await getFileUrl(staff.gif.key);
+  if (staff.img?.key) imgUrl = await getFileUrl(staff.img.key, 86400);
+  if (staff.gif?.key) gifUrl = await getFileUrl(staff.gif.key, 86400);
 
   res.status(200).json({
     ...staff.toObject(),
