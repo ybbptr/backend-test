@@ -88,6 +88,8 @@ const addEmployee = asyncHandler(async (req, res) => {
     documents
   });
 
+  await User.findByIdAndUpdate(user, { role: 'Karyawan' });
+
   res.status(201).json({
     message: 'Employee berhasil ditambahkan',
     data: employee
@@ -186,6 +188,14 @@ const removeEmployee = asyncHandler(async (req, res) => {
     const employee = await Employee.findById(req.params.id);
     if (!employee) throwError('Data karyawan tidak ada!', 400);
 
+    if (employee.user) {
+      await User.findByIdAndUpdate(
+        employee.user,
+        { role: 'User' },
+        { session }
+      );
+    }
+
     if (employee.documents) {
       for (const [key, value] of Object.entries(employee.documents)) {
         if (value && value.key) {
@@ -216,6 +226,8 @@ const removeEmployee = asyncHandler(async (req, res) => {
 const updateEmployee = asyncHandler(async (req, res) => {
   const employee = await Employee.findById(req.params.id);
   if (!employee) throwError('Karyawan tidak ditemukan!', 404);
+
+  const prevUserId = employee.user.toString();
 
   const fields = [
     'user',
@@ -277,6 +289,11 @@ const updateEmployee = asyncHandler(async (req, res) => {
   }
 
   await employee.save();
+
+  if (req.body.user && req.body.user !== prevUserId) {
+    await User.findByIdAndUpdate(prevUserId, { role: 'User' });
+    await User.findByIdAndUpdate(req.body.user, { role: 'Karyawan' });
+  }
 
   res.status(200).json({
     message: 'Data karyawan berhasil diperbarui',
