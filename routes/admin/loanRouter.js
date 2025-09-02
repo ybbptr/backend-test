@@ -3,7 +3,10 @@ const Router = express.Router();
 const validate = require('../../middleware/validations/validate');
 const { checkDuplicate } = require('../../middleware/checkDuplicate');
 const Loan = require('../../model/loanModel');
-const validateLoan = require('../../middleware/validations/validateLoan');
+const {
+  createLoanSchema,
+  updateLoanSchema
+} = require('../../middleware/validations/validateLoan');
 const {
   addLoan,
   getLoan,
@@ -19,7 +22,7 @@ const {
 
 Router.post(
   '/add-loan',
-  validate(validateLoan),
+  validate(createLoanSchema),
   checkDuplicate(Loan, { loan_number: 'Nomor peminjaman' }),
   addLoan
 )
@@ -33,7 +36,7 @@ Router.get('/:id/pdf', getLoanPdf);
 Router.get('/:id', getLoan)
   .put(
     '/update/:id',
-    validate(validateLoan),
+    validate(updateLoanSchema),
     checkDuplicate(Loan, { loan_number: 'Nomor peminjaman' }),
     updateLoan
   )

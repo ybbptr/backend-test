@@ -8,7 +8,7 @@ const objectIdValidator = (value, helpers) => {
   return value;
 };
 
-const loanSchema = Joi.object({
+const createLoanSchema = Joi.object({
   borrower: Joi.string().custom(objectIdValidator).required().messages({
     'any.invalid': 'ID karyawan tidak valid!',
     'any.required': 'Karyawan wajib diisi!'
@@ -88,6 +88,62 @@ const loanSchema = Joi.object({
     })
 });
 
+const updateLoanSchema = Joi.object({
+  borrower: Joi.string().custom(objectIdValidator).messages({
+    'any.invalid': 'ID karyawan tidak valid!'
+  }),
+
+  loan_date: Joi.date().messages({
+    'date.base': 'Tanggal pinjam harus berupa tanggal yang valid'
+  }),
+
+  return_date: Joi.date().greater(Joi.ref('loan_date')).messages({
+    'date.base': 'Tanggal kembali harus berupa tanggal yang valid',
+    'date.greater': 'Tanggal kembali harus lebih besar dari tanggal pinjam'
+  }),
+
+  nik: Joi.string().messages({
+    'string.empty': 'NIK tidak boleh kosong'
+  }),
+
+  address: Joi.string().messages({
+    'string.empty': 'Alamat tidak boleh kosong'
+  }),
+
+  phone: Joi.string()
+    .pattern(/^[0-9]+$/)
+    .messages({
+      'string.pattern.base': 'Nomor HP hanya boleh berisi angka'
+    }),
+
+  borrowed_items: Joi.array().items(
+    Joi.object({
+      product: Joi.string().custom(objectIdValidator).messages({
+        'any.invalid': 'ID barang tidak valid!'
+      }),
+      product_code: Joi.string(),
+      brand: Joi.string().allow('', null),
+      quantity: Joi.number().min(1).messages({
+        'number.base': 'Jumlah pinjam harus berupa angka',
+        'number.min': 'Jumlah pinjam minimal 1'
+      }),
+      pickup_date: Joi.date().messages({
+        'date.base': 'Tanggal pengambilan harus berupa tanggal'
+      }),
+      return_date: Joi.date().allow(null),
+      project: Joi.string().custom(objectIdValidator).messages({
+        'any.invalid': 'ID project tidak valid!'
+      }),
+      condition: Joi.string().allow('', null)
+    })
+  ),
+
+  approval: Joi.string().valid('Disetujui', 'Ditolak', 'Diproses').messages({
+    'any.only': 'Status approval hanya boleh Disetujui, Ditolak, atau Diproses'
+  })
+});
+
 module.exports = {
-  loanSchema
+  createLoanSchema,
+  updateLoanSchema
 };
