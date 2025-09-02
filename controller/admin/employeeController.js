@@ -36,8 +36,33 @@ const addEmployee = asyncHandler(async (req, res) => {
     throwError('Field ini harus diisi', 400);
   }
 
-  let documents = {};
+  // 1. buat employee dulu biar dapat _id
+  let employee = new Employee({
+    user,
+    name,
+    nik,
+    age,
+    phone,
+    address,
+    employment_type,
+    religion,
+    height,
+    weight,
+    number_of_children,
+    place_of_birth,
+    date_of_birth,
+    status,
+    bank_account_number,
+    emergency_contact_number,
+    position,
+    blood_type,
+    start_date,
+    end_date
+  });
+  await employee.save();
 
+  // 2. handle upload dokumen
+  let documents = {};
   if (req.files) {
     for (const field of [
       'ktp',
@@ -64,30 +89,11 @@ const addEmployee = asyncHandler(async (req, res) => {
     }
   }
 
-  const employee = await Employee.create({
-    user,
-    name,
-    nik,
-    age,
-    phone,
-    address,
-    employment_type,
-    religion,
-    height,
-    weight,
-    number_of_children,
-    place_of_birth,
-    date_of_birth,
-    status,
-    bank_account_number,
-    emergency_contact_number,
-    position,
-    blood_type,
-    start_date,
-    end_date,
-    documents
-  });
+  // 3. update employee dengan documents
+  employee.documents = documents;
+  await employee.save();
 
+  // 4. update role user jadi Karyawan
   await User.findByIdAndUpdate(user, { role: 'Karyawan' });
 
   res.status(201).json({
@@ -258,6 +264,7 @@ const updateEmployee = asyncHandler(async (req, res) => {
     }
   }
 
+  // handle dokumen update
   if (req.files) {
     for (const field of [
       'ktp',
@@ -270,12 +277,13 @@ const updateEmployee = asyncHandler(async (req, res) => {
       if (req.files[field]) {
         const file = req.files[field][0];
         const ext = path.extname(file.originalname);
+
+        // hapus file lama
         if (employee.documents?.[field]?.key) {
           await deleteFile(employee.documents[field].key);
         }
 
         const key = `karyawan/${employee._id}/${field}_${formatDate()}${ext}`;
-
         await uploadBuffer(key, file.buffer);
 
         employee.documents[field] = {
@@ -290,6 +298,7 @@ const updateEmployee = asyncHandler(async (req, res) => {
 
   await employee.save();
 
+  // kalau user diganti → update role
   if (req.body.user && req.body.user !== prevUserId) {
     await User.findByIdAndUpdate(prevUserId, { role: 'User' });
     await User.findByIdAndUpdate(req.body.user, { role: 'Karyawan' });
@@ -297,7 +306,7 @@ const updateEmployee = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     message: 'Data karyawan berhasil diperbarui',
-    employee
+    data: employee
   });
 });
 
