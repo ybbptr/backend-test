@@ -12,6 +12,9 @@ const loanSchema = new mongoose.Schema(
     nik: { type: String, required: true },
     address: { type: String, required: true },
     phone: { type: String, required: true },
+    loan_date: { type: Date, required: true },
+    pickup_date: { type: Date, required: true },
+    return_date: { type: Date, required: true },
     warehouse: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Warehouse',
@@ -32,8 +35,6 @@ const loanSchema = new mongoose.Schema(
         product_code: { type: String, required: true },
         brand: { type: String },
         quantity: { type: Number, required: true },
-        pickup_date: { type: Date, required: true },
-        return_date: { type: Date },
         project: {
           type: mongoose.Schema.Types.ObjectId,
           ref: 'Project',

@@ -17,12 +17,10 @@ const createLoanSchema = Joi.object({
     'any.required': 'NIK wajib diisi',
     'string.empty': 'NIK tidak boleh kosong'
   }),
-
   address: Joi.string().required().messages({
     'any.required': 'Alamat wajib diisi',
     'string.empty': 'Alamat tidak boleh kosong'
   }),
-
   phone: Joi.string()
     .pattern(/^[0-9]+$/)
     .required()
@@ -31,7 +29,27 @@ const createLoanSchema = Joi.object({
       'string.empty': 'Nomor HP tidak boleh kosong',
       'string.pattern.base': 'Nomor HP hanya boleh berisi angka'
     }),
-
+  loan_date: Joi.date().required().messages({
+    'any.required': 'Tanggal formulir wajib diisi',
+    'date.base': 'Tanggal formulir harus berupa tanggal yang valid'
+  }),
+  pickup_date: Joi.date().required().messages({
+    'any.required': 'Tanggal pengambilan wajib diisi',
+    'date.base': 'Tanggal pengambilan harus berupa tanggal yang valid'
+  }),
+  return_date: Joi.date().greater(Joi.ref('pickup_date')).required().messages({
+    'any.required': 'Tanggal kembali wajib diisi',
+    'date.base': 'Tanggal kembali harus berupa tanggal yang valid',
+    'date.greater': 'Tanggal kembali harus lebih besar dari tanggal pengambilan'
+  }),
+  warehouse: Joi.string().custom(objectIdValidator).required().messages({
+    'any.invalid': 'ID gudang tidak valid!',
+    'any.required': 'Gudang wajib diisi!'
+  }),
+  shelf: Joi.string().custom(objectIdValidator).required().messages({
+    'any.invalid': 'ID lemari tidak valid!',
+    'any.required': 'Lemari wajib diisi!'
+  }),
   borrowed_items: Joi.array()
     .items(
       Joi.object({
@@ -48,21 +66,13 @@ const createLoanSchema = Joi.object({
           'number.base': 'Jumlah pinjam harus berupa angka',
           'number.min': 'Jumlah pinjam minimal 1'
         }),
-        pickup_date: Joi.date().required().messages({
-          'any.required': 'Tanggal pengambilan wajib diisi',
-          'date.base': 'Tanggal pengambilan harus berupa tanggal'
-        }),
-
-        return_date: Joi.date().greater(Joi.ref('loan_date')).messages({
-          'date.base': 'Tanggal kembali harus berupa tanggal yang valid',
-          'date.greater':
-            'Tanggal kembali harus lebih besar dari tanggal pinjam'
-        }),
         project: Joi.string().custom(objectIdValidator).required().messages({
           'any.invalid': 'ID project tidak valid!',
           'any.required': 'Project wajib diisi!'
         }),
-        condition: Joi.string().allow('', null)
+        condition: Joi.string().valid('Rusak', 'Baik', 'Maintenance').messages({
+          'any.only': 'Status kondisi hanya boleh Rusak, Baik, atau Maintenance'
+        })
       })
     )
     .min(1)
@@ -71,7 +81,6 @@ const createLoanSchema = Joi.object({
       'array.min': 'Minimal harus ada 1 barang yang dipinjam',
       'any.required': 'Barang yang dipinjam wajib diisi'
     }),
-
   approval: Joi.string()
     .valid('Disetujui', 'Ditolak', 'Diproses')
     .default('Diproses')
@@ -85,20 +94,24 @@ const updateLoanSchema = Joi.object({
   borrower: Joi.string().custom(objectIdValidator).messages({
     'any.invalid': 'ID karyawan tidak valid!'
   }),
-  nik: Joi.string().messages({
-    'string.empty': 'NIK tidak boleh kosong'
-  }),
-
-  address: Joi.string().messages({
-    'string.empty': 'Alamat tidak boleh kosong'
-  }),
-
+  nik: Joi.string(),
+  address: Joi.string(),
   phone: Joi.string()
     .pattern(/^[0-9]+$/)
     .messages({
       'string.pattern.base': 'Nomor HP hanya boleh berisi angka'
     }),
-
+  loan_date: Joi.date(),
+  pickup_date: Joi.date(),
+  return_date: Joi.date().greater(Joi.ref('pickup_date')).messages({
+    'date.greater': 'Tanggal kembali harus lebih besar dari tanggal pengambilan'
+  }),
+  warehouse: Joi.string().custom(objectIdValidator).messages({
+    'any.invalid': 'ID gudang tidak valid!'
+  }),
+  shelf: Joi.string().custom(objectIdValidator).messages({
+    'any.invalid': 'ID lemari tidak valid!'
+  }),
   borrowed_items: Joi.array().items(
     Joi.object({
       product: Joi.string().custom(objectIdValidator).messages({
@@ -110,17 +123,12 @@ const updateLoanSchema = Joi.object({
         'number.base': 'Jumlah pinjam harus berupa angka',
         'number.min': 'Jumlah pinjam minimal 1'
       }),
-      pickup_date: Joi.date().messages({
-        'date.base': 'Tanggal pengambilan harus berupa tanggal'
-      }),
-      return_date: Joi.date().greater(Joi.ref('loan_date')).messages({
-        'date.base': 'Tanggal kembali harus berupa tanggal yang valid',
-        'date.greater': 'Tanggal kembali harus lebih besar dari tanggal pinjam'
-      }),
       project: Joi.string().custom(objectIdValidator).messages({
         'any.invalid': 'ID project tidak valid!'
       }),
-      condition: Joi.string().allow('', null)
+      condition: Joi.string().valid('Rusak', 'Baik', 'Maintenance').messages({
+        'any.only': 'Status kondisi hanya boleh Rusak, Baik, atau Maintenance'
+      })
     })
   ),
   approval: Joi.string().valid('Disetujui', 'Ditolak', 'Diproses').messages({

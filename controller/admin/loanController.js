@@ -11,6 +11,9 @@ const loanCirculationModel = require('../../model/loanCirculationModel');
 
 const addLoan = asyncHandler(async (req, res) => {
   const {
+    loan_date,
+    return_date,
+    pickup_date,
     borrower,
     nik,
     address,
@@ -22,6 +25,9 @@ const addLoan = asyncHandler(async (req, res) => {
   } = req.body || {};
 
   if (
+    !loan_date ||
+    !return_date ||
+    !pickup_date ||
     !borrower ||
     !nik ||
     !address ||
@@ -41,9 +47,9 @@ const addLoan = asyncHandler(async (req, res) => {
     const processedItems = [];
 
     for (const it of borrowed_items) {
-      const { product, quantity, pickup_date, project } = it;
+      const { product, quantity, project } = it;
 
-      if (!product || !quantity || !pickup_date) {
+      if (!product || !quantity || project) {
         throwError('Data barang yang dipinjam tidak lengkap', 400);
       }
 
@@ -69,7 +75,6 @@ const addLoan = asyncHandler(async (req, res) => {
         product_code: item.product_code,
         brand: item.brand,
         quantity,
-        pickup_date,
         project: project || null,
         condition: item.condition
       });
@@ -79,6 +84,9 @@ const addLoan = asyncHandler(async (req, res) => {
       [
         {
           borrower,
+          loan_date,
+          return_date,
+          pickup_date,
           nik,
           address,
           phone,
@@ -233,6 +241,9 @@ const updateLoan = asyncHandler(async (req, res) => {
 
   try {
     const {
+      loan_date,
+      pickup_date,
+      return_date,
       borrower,
       approval,
       nik,
@@ -320,6 +331,9 @@ const updateLoan = asyncHandler(async (req, res) => {
       }
     }
 
+    loan_item.loan_date = loan_date || loan_item.loan_date;
+    loan_item.pickup_date = pickup_date || loan_item.pickup_date;
+    loan_item.return_date = return_date || loan_item.return_date;
     loan_item.borrower = borrower || loan_item.borrower;
     loan_item.nik = nik || loan_item.nik;
     loan_item.address = address || loan_item.address;
