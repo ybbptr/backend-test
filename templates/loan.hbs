@@ -7,27 +7,39 @@
       border-collapse: collapse; margin-bottom: 16px; } th, td { border: 1px
       solid #000; padding: 4px; text-align: left; } .images td { text-align:
       center; vertical-align: top; } .images img { max-width: 150px; max-height:
-      150px; }
+      150px; } .info-table { width: 100%; margin-bottom: 16px; border-collapse:
+      collapse; } .info-table td { padding: 6px 8px; border: none; } .info-table
+      tr:last-child td { border-bottom: none; }
     </style>
   </head>
   <body>
     <h1>FORM PENGAJUAN PEMINJAMAN ALAT INVENTARIS</h1>
-
-    <table>
+    <table class='info-table'>
       <tr>
-        <td>Nama Peminjam</td><td>{{borrower.name}}</td>
-        <td>Tanggal Pinjam</td><td>{{loan_date}}</td>
+        <td>Nomor Peminjaman</td>
+        <td>{{loan_number}}</td>
       </tr>
       <tr>
-        <td>NIK</td><td>{{nik}}</td>
-        <td>No HP</td><td>{{phone}}</td>
+        <td>Tanggal Peminjaman</td>
+        <td>{{pickup_date}}</td>
+        <td>No. KTP</td>
+        <td>{{nik}}</td>
       </tr>
       <tr>
-        <td>Alamat</td><td colspan='3'>{{address}}</td>
+        <td>Tanggal Pengembalian</td>
+        <td>{{return_date}}</td>
       </tr>
       <tr>
-        <td>Kode Pinjam</td><td>{{loanCode}}</td>
-        <td>Status</td><td>{{approval}}</td>
+        <td>Jabatan</td>
+        <td>{{position}}</td>
+        <td>Alamat</td>
+        <td colspan='3'>{{address}}</td>
+      </tr>
+      <tr>
+        <td>Nama Peminjam</td>
+        <td>{{borrower.name}}</td>
+        <td>No HP</td>
+        <td>{{phone}}</td>
       </tr>
     </table>
 
@@ -38,7 +50,8 @@
           <th>Kode Barang</th>
           <th>Deskripsi</th>
           <th>Jumlah</th>
-          <th>Proyek</th>
+          <th>Lokasi Alat</th>
+          <th>Keperluan Proyek</th>
         </tr>
       </thead>
       <tbody>
@@ -46,8 +59,9 @@
           <tr>
             <td>{{@index}}</td>
             <td>{{product_code}}</td>
-            <td>{{product.product_name}}</td>
+            <td>{{product.brand}}</td>
             <td>{{quantity}}</td>
+            <td>{{warehouse.warehouse_name}}</td>
             <td>{{project.project_name}}</td>
           </tr>
         {{/each}}
@@ -64,8 +78,17 @@
               <img src='{{product_image_url}}' />
             {{else}}
               <div
-                style='border:1px solid #ccc;width:150px;height:150px;display:flex;align-items:center;justify-content:center;'
-              >Tidak ada gambar</div>
+                style='
+              border: 1px solid #ccc;
+              width: 150px;
+              height: 150px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+            '
+              >
+                Tidak ada gambar
+              </div>
             {{/if}}
           </td>
         {{/each}}

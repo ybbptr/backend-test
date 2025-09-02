@@ -2,8 +2,7 @@ const asyncHandler = require('express-async-handler');
 const mongoose = require('mongoose');
 const throwError = require('../../utils/throwError');
 const generateLoanPdf = require('../../utils/generateLoanPdf');
-const { uploadBuffer, getFileUrl, deleteFile } = require('../../utils/wasabi');
-
+const { getFileUrl } = require('../../utils/wasabi');
 const Loan = require('../../model/loanModel');
 const Employee = require('../../model/employeeModel');
 const Product = require('../../model/productModel');
