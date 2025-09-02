@@ -214,7 +214,7 @@ const verifyRegisterOtp = asyncHandler(async (req, res) => {
     })
     .cookie('refreshToken', refreshToken, {
       ...baseCookie,
-      path: '/users',
+      path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000
     })
     .status(201)
@@ -414,7 +414,7 @@ const verifyEmailUpdateOtp = asyncHandler(async (req, res) => {
     })
     .cookie('refreshToken', refreshToken, {
       ...baseCookie,
-      path: '/users',
+      path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000
     })
     .json({ message: 'Email berhasil diperbarui', email: user.email });
@@ -617,7 +617,7 @@ const resetPasswordWithToken = asyncHandler(async (req, res) => {
     })
     .cookie('refreshToken', refreshToken, {
       ...baseCookie,
-      path: '/users',
+      path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000
     })
     .json({ message: 'Password berhasil diperbarui' });
@@ -681,7 +681,7 @@ const loginUser = asyncHandler(async (req, res) => {
     })
     .cookie('refreshToken', refreshToken, {
       ...baseCookie,
-      path: '/users',
+      path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000
     })
     .json({ message: 'Login berhasil', role: user.role });
@@ -759,12 +759,12 @@ const logoutUser = asyncHandler(async (req, res) => {
 
     res
       .clearCookie('accessToken', { ...baseCookie, path: '/' })
-      .clearCookie('refreshToken', { ...baseCookie, path: '/users' })
+      .clearCookie('refreshToken', { ...baseCookie, path: '/' })
       .json({ message: 'Berhasil logout' });
   } catch (_) {
     res
       .clearCookie('accessToken', { ...baseCookie, path: '/' })
-      .clearCookie('refreshToken', { ...baseCookie, path: '/users' })
+      .clearCookie('refreshToken', { ...baseCookie, path: '/' })
       .status(200)
       .json({ message: 'Berhasil logout' });
   }
@@ -798,7 +798,7 @@ const refreshToken = asyncHandler(async (req, res) => {
   } catch (err) {
     res
       .clearCookie('accessToken', { ...baseCookie, path: '/' })
-      .clearCookie('refreshToken', { ...baseCookie, path: '/users' });
+      .clearCookie('refreshToken', { ...baseCookie, path: '/' });
     return res.status(401).json({ message: 'Refresh token invalid/expired' });
   }
 });
