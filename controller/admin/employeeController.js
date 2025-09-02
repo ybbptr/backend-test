@@ -176,15 +176,22 @@ const getEmployee = asyncHandler(async (req, res) => {
 
   if (!employee) throwError('Data karyawan tidak ada!', 400);
 
-  const docsWithUrl = {};
-  for (const [key, value] of Object.entries(employee.documents || {})) {
-    if (value && value.key) {
-      docsWithUrl[key] = {
-        ...(value.toObject?.() || value),
-        url: getFileUrl(value.key)
-      };
-    }
-  }
+  const docsEntries = await Promise.all(
+    Object.entries(employee.documents || {}).map(async ([key, value]) => {
+      if (value && value.key) {
+        return [
+          key,
+          {
+            ...(value.toObject?.() || value),
+            url: await getFileUrl(value.key)
+          }
+        ];
+      }
+      return null;
+    })
+  );
+
+  const docsWithUrl = Object.fromEntries(docsEntries.filter(Boolean));
 
   res.status(200).json({
     ...employee.toObject(),
