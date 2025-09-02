@@ -94,7 +94,7 @@ const addEmployee = asyncHandler(async (req, res) => {
   await employee.save();
 
   // 4. update role user jadi Karyawan
-  await User.findByIdAndUpdate(user, { role: 'Karyawan' });
+  await User.findByIdAndUpdate(user, { role: 'karyawan' });
 
   res.status(201).json({
     message: 'Employee berhasil ditambahkan',
@@ -197,7 +197,7 @@ const removeEmployee = asyncHandler(async (req, res) => {
     if (employee.user) {
       await User.findByIdAndUpdate(
         employee.user,
-        { role: 'User' },
+        { role: 'user' },
         { session }
       );
     }
@@ -300,8 +300,8 @@ const updateEmployee = asyncHandler(async (req, res) => {
 
   // kalau user diganti → update role
   if (req.body.user && req.body.user !== prevUserId) {
-    await User.findByIdAndUpdate(prevUserId, { role: 'User' });
-    await User.findByIdAndUpdate(req.body.user, { role: 'Karyawan' });
+    await User.findByIdAndUpdate(prevUserId, { role: 'user' });
+    await User.findByIdAndUpdate(req.body.user, { role: 'karyawan' });
   }
 
   res.status(200).json({

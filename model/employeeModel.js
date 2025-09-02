@@ -29,43 +29,41 @@ const employeeSchema = new mongoose.Schema({
   start_date: Date,
   end_date: Date,
   documents: {
-    documents: {
-      ktp: {
-        key: { type: String, required: true },
-        contentType: { type: String, required: true },
-        size: { type: Number },
-        uploadedAt: { type: Date, default: Date.now }
-      },
-      asuransi: {
-        key: { type: String },
-        contentType: { type: String },
-        size: { type: Number },
-        uploadedAt: { type: Date, default: Date.now }
-      },
-      mcu: {
-        key: { type: String },
-        contentType: { type: String },
-        size: { type: Number },
-        uploadedAt: { type: Date, default: Date.now }
-      },
-      keterangan_sehat: {
-        key: { type: String },
-        contentType: { type: String },
-        size: { type: Number },
-        uploadedAt: { type: Date, default: Date.now }
-      },
-      kelakuan_baik: {
-        key: { type: String },
-        contentType: { type: String },
-        size: { type: Number },
-        uploadedAt: { type: Date, default: Date.now }
-      },
-      vaksinasi: {
-        key: { type: String },
-        contentType: { type: String },
-        size: { type: Number },
-        uploadedAt: { type: Date, default: Date.now }
-      }
+    ktp: {
+      key: { type: String, required: true },
+      contentType: { type: String, required: true },
+      size: { type: Number },
+      uploadedAt: { type: Date, default: Date.now }
+    },
+    asuransi: {
+      key: { type: String },
+      contentType: { type: String },
+      size: { type: Number },
+      uploadedAt: { type: Date, default: Date.now }
+    },
+    mcu: {
+      key: { type: String },
+      contentType: { type: String },
+      size: { type: Number },
+      uploadedAt: { type: Date, default: Date.now }
+    },
+    keterangan_sehat: {
+      key: { type: String },
+      contentType: { type: String },
+      size: { type: Number },
+      uploadedAt: { type: Date, default: Date.now }
+    },
+    kelakuan_baik: {
+      key: { type: String },
+      contentType: { type: String },
+      size: { type: Number },
+      uploadedAt: { type: Date, default: Date.now }
+    },
+    vaksinasi: {
+      key: { type: String },
+      contentType: { type: String },
+      size: { type: Number },
+      uploadedAt: { type: Date, default: Date.now }
     }
   }
 });
