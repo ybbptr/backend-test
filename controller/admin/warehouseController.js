@@ -82,7 +82,7 @@ const addWarehouse = asyncHandler(async (req, res) => {
     await session.commitTransaction();
 
     res.status(201).json({
-      warehouse: { ...warehouse.toObject(), warehouse_image_url: imageUrl },
+      warehouse: { ...warehouse.toObject() },
       shelves: createdShelves
     });
   } catch (err) {
@@ -133,7 +133,7 @@ const getWarehouses = asyncHandler(async (req, res) => {
     warehouses.map(async (w) => {
       let imageUrl = null;
       if (w.warehouse_image?.key) {
-        imageUrl = await getFileUrl(w.image.key);
+        imageUrl = await getFileUrl(w.warehouse_image.key);
       }
       return { ...w, warehouse_image_url: imageUrl };
     })
