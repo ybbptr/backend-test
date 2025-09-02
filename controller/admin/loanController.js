@@ -368,7 +368,9 @@ const updateLoan = asyncHandler(async (req, res) => {
 });
 
 const getAllEmployee = asyncHandler(async (req, res) => {
-  const employee = await Employee.find().select('name nik address phone');
+  const employee = await Employee.find().select(
+    'name nik address phone position'
+  );
 
   res.json(employee);
 });

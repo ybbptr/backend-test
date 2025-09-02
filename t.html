@@ -46,30 +46,44 @@
   <body>
     <h1>FORM PENGAJUAN PEMINJAMAN ALAT INVENTARIS</h1>
 
+    <!-- <tr>
+      
+      
+    </tr>
+    <tr>
+      
+    </tr>
+    <tr>
+      <td>Status</td>
+      <td>{{approval}}</td>
+    </tr> -->
+
     <table class="info-table">
+      <tr>
+        <td>Nomor Peminjaman</td>
+        <td>{{loan_number}}</td>
+      </tr>
       <tr>
         <td>Tanggal Peminjaman</td>
         <td>{{pickup_date}}</td>
         <td>No. KTP</td>
         <td>{{nik}}</td>
-        <td>Nama Peminjam</td>
-        <td>{{borrower.name}}</td>
       </tr>
       <tr>
         <td>Tanggal Pengembalian</td>
         <td>{{return_date}}</td>
-        <td>No HP</td>
-        <td>{{phone}}</td>
       </tr>
       <tr>
+        <td>Jabatan</td>
+        <td>{{position}}</td>
         <td>Alamat</td>
         <td colspan="3">{{address}}</td>
       </tr>
       <tr>
-        <td>Kode Peminjaman</td>
-        <td>{{loan_number}}</td>
-        <td>Status</td>
-        <td>{{approval}}</td>
+        <td>Nama Peminjam</td>
+        <td>{{borrower.name}}</td>
+        <td>No HP</td>
+        <td>{{phone}}</td>
       </tr>
     </table>
 
@@ -80,7 +94,8 @@
           <th>Kode Barang</th>
           <th>Deskripsi</th>
           <th>Jumlah</th>
-          <th>Proyek</th>
+          <th>Lokasi Alat</th>
+          <th>Keperluan Proyek</th>
         </tr>
       </thead>
       <tbody>
@@ -90,6 +105,7 @@
           <td>{{product_code}}</td>
           <td>{{product.brand}}</td>
           <td>{{quantity}}</td>
+          <td>{{warehouse.warehouse_name}}</td>
           <td>{{project.project_name}}</td>
         </tr>
         {{/each}}
