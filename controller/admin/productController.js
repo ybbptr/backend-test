@@ -3,12 +3,12 @@ const throwError = require('../../utils/throwError');
 const Warehouse = require('../../model/warehouseModel');
 const Product = require('../../model/productModel');
 const { uploadBuffer, getFileUrl, deleteFile } = require('../../utils/wasabi');
+const path = require('path');
 const formatDate = require('../../utils/formatDate');
 const Shelf = require('../../model/shelfModel');
 const Loan = require('../../model/loanModel');
 const productCirculationModel = require('../../model/productCirculationModel');
 const mongoose = require('mongoose');
-const path = require('path');
 
 const addProduct = asyncHandler(async (req, res) => {
   const {
@@ -131,12 +131,12 @@ const getProducts = asyncHandler(async (req, res) => {
     products.map(async (p) => {
       let imageUrl = null;
       if (p.product_image?.key) {
-        imageUrl = await getFileUrl(p.product_image.key, 60 * 5);
+        imageUrl = await getFileUrl(p.product_image.key);
       }
 
       let invoiceUrl = null;
       if (p.invoice?.key) {
-        invoiceUrl = await getFileUrl(p.invoice.key, 60 * 5);
+        invoiceUrl = await getFileUrl(p.invoice.key);
       }
 
       return { ...p, product_image_url: imageUrl, invoice_url: invoiceUrl };
@@ -162,12 +162,12 @@ const getProduct = asyncHandler(async (req, res) => {
 
   let imageUrl = null;
   if (product.product_image?.key) {
-    imageUrl = await getFileUrl(product.product_image.key, 60 * 5); // 5 menit
+    imageUrl = await getFileUrl(product.product_image.key);
   }
 
   let invoiceUrl = null;
   if (product.invoice?.key) {
-    invoiceUrl = await getFileUrl(product.invoice.key, 60 * 5);
+    invoiceUrl = await getFileUrl(product.invoice.key);
   }
 
   res.status(200).json({

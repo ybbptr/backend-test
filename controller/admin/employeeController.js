@@ -1,5 +1,8 @@
 const asyncHandler = require('express-async-handler');
 const throwError = require('../../utils/throwError');
+const { uploadBuffer, getFileUrl, deleteFile } = require('../../utils/wasabi');
+const path = require('path');
+const formatDate = require('../../utils/formatDate');
 const User = require('../../model/userModel');
 const Employee = require('../../model/employeeModel');
 const Loan = require('../../model/loanModel');
@@ -29,8 +32,37 @@ const addEmployee = asyncHandler(async (req, res) => {
     end_date
   } = req.body || {};
 
-  if (!user || !name || !nik || !employment_type || !position)
+  if (!user || !name || !nik || !employment_type || !position) {
     throwError('Field ini harus diisi', 400);
+  }
+
+  let documents = {};
+
+  if (req.files) {
+    for (const field of [
+      'ktp',
+      'asuransi',
+      'mcu',
+      'keterangan_sehat',
+      'kelakuan_baik',
+      'vaksinasi'
+    ]) {
+      if (req.files[field]) {
+        const file = req.files[field][0];
+        const ext = path.extname(file.originalname);
+        const key = `karyawan/${employee._id}/${field}_${formatDate()}${ext}`;
+
+        await uploadBuffer(key, file.buffer);
+
+        documents[field] = {
+          key,
+          contentType: file.mimetype,
+          size: file.size,
+          uploadedAt: new Date()
+        };
+      }
+    }
+  }
 
   const employee = await Employee.create({
     user,
@@ -52,24 +84,98 @@ const addEmployee = asyncHandler(async (req, res) => {
     position,
     blood_type,
     start_date,
-    end_date
+    end_date,
+    documents
   });
 
-  res.status(201).json({ employee });
+  res.status(201).json({
+    message: 'Employee berhasil ditambahkan',
+    data: employee
+  });
 });
 
 const getEmployees = asyncHandler(async (req, res) => {
-  const employees = await Employee.find().populate('user', 'email').exec();
-  res.status(200).json(employees);
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
+
+  const { name, nik, employment_type, position, search, sort } = req.query;
+
+  const filter = {};
+  if (name) filter.name = { $regex: name, $options: 'i' };
+  if (nik) filter.nik = { $regex: nik, $options: 'i' };
+  if (employment_type) filter.employment_type = employment_type;
+  if (position) filter.position = position;
+  if (search) {
+    filter.$or = [
+      { name: { $regex: search, $options: 'i' } },
+      { nik: { $regex: search, $options: 'i' } },
+      { phone: { $regex: search, $options: 'i' } }
+    ];
+  }
+
+  let sortOption = { createdAt: -1 };
+  if (sort) {
+    const [field, order] = sort.split(':');
+    sortOption = { [field]: order === 'asc' ? 1 : -1 };
+  }
+
+  const employees = await Employee.find(filter)
+    .populate('user', 'email')
+    .skip(skip)
+    .limit(limit)
+    .sort(sortOption)
+    .lean();
+
+  const totalItems = await Employee.countDocuments(filter);
+  const totalPages = Math.ceil(totalItems / limit);
+
+  const employeesWithUrl = await Promise.all(
+    employees.map(async (emp) => {
+      const docsWithUrl = {};
+      for (const [key, value] of Object.entries(emp.documents || {})) {
+        if (value && value.key) {
+          docsWithUrl[key] = {
+            ...value,
+            url: await getFileUrl(value.key)
+          };
+        }
+      }
+      return { ...emp, documents: docsWithUrl };
+    })
+  );
+
+  res.status(200).json({
+    page,
+    limit,
+    totalItems,
+    totalPages,
+    sort: sortOption,
+    data: employeesWithUrl
+  });
 });
 
 const getEmployee = asyncHandler(async (req, res) => {
   const employee = await Employee.findById(req.params.id)
     .populate('user', 'email')
     .exec();
+
   if (!employee) throwError('Data karyawan tidak ada!', 400);
 
-  res.status(200).json(employee);
+  const docsWithUrl = {};
+  for (const [key, value] of Object.entries(employee.documents || {})) {
+    if (value && value.key) {
+      docsWithUrl[key] = {
+        ...(value.toObject?.() || value),
+        url: getFileUrl(value.key)
+      };
+    }
+  }
+
+  res.status(200).json({
+    ...employee.toObject(),
+    documents: docsWithUrl
+  });
 });
 
 const removeEmployee = asyncHandler(async (req, res) => {
@@ -79,6 +185,14 @@ const removeEmployee = asyncHandler(async (req, res) => {
   try {
     const employee = await Employee.findById(req.params.id);
     if (!employee) throwError('Data karyawan tidak ada!', 400);
+
+    if (employee.documents) {
+      for (const [key, value] of Object.entries(employee.documents)) {
+        if (value && value.key) {
+          await deleteFile(value.key);
+        }
+      }
+    }
 
     await Loan.updateMany(
       { employee: employee._id },
@@ -92,6 +206,7 @@ const removeEmployee = asyncHandler(async (req, res) => {
     res.status(200).json({ message: 'Data karyawan berhasil dihapus.' });
   } catch (err) {
     await session.abortTransaction();
+    console.error(err);
     throwError('Gagal menghapus karyawan', 400);
   } finally {
     session.endSession();
@@ -99,58 +214,74 @@ const removeEmployee = asyncHandler(async (req, res) => {
 });
 
 const updateEmployee = asyncHandler(async (req, res) => {
-  const {
-    user,
-    name,
-    nik,
-    age,
-    phone,
-    address,
-    employment_type,
-    religion,
-    height,
-    weight,
-    number_of_children,
-    place_of_birth,
-    date_of_birth,
-    status,
-    bank_account_number,
-    emergency_contact_number,
-    position,
-    blood_type,
-    start_date,
-    end_date
-  } = req.body;
-
   const employee = await Employee.findById(req.params.id);
   if (!employee) throwError('Karyawan tidak ditemukan!', 404);
 
-  employee.user = user || employee.user;
-  employee.name = name || employee.name;
-  employee.nik = nik || employee.nik;
-  employee.age = age || employee.age;
-  employee.phone = phone || employee.phone;
-  employee.address = address || employee.address;
-  employee.employment_type = employment_type || employee.employment_type;
-  employee.religion = religion || employee.religion;
-  employee.height = height || employee.height;
-  employee.weight = weight || employee.weight;
-  employee.number_of_children =
-    number_of_children || employee.number_of_children;
-  employee.place_of_birth = place_of_birth || employee.place_of_birth;
-  employee.date_of_birth = date_of_birth || employee.date_of_birth;
-  employee.status = status || employee.status;
-  employee.bank_account_number =
-    bank_account_number || employee.bank_account_number;
-  employee.emergency_contact_number =
-    emergency_contact_number || employee.emergency_contact_number;
-  employee.position = position || employee.position;
-  employee.blood_type = blood_type || employee.blood_type;
-  employee.start_date = start_date || employee.start_date;
-  employee.end_date = end_date || employee.end_date;
+  const fields = [
+    'user',
+    'name',
+    'nik',
+    'age',
+    'phone',
+    'address',
+    'employment_type',
+    'religion',
+    'height',
+    'weight',
+    'number_of_children',
+    'place_of_birth',
+    'date_of_birth',
+    'status',
+    'bank_account_number',
+    'emergency_contact_number',
+    'position',
+    'blood_type',
+    'start_date',
+    'end_date'
+  ];
+
+  for (const field of fields) {
+    if (req.body[field] !== undefined) {
+      employee[field] = req.body[field];
+    }
+  }
+
+  if (req.files) {
+    for (const field of [
+      'ktp',
+      'asuransi',
+      'mcu',
+      'keterangan_sehat',
+      'kelakuan_baik',
+      'vaksinasi'
+    ]) {
+      if (req.files[field]) {
+        const file = req.files[field][0];
+        const ext = path.extname(file.originalname);
+        if (employee.documents?.[field]?.key) {
+          await deleteFile(employee.documents[field].key);
+        }
+
+        const key = `karyawan/${employee._id}/${field}_${formatDate()}${ext}`;
+
+        await uploadBuffer(key, file.buffer);
+
+        employee.documents[field] = {
+          key,
+          contentType: file.mimetype,
+          size: file.size,
+          uploadedAt: new Date()
+        };
+      }
+    }
+  }
 
   await employee.save();
-  res.status(200).json(employee);
+
+  res.status(200).json({
+    message: 'Data karyawan berhasil diperbarui',
+    employee
+  });
 });
 
 const getAllUserEmails = asyncHandler(async (req, res) => {

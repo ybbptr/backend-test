@@ -126,7 +126,7 @@ const getWarehouses = asyncHandler(async (req, res) => {
     warehouses.map(async (w) => {
       let imageUrl = null;
       if (w.image?.key) {
-        imageUrl = await getFileUrl(w.image.key, 60 * 5);
+        imageUrl = await getFileUrl(w.image.key);
       }
       return { ...w, image_url: imageUrl };
     })
@@ -220,7 +220,7 @@ const updateWarehouse = asyncHandler(async (req, res) => {
 
   let imageUrl = null;
   if (warehouse.warehouse_image?.key) {
-    imageUrl = await getFileUrl(warehouse.warehouse_image.key, 60 * 5);
+    imageUrl = await getFileUrl(warehouse.warehouse_image.key);
   }
 
   res.status(200).json({
@@ -238,7 +238,7 @@ const getWarehouse = asyncHandler(async (req, res) => {
 
   let imageUrl = null;
   if (warehouse.warehouse_image?.key) {
-    imageUrl = await getFileUrl(warehouse.warehouse_image.key, 60 * 5);
+    imageUrl = await getFileUrl(warehouse.warehouse_image.key);
   }
 
   res.status(200).json({

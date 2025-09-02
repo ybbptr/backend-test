@@ -1,49 +1,109 @@
+{{!-- <!DOCTYPE html>
 <html>
   <head>
-    <meta charset='utf-8' />
+    <meta charset="utf-8" />
     <style>
-      body { font-family: Arial, sans-serif; font-size: 12px; } h1 { text-align:
-      center; text-decoration: underline; } table { width: 100%;
-      border-collapse: collapse; margin-bottom: 16px; } th, td { border: 1px
-      solid #000; padding: 4px; text-align: left; } .images td { text-align:
-      center; vertical-align: top; } .images img { max-width: 150px; max-height:
-      150px; } .info-table { width: 100%; margin-bottom: 16px; border-collapse:
-      collapse; } .info-table td { padding: 6px 8px; border: none; } .info-table
-      tr:last-child td { border-bottom: none; }
+      body {
+        font-family: Arial, sans-serif;
+        font-size: 12px;
+      }
+      h1 {
+        text-align: center;
+        text-decoration: underline;
+        font-weight: bold;
+      }
+      .info-table {
+        width: 100%;
+        margin-bottom: 16px;
+      }
+      .info-table td {
+        padding: 2px 6px;
+      }
+      .info-table td:first-child,
+      .info-table td:nth-child(3) {
+        width: 120px;
+      }
+      .info-table td:nth-child(2),
+      .info-table td:nth-child(4) {
+        width: 250px;
+      }
+
+      .items-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 32px;
+      }
+      .items-table th,
+      .items-table td {
+        border: 1px solid #000;
+        padding: 4px;
+        text-align: left;
+      }
+
+      .signature {
+        margin-top: 40px;
+        width: 100%;
+        text-align: center;
+      }
+      .signature td {
+        width: 50%;
+        padding: 20px;
+        vertical-align: bottom;
+      }
     </style>
   </head>
   <body>
     <h1>FORM PENGAJUAN PEMINJAMAN ALAT INVENTARIS</h1>
-    <table class='info-table'>
+
+    <table class="info-table">
       <tr>
-        <td>Nomor Peminjaman :</td>
-        <td>{{loan_number}}</td>
-      </tr>
-      <tr>
-        <td>Tanggal Peminjaman :</td>
-        <td>{{pickup_date}}</td>
-        <td>No. KTP</td>
-        <td>{{nik}}</td>
-      </tr>
-      <tr>
-        <td>Tanggal Pengembalian :</td>
-        <td>{{return_date}}</td>
-      </tr>
-      <tr>
-        <td>Jabatan :</td>
-        <td>{{position}}</td>
-        <td>Alamat :</td>
-        <td colspan='3'>{{address}}</td>
-      </tr>
-      <tr>
-        <td>Nama Peminjam :</td>
-        <td>{{borrower.name}}</td>
-        <td>No HP :</td>
-        <td>{{phone}}</td>
+        <!-- KIRI -->
+        <td style="vertical-align: top; width: 50%">
+          <table>
+            <tr>
+              <td style="width: 140px">No. Peminjaman</td>
+              <td>: {{loan_number}}</td>
+            </tr>
+            <tr>
+              <td>Tgl Peminjaman</td>
+              <td>: {{pickup_date}}</td>
+            </tr>
+            <tr>
+              <td>Tgl Pengembalian</td>
+              <td>: {{return_date}}</td>
+            </tr>
+          </table>
+        </td>
+
+        <!-- KANAN -->
+        <td style="vertical-align: top; width: 50%">
+          <table>
+            <tr>
+              <td style="width: 120px">Nama Peminjam</td>
+              <td>: {{borrower.name}}</td>
+            </tr>
+            <tr>
+              <td>Jabatan</td>
+              <td>: {{position}}</td>
+            </tr>
+            <tr>
+              <td>Alamat</td>
+              <td>: {{address}}</td>
+            </tr>
+            <tr>
+              <td>No KTP</td>
+              <td>: {{nik}}</td>
+            </tr>
+            <tr>
+              <td>No HP</td>
+              <td>: {{phone}}</td>
+            </tr>
+          </table>
+        </td>
       </tr>
     </table>
 
-    <table>
+    <table class="items-table">
       <thead>
         <tr>
           <th>No</th>
@@ -56,43 +116,27 @@
       </thead>
       <tbody>
         {{#each borrowed_items}}
-          <tr>
-            <td>{{@index}}</td>
-            <td>{{product_code}}</td>
-            <td>{{product.brand}}</td>
-            <td>{{quantity}}</td>
-            <td>{{warehouse.warehouse_name}}</td>
-            <td>{{project.project_name}}</td>
-          </tr>
+        <tr>
+          <td>{{@index}}</td>
+          <td>{{product_code}}</td>
+          <td>{{product.product_name}}</td>
+          <td>{{quantity}}</td>
+          <td>{{location}}</td>
+          <td>{{project.project_name}}</td>
+        </tr>
         {{/each}}
       </tbody>
     </table>
 
-    <h3>Lampiran Foto Alat</h3>
-    <table class='images'>
+    <table class="signature">
       <tr>
-        {{#each borrowed_items}}
-          <td>
-            <div>{{product_code}}</div>
-            {{#if product_image_url}}
-              <img src='{{product_image_url}}' />
-            {{else}}
-              <div
-                style='
-              border: 1px solid #ccc;
-              width: 150px;
-              height: 150px;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-            '
-              >
-                Tidak ada gambar
-              </div>
-            {{/if}}
-          </td>
-        {{/each}}
+        <td>Peminjam</td>
+        <td>Penanggung Jawab Inventaris</td>
+      </tr>
+      <tr>
+        <td style="padding-top: 60px">{{borrower.name}}</td>
+        <td style="padding-top: 60px">{{inventory_manager}}</td>
       </tr>
     </table>
   </body>
-</html>
+</html> --}}

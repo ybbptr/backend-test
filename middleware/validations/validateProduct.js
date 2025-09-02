@@ -1,9 +1,6 @@
 const Joi = require('joi');
 const mongoose = require('mongoose');
 
-/* =======================
-   VALIDATOR HELPER
-======================= */
 const objectIdValidator = (value, helpers) => {
   if (!mongoose.Types.ObjectId.isValid(value)) {
     return helpers.error('any.invalid');
@@ -11,9 +8,6 @@ const objectIdValidator = (value, helpers) => {
   return value;
 };
 
-/* =======================
-   CREATE PRODUCT SCHEMA
-======================= */
 const createProductSchema = Joi.object({
   purchase_date: Joi.date().required().messages({
     'any.required': 'Tanggal pembelian wajib diisi',
@@ -82,9 +76,6 @@ const createProductSchema = Joi.object({
   description: Joi.string().allow('', null)
 });
 
-/* =======================
-   UPDATE PRODUCT SCHEMA
-======================= */
 const updateProductSchema = Joi.object({
   purchase_date: Joi.date().messages({
     'date.base': 'Tanggal pembelian harus berupa tanggal yang valid'
