@@ -16,6 +16,11 @@ const loanSchema = new mongoose.Schema(
     loan_date: { type: Date, required: true },
     pickup_date: { type: Date, required: true },
     return_date: { type: Date, required: true },
+    inventory_manager: {
+      type: String,
+      required: true,
+      enum: ['Owan H.', 'Teguh F.', 'Korlap']
+    },
     warehouse: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Warehouse',

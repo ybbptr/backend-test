@@ -46,6 +46,13 @@ const createLoanSchema = Joi.object({
     'date.base': 'Tanggal kembali harus berupa tanggal yang valid',
     'date.greater': 'Tanggal kembali harus lebih besar dari tanggal pengambilan'
   }),
+  inventory_manager: Joi.string()
+    .valid('Owan H.', 'Teguh F.', 'Korlap')
+    .required()
+    .messages({
+      'any.required': 'Penanggung jawab wajib diisi',
+      'any.only': 'Penanggung jawab hanya Owan H., Teguh F., dan Korlap'
+    }),
   warehouse: Joi.string().custom(objectIdValidator).required().messages({
     'any.invalid': 'ID gudang tidak valid!',
     'any.required': 'Gudang wajib diisi!'
