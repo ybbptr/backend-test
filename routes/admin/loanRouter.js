@@ -28,7 +28,7 @@ Router.post(
   .get('/all-product', getAllProduct)
   .get('/all-warehouse', getAllWarehouse);
 
-Router.get('/shelf/:id', getShelves);
+Router.get('/shelves', getShelves);
 Router.get('/:id/pdf', getLoanPdf);
 Router.get('/:id', getLoan)
   .put(

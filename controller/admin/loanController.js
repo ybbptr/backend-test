@@ -371,10 +371,12 @@ const getAllWarehouse = asyncHandler(async (req, res) => {
 });
 
 const getShelves = asyncHandler(async (req, res) => {
-  const { id } = req.params.id;
-  const shelf = await Shelf.findOne(id).select('shelf_name');
-  if (!shelf) throwError('ID Gudang tidak valid!');
-  res.json(shelf);
+  const { warehouse } = req.query;
+  if (!warehouse) throwError('ID gudang tidak valid', 400);
+
+  const shelves = await Shelf.find({ warehouse }).select('shelf_name');
+
+  res.json(shelves);
 });
 
 const getLoanPdf = asyncHandler(async (req, res) => {
