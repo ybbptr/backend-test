@@ -44,7 +44,14 @@ const addWarehouse = asyncHandler(async (req, res) => {
     }
 
     const [warehouse] = await Warehouse.create(
-      [{ warehouse_code, warehouse_name, image: imageData, description }],
+      [
+        {
+          warehouse_code,
+          warehouse_name,
+          warehouse_image: imageData,
+          description
+        }
+      ],
       { session }
     );
 
