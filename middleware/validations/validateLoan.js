@@ -18,13 +18,6 @@ const createLoanSchema = Joi.object({
     'any.required': 'Tanggal pinjam wajib diisi',
     'date.base': 'Tanggal pinjam harus berupa tanggal yang valid'
   }),
-
-  return_date: Joi.date().greater(Joi.ref('loan_date')).required().messages({
-    'any.required': 'Tanggal kembali wajib diisi',
-    'date.base': 'Tanggal kembali harus berupa tanggal yang valid',
-    'date.greater': 'Tanggal kembali harus lebih besar dari tanggal pinjam'
-  }),
-
   nik: Joi.string().required().messages({
     'any.required': 'NIK wajib diisi',
     'string.empty': 'NIK tidak boleh kosong'
@@ -64,7 +57,12 @@ const createLoanSchema = Joi.object({
           'any.required': 'Tanggal pengambilan wajib diisi',
           'date.base': 'Tanggal pengambilan harus berupa tanggal'
         }),
-        return_date: Joi.date().allow(null),
+
+        return_date: Joi.date().greater(Joi.ref('loan_date')).messages({
+          'date.base': 'Tanggal kembali harus berupa tanggal yang valid',
+          'date.greater':
+            'Tanggal kembali harus lebih besar dari tanggal pinjam'
+        }),
         project: Joi.string().custom(objectIdValidator).required().messages({
           'any.invalid': 'ID project tidak valid!',
           'any.required': 'Project wajib diisi!'

@@ -3,20 +3,12 @@ const throwError = require('../../utils/throwError');
 const Warehouse = require('../../model/warehouseModel');
 const Product = require('../../model/productModel');
 const { uploadBuffer, getFileUrl, deleteFile } = require('../../utils/wasabi');
+const formatDate = require('../../utils/formatDate');
 const Shelf = require('../../model/shelfModel');
 const Loan = require('../../model/loanModel');
 const productCirculationModel = require('../../model/productCirculationModel');
 const mongoose = require('mongoose');
 const path = require('path');
-
-const formatDate = () => {
-  const now = new Date();
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
-  const dd = String(now.getDate()).padStart(2, '0');
-
-  return `${yyyy}${mm}${dd}`;
-};
 
 const addProduct = asyncHandler(async (req, res) => {
   const {

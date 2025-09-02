@@ -1,5 +1,8 @@
 const asyncHandler = require('express-async-handler');
 const throwError = require('../../utils/throwError');
+const { uploadBuffer, getFileUrl, deleteFile } = require('../../utils/wasabi');
+const path = require('path');
+
 const { checkDuplicateValue } = require('../../middleware/checkDuplicate');
 const Warehouse = require('../../model/warehouseModel');
 const Shelf = require('../../model/shelfModel');
@@ -11,7 +14,6 @@ const addWarehouse = asyncHandler(async (req, res) => {
   const {
     warehouse_code,
     warehouse_name,
-    image,
     description,
     shelves = []
   } = req.body || {};
@@ -24,8 +26,25 @@ const addWarehouse = asyncHandler(async (req, res) => {
   session.startTransaction();
 
   try {
+    let imageData = null;
+    if (req.file) {
+      const file = req.file;
+      const ext = path.extname(file.originalname);
+      const date = new Date().toISOString().replace(/[:.]/g, '-');
+      const key = `warehouses/${warehouse_code}/warehouse_${date}${ext}`;
+
+      await uploadBuffer(key, file.buffer);
+
+      imageData = {
+        key,
+        contentType: file.mimetype,
+        size: file.size,
+        uploadedAt: new Date()
+      };
+    }
+
     const [warehouse] = await Warehouse.create(
-      [{ warehouse_code, warehouse_name, image, description }],
+      [{ warehouse_code, warehouse_name, image: imageData, description }],
       { session }
     );
 
@@ -52,8 +71,13 @@ const addWarehouse = asyncHandler(async (req, res) => {
       warehouse.shelves = createdShelves.map((s) => s._id);
       await warehouse.save({ session });
     }
+
     await session.commitTransaction();
-    res.status(201).json({ warehouse, shelves: createdShelves });
+
+    res.status(201).json({
+      warehouse: { ...warehouse.toObject(), image_url: imageUrl },
+      shelves: createdShelves
+    });
   } catch (err) {
     await session.abortTransaction();
     throwError(err.message || 'Gagal membuat gudang', 400);

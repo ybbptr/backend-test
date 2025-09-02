@@ -1,5 +1,5 @@
 const Joi = require('joi');
-const mongoose = require('mongoose');
+// const mongoose = require('mongoose');
 
 const warehouseSchema = Joi.object({
   warehouse_code: Joi.string().required().messages({
