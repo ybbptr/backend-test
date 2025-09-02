@@ -110,19 +110,40 @@ const addLoan = asyncHandler(async (req, res) => {
       { session }
     );
 
-    // // ====== Catat di Loan Circulation (opsional) ======
-    // if (approval === 'Disetujui') {
-    //   const circulationPayload = processedItems.map((it) => ({
-    //     loan_id: loan[0]._id,
-    //     product: it.product,
-    //     product_name: it.product_code,
-    //     loan_quantity: it.quantity,
-    //     warehouse_from: it.warehouse, // kalau ada warehouse di Product
-    //     warehouse_to: null // bisa diisi sesuai logika
-    //   }));
+    if (approval === 'Disetujui') {
+      const borrowedItemsCirculation = [];
 
-    //   await LoanCirculation.create(circulationPayload, { session });
-    // }
+      for (const it of processedItems) {
+        const product = await Product.findById(it.product).lean();
+
+        borrowedItemsCirculation.push({
+          product: product._id,
+          product_code: product.product_code,
+          brand: product.brand,
+          quantity: it.quantity,
+          project: it.project,
+          condition: product.condition,
+          product_image: product.product_image || null,
+          warehouse_from: product?.warehouse || null,
+          shelf_from: product?.shelf || null
+        });
+      }
+
+      await loanCirculationModel.create(
+        [
+          {
+            loan_number: loan[0].loan_number,
+            borrower: loan[0].borrower,
+            phone: loan[0].phone,
+            inventory_manager: loan[0].inventory_manager,
+            warehouse_to: loan[0].warehouse,
+            shelf_to: loan[0].shelf,
+            borrowed_items: borrowedItemsCirculation
+          }
+        ],
+        { session }
+      );
+    }
 
     await session.commitTransaction();
     session.endSession();
@@ -228,9 +249,9 @@ const removeLoan = asyncHandler(async (req, res) => {
       }
     }
 
-    // await loanCirculationModel
-    //   .deleteMany({ loan_id: loan_item._id })
-    //   .session(session);
+    await loanCirculationModel
+      .deleteOne({ loan_number: loan_item.loan_number })
+      .session(session);
 
     await loan_item.deleteOne({ session });
 
@@ -289,6 +310,37 @@ const updateLoan = asyncHandler(async (req, res) => {
         product.quantity -= it.quantity;
         product.loan_quantity = (product.loan_quantity || 0) + it.quantity;
         await product.save({ session });
+
+        const borrowedItemsCirculation = [];
+        for (const it of processedItems) {
+          const product = await Product.findById(it.product).lean();
+          borrowedItemsCirculation.push({
+            product: product._id,
+            product_code: product.product_code,
+            brand: product.brand,
+            quantity: it.quantity,
+            project: it.project,
+            condition: product.condition,
+            product_image: product.product_image || null,
+            warehouse_from: product?.warehouse || null,
+            shelf_from: product?.shelf || null
+          });
+        }
+
+        await loanCirculationModel.create(
+          [
+            {
+              loan_number: loan_item.loan_number,
+              borrower: loan_item.borrower,
+              phone: loan_item.phone,
+              inventory_manager: loan_item.inventory_manager,
+              warehouse_to: loan_item.warehouse,
+              shelf_to: loan_item.shelf,
+              borrowed_items: borrowedItemsCirculation
+            }
+          ],
+          { session }
+        );
       }
     }
 
@@ -301,6 +353,9 @@ const updateLoan = asyncHandler(async (req, res) => {
         product.quantity += it.quantity;
         product.loan_quantity -= it.quantity;
         await product.save({ session });
+        await loanCirculationModel
+          .deleteOne({ loan_number: loan_item.loan_number })
+          .session(session);
       }
     }
 
@@ -328,6 +383,35 @@ const updateLoan = asyncHandler(async (req, res) => {
 
         product.loan_quantity = (product.loan_quantity || 0) + diff;
         await product.save({ session });
+
+        const borrowedItemsCirculation = [];
+        for (const it of processedItems) {
+          const product = await Product.findById(it.product).lean();
+          borrowedItemsCirculation.push({
+            product: product._id,
+            product_code: product.product_code,
+            brand: product.brand,
+            quantity: it.quantity,
+            project: it.project,
+            condition: product.condition,
+            product_image: product.product_image || null,
+            warehouse_from: product?.warehouse || null,
+            shelf_from: product?.shelf || null
+          });
+        }
+
+        await loanCirculationModel.findOneAndUpdate(
+          { loan_number: loan_item.loan_number },
+          {
+            borrower: loan_item.borrower,
+            phone: loan_item.phone,
+            inventory_manager: loan_item.inventory_manager,
+            warehouse_to: loan_item.warehouse,
+            shelf_to: loan_item.shelf,
+            borrowed_items: borrowedItemsCirculation
+          },
+          { session }
+        );
       }
     }
 

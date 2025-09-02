@@ -2,31 +2,46 @@ const mongoose = require('mongoose');
 
 const loanCirculationSchema = new mongoose.Schema(
   {
-    product: {
+    loan_number: { type: String, required: true, index: true },
+    borrower: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Product',
+      ref: 'Employee',
       required: true
     },
-    product_name: { type: String, required: true },
-    loan_quantity: { type: Number, default: 0, required: true },
-    warehouse_from: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Warehouse',
-      required: true
-    },
-    warehouse_to: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Warehouse',
-      required: true
-    },
-    loan_id: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Loan',
-      required: true
-    },
-    imageUrl: { type: String }
+    phone: { type: String, required: true },
+    inventory_manager: { type: String, required: true },
+
+    warehouse_to: { type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse' },
+    shelf_to: { type: mongoose.Schema.Types.ObjectId, ref: 'Shelf' },
+
+    borrowed_items: [
+      {
+        product: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Product',
+          required: true
+        },
+        product_code: String,
+        brand: String,
+        quantity: Number,
+        project: { type: mongoose.Schema.Types.ObjectId, ref: 'Project' },
+        condition: String,
+        product_image: {
+          key: String,
+          contentType: String,
+          size: Number,
+          uploadedAt: Date
+        },
+
+        warehouse_from: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Warehouse'
+        },
+        shelf_from: { type: mongoose.Schema.Types.ObjectId, ref: 'Shelf' }
+      }
+    ]
   },
   { timestamps: true }
 );
 
-module.exports = mongoose.model('loanCirculation', loanCirculationSchema);
+module.exports = mongoose.model('LoanCirculation', loanCirculationSchema);

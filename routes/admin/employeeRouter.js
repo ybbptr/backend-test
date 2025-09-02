@@ -10,8 +10,8 @@ const {
 const Router = express.Router();
 const validate = require('../../middleware/validations/validate');
 const {
-  validateEmployeeCreate,
-  validateEmployeeUpdate
+  employeeCreateValidation,
+  employeeUpdateValidation
 } = require('../../middleware/validations/validateEmployee');
 const { checkDuplicate } = require('../../middleware/checkDuplicate');
 const Employee = require('../../model/employeeModel');
@@ -45,7 +45,7 @@ Router.post(
     { name: 'kelakuan_baik', maxCount: 1 },
     { name: 'vaksinasi', maxCount: 1 }
   ]),
-  validate(validateEmployeeCreate),
+  validate(employeeCreateValidation),
   checkDuplicate(Employee, { nik: 'NIK' }),
   addEmployee
 );
@@ -65,7 +65,7 @@ Router.put(
     { name: 'kelakuan_baik', maxCount: 1 },
     { name: 'vaksinasi', maxCount: 1 }
   ]),
-  validate(validateEmployeeUpdate),
+  validate(employeeUpdateValidation),
   updateEmployee
 );
 

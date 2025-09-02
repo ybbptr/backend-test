@@ -1,15 +1,39 @@
 const asyncHandler = require('express-async-handler');
 const throwError = require('../../utils/throwError');
 const loanCirculationModel = require('../../model/loanCirculationModel');
+const { getFileUrl } = require('../../utils/wasabi');
+
+async function attachImageUrls(circulation) {
+  const doc = circulation.toObject ? circulation.toObject() : circulation;
+
+  if (doc.borrowed_items && doc.borrowed_items.length > 0) {
+    doc.borrowed_items = await Promise.all(
+      doc.borrowed_items.map(async (item) => {
+        let imageUrl = null;
+        if (item.product_image?.key) {
+          imageUrl = await getFileUrl(item.product_image.key, 60 * 5);
+        }
+        return { ...item, product_image_url: imageUrl };
+      })
+    );
+  }
+
+  return doc;
+}
 
 const getLoanCirculations = asyncHandler(async (req, res) => {
   const loanCirculations = await loanCirculationModel
     .find()
     .populate('warehouse_from', 'warehouse_name warehouse_code')
     .populate('warehouse_to', 'warehouse_name warehouse_code')
-    .populate('product', 'product_name product_code');
+    .populate('borrower', 'name')
+    .lean();
 
-  res.status(200).json(loanCirculations);
+  const withUrls = await Promise.all(
+    loanCirculations.map((c) => attachImageUrls(c))
+  );
+
+  res.status(200).json(withUrls);
 });
 
 const getLoanCirculation = asyncHandler(async (req, res) => {
@@ -17,11 +41,32 @@ const getLoanCirculation = asyncHandler(async (req, res) => {
     .findById(req.params.id)
     .populate('warehouse_from', 'warehouse_name warehouse_code')
     .populate('warehouse_to', 'warehouse_name warehouse_code')
-    .populate('product', 'product_name product_code');
+    .populate('borrower', 'name')
+    .lean();
 
   if (!loanCirculation) throwError('Sirkulasi tidak terdaftar!', 400);
 
-  res.status(200).json(loanCirculation);
+  const withUrl = await attachImageUrls(loanCirculation);
+
+  res.status(200).json(withUrl);
+});
+
+const refreshLoanCirculationUrls = asyncHandler(async (req, res) => {
+  const loanCirculation = await loanCirculationModel
+    .findById(req.params.id)
+    .lean();
+  if (!loanCirculation) throwError('Sirkulasi tidak terdaftar!', 400);
+
+  const withUrl = await attachImageUrls(loanCirculation);
+
+  res.status(200).json({
+    loan_number: loanCirculation.loan_number,
+    borrowed_items: withUrl.borrowed_items.map((it) => ({
+      product_code: it.product_code,
+      brand: it.brand,
+      product_image_url: it.product_image_url
+    }))
+  });
 });
 
 const removeLoanCirculation = asyncHandler(async (req, res) => {
@@ -35,5 +80,6 @@ const removeLoanCirculation = asyncHandler(async (req, res) => {
 module.exports = {
   getLoanCirculations,
   getLoanCirculation,
-  removeLoanCirculation
+  removeLoanCirculation,
+  refreshLoanCirculationUrls
 };
