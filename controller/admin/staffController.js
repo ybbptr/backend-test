@@ -5,7 +5,6 @@ const { uploadBuffer, deleteFile, getFileUrl } = require('../../utils/wasabi');
 const path = require('path');
 const formatDate = require('../../utils/formatDate');
 
-/* ===================== ADD STAFF ===================== */
 const addStaff = asyncHandler(async (req, res) => {
   const { staff_name, position, description } = req.body || {};
 
@@ -17,7 +16,7 @@ const addStaff = asyncHandler(async (req, res) => {
   if (req.files?.img) {
     const file = req.files.img[0];
     const ext = path.extname(file.originalname);
-    const key = `staff/${staff_name}/img_${formatDate()}${ext}`;
+    const key = `Staff/${staff_name}/img_${formatDate()}${ext}`;
 
     await uploadBuffer(key, file.buffer);
 
@@ -32,7 +31,7 @@ const addStaff = asyncHandler(async (req, res) => {
   if (req.files?.gif) {
     const file = req.files.gif[0];
     const ext = path.extname(file.originalname);
-    const key = `staff/${staff_name}/gif_${formatDate()}${ext}`;
+    const key = `Staff/${staff_name}/gif_${formatDate()}${ext}`;
 
     await uploadBuffer(key, file.buffer);
 
@@ -58,7 +57,6 @@ const addStaff = asyncHandler(async (req, res) => {
   });
 });
 
-/* ===================== GET STAFFS (pagination + filter) ===================== */
 const getStaffs = asyncHandler(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 10;
@@ -114,7 +112,6 @@ const getStaffs = asyncHandler(async (req, res) => {
   });
 });
 
-/* ===================== GET ONE STAFF ===================== */
 const getStaff = asyncHandler(async (req, res) => {
   const staff = await Staff.findById(req.params.id);
   if (!staff) throwError('Staff tidak terdaftar!', 400);
@@ -131,12 +128,10 @@ const getStaff = asyncHandler(async (req, res) => {
   });
 });
 
-/* ===================== REMOVE STAFF ===================== */
 const removeStaff = asyncHandler(async (req, res) => {
   const staff = await Staff.findById(req.params.id);
   if (!staff) throwError('Staff tidak terdaftar!', 400);
 
-  // hapus file dari Wasabi
   if (staff.img?.key) await deleteFile(staff.img.key);
   if (staff.gif?.key) await deleteFile(staff.gif.key);
 
@@ -144,7 +139,6 @@ const removeStaff = asyncHandler(async (req, res) => {
   res.status(200).json({ message: 'Staff berhasil dihapus.' });
 });
 
-/* ===================== UPDATE STAFF ===================== */
 const updateStaff = asyncHandler(async (req, res) => {
   const { staff_name, position, description } = req.body || {};
 
@@ -155,14 +149,13 @@ const updateStaff = asyncHandler(async (req, res) => {
   if (position) staff.position = position;
   if (description) staff.description = description;
 
-  // update img
   if (req.files?.img) {
     const file = req.files.img[0];
     const ext = path.extname(file.originalname);
 
     if (staff.img?.key) await deleteFile(staff.img.key);
 
-    const key = `staff/${staff.staff_name}/img_${formatDate()}${ext}`;
+    const key = `Staff/${staff.staff_name}/img_${formatDate()}${ext}`;
     await uploadBuffer(key, file.buffer);
 
     staff.img = {
@@ -180,7 +173,7 @@ const updateStaff = asyncHandler(async (req, res) => {
 
     if (staff.gif?.key) await deleteFile(staff.gif.key);
 
-    const key = `staff/${staff.staff_name}/gif_${formatDate()}${ext}`;
+    const key = `Staff/${staff.staff_name}/gif_${formatDate()}${ext}`;
     await uploadBuffer(key, file.buffer);
 
     staff.gif = {
