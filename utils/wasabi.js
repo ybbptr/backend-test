@@ -24,10 +24,11 @@ async function uploadBuffer(key, body) {
   return await s3.send(command);
 }
 
-async function getFileUrl(key, expiresIn = 300) {
+async function getFileUrl(key, expiresIn = 300, disposition = 'inline') {
   const command = new GetObjectCommand({
     Bucket: process.env.WASABI_BUCKET,
-    Key: key
+    Key: key,
+    ResponseContentDisposition: disposition // "inline" | "attachment"
   });
   return await getSignedUrl(s3, command, { expiresIn });
 }

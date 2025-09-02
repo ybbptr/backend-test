@@ -343,7 +343,7 @@ const downloadEmployeeDocs = asyncHandler(async (req, res) => {
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader(
     'Content-Disposition',
-    `attachment; filename=employee-${employee._id}-docs.zip`
+    `attachment; filename=${employee.name}-docs.zip`
   );
 
   const archive = archiver('zip', { zlib: { level: 9 } });
