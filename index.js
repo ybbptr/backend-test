@@ -64,6 +64,21 @@ app.use(
 
 app.use('/employee/projects', require('./routes/employee/dailyProgressRouter'));
 
+const { exec } = require('child_process');
+
+exec(
+  'which chromium || which chromium-browser || which google-chrome',
+  (err, stdout, stderr) => {
+    if (err) {
+      console.error('Chromium not found:', stderr);
+    } else {
+      console.log('Chromium path:', stdout);
+    }
+  }
+);
+
+console.log('PATH:', process.env.PATH);
+
 app.use(errorHandler);
 
 const server = http.createServer(app);
