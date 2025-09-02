@@ -31,7 +31,7 @@ const addWarehouse = asyncHandler(async (req, res) => {
     if (req.file) {
       const file = req.file;
       const ext = path.extname(file.originalname);
-      const key = `Gudang/${warehouse_code}/${warehouse_name}_${formatDate()}${ext}`;
+      const key = `gudang/${warehouse_code}/${warehouse_name}_${formatDate()}${ext}`;
 
       await uploadBuffer(key, file.buffer);
 
@@ -82,7 +82,7 @@ const addWarehouse = asyncHandler(async (req, res) => {
     await session.commitTransaction();
 
     res.status(201).json({
-      warehouse: { ...warehouse.toObject(), image_url: imageUrl },
+      warehouse: { ...warehouse.toObject(), warehouse_image_url: imageUrl },
       shelves: createdShelves
     });
   } catch (err) {
@@ -132,10 +132,10 @@ const getWarehouses = asyncHandler(async (req, res) => {
   const warehousesWithUrls = await Promise.all(
     warehouses.map(async (w) => {
       let imageUrl = null;
-      if (w.image?.key) {
+      if (w.warehouse_image?.key) {
         imageUrl = await getFileUrl(w.image.key);
       }
-      return { ...w, image_url: imageUrl };
+      return { ...w, warehouse_image_url: imageUrl };
     })
   );
 
@@ -206,7 +206,7 @@ const updateWarehouse = asyncHandler(async (req, res) => {
     }
 
     const ext = path.extname(file.originalname);
-    const key = `Gudang/${warehouse_code}/${warehouse_name}_${formatDate()}${ext}`;
+    const key = `gudang/${warehouse_code}/${warehouse_name}_${formatDate()}${ext}`;
 
     await uploadBuffer(key, file.buffer);
 
