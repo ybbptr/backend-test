@@ -183,7 +183,7 @@ const getEmployee = asyncHandler(async (req, res) => {
           key,
           {
             ...(value.toObject?.() || value),
-            url: await getFileUrl(value.key)
+            url: await getFileUrl(value.key, 300, 'inline')
           }
         ];
       }

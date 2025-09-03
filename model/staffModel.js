@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const staffSchema = new mongoose.Schema({
   staff_name: { type: String, required: true },
   position: { type: String, required: true },
-  imgUrl: {
+  img: {
     key: { type: String },
     contentType: { type: String },
     size: { type: Number },
