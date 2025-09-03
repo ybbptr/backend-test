@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const Counter = require('./loanCounter');
+const Counter = require('./counterModel');
 
 const loanSchema = new mongoose.Schema(
   {
