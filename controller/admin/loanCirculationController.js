@@ -25,8 +25,10 @@ const getLoanCirculations = asyncHandler(async (req, res) => {
   const loanCirculations = await loanCirculationModel
     .find()
     .populate('borrowed_items.warehouse_from', 'warehouse_name warehouse_code')
+    .populate('borrowed_items.shelf_from', 'shelf_name')
+    .populate('borrowed_items.project', 'project_name')
     .populate('warehouse_to', 'warehouse_name warehouse_code')
-    .populate('borrower', 'name')
+    .populate('shelf_to', 'shelf_name')
     .lean();
 
   const withUrls = await Promise.all(
@@ -40,8 +42,10 @@ const getLoanCirculation = asyncHandler(async (req, res) => {
   const loanCirculation = await loanCirculationModel
     .findById(req.params.id)
     .populate('borrowed_items.warehouse_from', 'warehouse_name warehouse_code')
+    .populate('borrowed_items.shelf_from', 'shelf_name')
+    .populate('borrowed_items.project', 'project_name')
     .populate('warehouse_to', 'warehouse_name warehouse_code')
-    .populate('borrower', 'name')
+    .populate('shelf_to', 'shelf_name')
     .lean();
 
   if (!loanCirculation) throwError('Sirkulasi tidak terdaftar!', 400);
