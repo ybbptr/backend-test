@@ -1,3 +1,4 @@
+const { required } = require('joi');
 const mongoose = require('mongoose');
 
 const biayaSchema = new mongoose.Schema(
@@ -31,7 +32,10 @@ const rapSchema = new mongoose.Schema(
       ref: 'Client',
       required: true
     },
-
+    name: { type: String, required: true },
+    address: { type: String, required: true },
+    npwp: { type: String, required: true },
+    phone: { type: String, required: true },
     persiapan_pekerjaan: {
       biaya_survey_awal_lapangan: biayaSchema,
       uang_saku_survey_osa: biayaSchema,
