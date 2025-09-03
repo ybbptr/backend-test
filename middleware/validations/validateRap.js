@@ -76,6 +76,14 @@ const updateRAPSchema = Joi.object({
   }),
   nilai_pekerjaan_addendum: Joi.number().min(0).optional(),
   nomor_kontrak_addendum: Joi.string().optional(),
+  date_start: Joi.date().required().messages({
+    'date.base': 'Tanggal mulai tidak valid',
+    'any.required': 'Tanggal mulai wajib diisi'
+  }),
+
+  date_end: Joi.date().allow(null).optional().messages({
+    'date.base': 'Tanggal selesai tidak valid'
+  }),
   nilai_fix_pekerjaan: Joi.number().min(0).optional()
 })
   .min(1)

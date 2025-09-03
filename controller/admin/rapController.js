@@ -15,6 +15,8 @@ const addRAP = asyncHandler(async (req, res) => {
     nomor_kontrak_addendum,
     nilai_fix_pekerjaan,
     name,
+    date_start,
+    date_end,
     location,
     address,
     npwp,
@@ -33,6 +35,8 @@ const addRAP = asyncHandler(async (req, res) => {
     !nilai_pekerjaan ||
     !nomor_kontrak ||
     !name ||
+    !date_start ||
+    !date_end ||
     !location ||
     !address ||
     !npwp ||
@@ -66,6 +70,8 @@ const addRAP = asyncHandler(async (req, res) => {
     nilai_fix_pekerjaan,
     location,
     name,
+    date_start,
+    date_end,
     address,
     npwp,
     phone,
@@ -153,6 +159,8 @@ const updateRAP = asyncHandler(async (req, res) => {
     nomor_kontrak_addendum,
     nilai_fix_pekerjaan,
     name,
+    date_start,
+    date_end,
     location,
     address,
     npwp,
@@ -194,6 +202,8 @@ const updateRAP = asyncHandler(async (req, res) => {
   rap.phone = phone ?? rap.phone;
   rap.npwp = npwp ?? rap.npwp;
   rap.location = location ?? rap.location;
+  rap.date_start = date_start ?? rap.date_start;
+  rap.date_end = date_end ?? rap.date_end;
   rap.nilai_pekerjaan = nilai_pekerjaan ?? rap.nilai_pekerjaan;
   rap.nomor_kontrak = nomor_kontrak ?? rap.nomor_kontrak;
   rap.nilai_pekerjaan_addendum =

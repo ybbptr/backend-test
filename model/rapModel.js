@@ -19,7 +19,8 @@ const rapSchema = new mongoose.Schema(
       size: Number,
       uploadedAt: Date
     },
-
+    date_start: { type: Date, required: true },
+    date_end: { type: Date, default: null },
     nilai_pekerjaan: { type: Number, required: true },
     nomor_kontrak: { type: String, required: true },
     location: { type: String, required: true },

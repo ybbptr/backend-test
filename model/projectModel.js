@@ -8,8 +8,8 @@ const projectSchema = new mongoose.Schema({
     ref: 'Client',
     required: true
   },
-  start_date: { type: Date, required: true },
-  end_date: { type: Date, default: null },
+  date_start: { type: Date },
+  date_end: { type: Date },
   progress: {
     sondir: {
       total_points: { type: Number, default: 0 }, // jumlah titik
