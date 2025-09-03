@@ -27,12 +27,11 @@ const rapSchema = new mongoose.Schema(
     nomor_kontrak_addendum: { type: String },
     nilai_fix_pekerjaan: { type: Number },
 
-    client: {
+    name: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Client',
       required: true
     },
-    name: { type: String, required: true },
     address: { type: String, required: true },
     npwp: { type: String, required: true },
     phone: { type: String, required: true },

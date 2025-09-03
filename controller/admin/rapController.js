@@ -84,14 +84,14 @@ const getAllRAP = asyncHandler(async (req, res) => {
   const limit = parseInt(req.query.limit) || 10;
   const skip = (page - 1) * limit;
 
-  const { project_name, nomor_kontrak, client, search, sort } = req.query;
+  const { project_name, nomor_kontrak, name, search, sort } = req.query;
 
   const filter = {};
   if (project_name)
     filter.project_name = { $regex: project_name, $options: 'i' };
   if (nomor_kontrak)
     filter.nomor_kontrak = { $regex: nomor_kontrak, $options: 'i' };
-  if (client) filter.client = client;
+  if (name) filter.name = name;
   if (search) {
     filter.$or = [
       { project_name: { $regex: search, $options: 'i' } },
@@ -220,9 +220,7 @@ const removeRAP = asyncHandler(async (req, res) => {
 });
 
 const getAllClient = asyncHandler(async (req, res) => {
-  const client = await Client.find().select(
-    'name phone npwp address emergency_contact_number'
-  );
+  const client = await Client.find().select('name');
 
   res.json(client);
 });
