@@ -4,7 +4,8 @@ const {
   getAllRAP,
   getRAP,
   removeRAP,
-  updateRAP
+  updateRAP,
+  getAllClient
 } = require('../../controller/admin/rapController');
 
 const Router = express.Router();
@@ -23,6 +24,7 @@ Router.post(
 );
 
 Router.get('/all-project', getAllRAP);
+Router.get('/all-client', getAllClient);
 
 Router.get('/:id', getRAP);
 Router.put(
