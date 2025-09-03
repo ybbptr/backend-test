@@ -28,6 +28,7 @@ const getLoanCirculations = asyncHandler(async (req, res) => {
     .populate('borrowed_items.shelf_from', 'shelf_name')
     .populate('borrowed_items.project', 'project_name')
     .populate('warehouse_to', 'warehouse_name warehouse_code')
+    .populate('borrower', 'name')
     .populate('shelf_to', 'shelf_name')
     .lean();
 
@@ -44,6 +45,7 @@ const getLoanCirculation = asyncHandler(async (req, res) => {
     .populate('borrowed_items.warehouse_from', 'warehouse_name warehouse_code')
     .populate('borrowed_items.shelf_from', 'shelf_name')
     .populate('borrowed_items.project', 'project_name')
+    .populate('borrower', 'name')
     .populate('warehouse_to', 'warehouse_name warehouse_code')
     .populate('shelf_to', 'shelf_name')
     .lean();
