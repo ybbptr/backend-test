@@ -24,7 +24,7 @@ async function attachImageUrls(circulation) {
 const getLoanCirculations = asyncHandler(async (req, res) => {
   const loanCirculations = await loanCirculationModel
     .find()
-    .populate('warehouse_from', 'warehouse_name warehouse_code')
+    .populate('borrowed_items.warehouse_from', 'warehouse_name warehouse_code')
     .populate('warehouse_to', 'warehouse_name warehouse_code')
     .populate('borrower', 'name')
     .lean();
@@ -39,7 +39,7 @@ const getLoanCirculations = asyncHandler(async (req, res) => {
 const getLoanCirculation = asyncHandler(async (req, res) => {
   const loanCirculation = await loanCirculationModel
     .findById(req.params.id)
-    .populate('warehouse_from', 'warehouse_name warehouse_code')
+    .populate('borrowed_items.warehouse_from', 'warehouse_name warehouse_code')
     .populate('warehouse_to', 'warehouse_name warehouse_code')
     .populate('borrower', 'name')
     .lean();
