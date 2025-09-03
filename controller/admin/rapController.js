@@ -133,10 +133,7 @@ const getAllRAP = asyncHandler(async (req, res) => {
 });
 
 const getRAP = asyncHandler(async (req, res) => {
-  const rap = await RAP.findById(req.params.id).populate(
-    'client',
-    'name address npwp emergency_contact_number'
-  );
+  const rap = await RAP.findById(req.params.id);
   if (!rap) throwError('RAP tidak ditemukan!', 404);
 
   let kontrakUrl = null;
@@ -235,7 +232,9 @@ const removeRAP = asyncHandler(async (req, res) => {
 });
 
 const getAllClient = asyncHandler(async (req, res) => {
-  const client = await Client.find().select('name');
+  const client = await Client.find().select(
+    'name address npwp emergency_contact_number'
+  );
 
   res.json(client);
 });
