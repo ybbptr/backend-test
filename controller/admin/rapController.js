@@ -107,7 +107,7 @@ const getAllRAP = asyncHandler(async (req, res) => {
 
   const totalItems = await RAP.countDocuments(filter);
   const raps = await RAP.find(filter)
-    .populate('client', 'name address npwp phone')
+    .populate('client', 'name address npwp emergency_contact_number')
     .skip(skip)
     .limit(limit)
     .sort(sortOption)
@@ -126,7 +126,7 @@ const getAllRAP = asyncHandler(async (req, res) => {
 const getRAP = asyncHandler(async (req, res) => {
   const rap = await RAP.findById(req.params.id).populate(
     'client',
-    'name address npwp contact'
+    'name address npwp emergency_contact_number'
   );
   if (!rap) throwError('RAP tidak ditemukan!', 404);
 
