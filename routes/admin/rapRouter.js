@@ -16,13 +16,13 @@ const {
 const { pdfUploader } = require('../../utils/fileUploader');
 
 Router.post(
-  '/add-rap',
+  '/add-project',
   pdfUploader.single('kontrak'),
   validate(createRAPSchema),
   addRAP
 );
 
-Router.get('/all-rap', getAllRAP);
+Router.get('/all-project', getAllRAP);
 
 Router.get('/:id', getRAP);
 Router.put(
