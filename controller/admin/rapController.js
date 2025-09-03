@@ -15,6 +15,7 @@ const addRAP = asyncHandler(async (req, res) => {
     nomor_kontrak_addendum,
     nilai_fix_pekerjaan,
     name,
+    location,
     address,
     npwp,
     phone,
@@ -32,6 +33,7 @@ const addRAP = asyncHandler(async (req, res) => {
     !nilai_pekerjaan ||
     !nomor_kontrak ||
     !name ||
+    !location ||
     !address ||
     !npwp ||
     !phone
@@ -62,6 +64,7 @@ const addRAP = asyncHandler(async (req, res) => {
     nilai_pekerjaan_addendum,
     nomor_kontrak_addendum,
     nilai_fix_pekerjaan,
+    location,
     name,
     address,
     npwp,
@@ -132,7 +135,7 @@ const getRAP = asyncHandler(async (req, res) => {
 
   let kontrakUrl = null;
   if (rap.kontrak_file?.key) {
-    kontrakUrl = await getFileUrl(rap.kontrak_file.key); // signed URL
+    kontrakUrl = await getFileUrl(rap.kontrak_file.key);
   }
 
   res.status(200).json({
@@ -150,6 +153,7 @@ const updateRAP = asyncHandler(async (req, res) => {
     nomor_kontrak_addendum,
     nilai_fix_pekerjaan,
     name,
+    location,
     address,
     npwp,
     phone,
@@ -189,6 +193,7 @@ const updateRAP = asyncHandler(async (req, res) => {
   rap.name = name ?? rap.name;
   rap.phone = phone ?? rap.phone;
   rap.npwp = npwp ?? rap.npwp;
+  rap.location = location ?? rap.location;
   rap.nilai_pekerjaan = nilai_pekerjaan ?? rap.nilai_pekerjaan;
   rap.nomor_kontrak = nomor_kontrak ?? rap.nomor_kontrak;
   rap.nilai_pekerjaan_addendum =

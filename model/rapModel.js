@@ -22,6 +22,7 @@ const rapSchema = new mongoose.Schema(
 
     nilai_pekerjaan: { type: Number, required: true },
     nomor_kontrak: { type: String, required: true },
+    location: { type: String, required: true },
 
     nilai_pekerjaan_addendum: { type: Number },
     nomor_kontrak_addendum: { type: String },
