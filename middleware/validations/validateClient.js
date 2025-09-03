@@ -10,6 +10,14 @@ const clientSchema = Joi.object({
     'any.required': 'Alamat client wajib diisi!',
     'string.empty': 'Alamat client tidak boleh kosong!'
   }),
+  npwp: Joi.string()
+    .pattern(/^[0-9]{15,16}$/)
+    .required()
+    .messages({
+      'any.required': 'Nomor NPWP wajib diisi!',
+      'string.pattern.base':
+        'Nomor NPWP harus terdiri dari 15 sampai 16 digit angka'
+    }),
   bank_account_number: Joi.string()
     .pattern(/^\d+$/)
     .min(8)

@@ -6,6 +6,14 @@ const vendorSchema = Joi.object({
     'string.min': 'Minimal berisi 2 huruf',
     'any.required': 'Nama vendor wajib diisi'
   }),
+  npwp: Joi.string()
+    .pattern(/^[0-9]{15,16}$/)
+    .required()
+    .messages({
+      'any.required': 'Nomor NPWP wajib diisi!',
+      'string.pattern.base':
+        'Nomor NPWP harus terdiri dari 15 sampai 16 digit angka'
+    }),
   address: Joi.string().required().messages({
     'any.required': 'Alamat vendor wajib diisi!',
     'string.empty': 'Alamat vendor tidak boleh kosong!'

@@ -6,6 +6,7 @@ const addVendor = asyncHandler(async (req, res) => {
   const {
     name,
     address,
+    npwp,
     phone,
     bank_account_number,
     emergency_contact_number
@@ -15,6 +16,7 @@ const addVendor = asyncHandler(async (req, res) => {
     !name ||
     !address ||
     !phone ||
+    !npwp ||
     !bank_account_number ||
     !emergency_contact_number
   )
@@ -23,6 +25,7 @@ const addVendor = asyncHandler(async (req, res) => {
   const vendor = await Vendor.create({
     name,
     address,
+    npwp,
     phone,
     bank_account_number,
     emergency_contact_number
@@ -55,6 +58,7 @@ const updateVendor = asyncHandler(async (req, res) => {
   const {
     name,
     address,
+    npwp,
     phone,
     bank_account_number,
     emergency_contact_number
@@ -65,6 +69,7 @@ const updateVendor = asyncHandler(async (req, res) => {
 
   vendor.name = name || vendor.name;
   vendor.address = address || vendor.address;
+  vendor.npwp = npwp || vendor.npwp;
   vendor.phone = phone || vendor.phone;
   vendor.bank_account_number =
     bank_account_number || vendor.bank_account_number;

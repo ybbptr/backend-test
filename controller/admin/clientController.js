@@ -9,6 +9,7 @@ const addClient = asyncHandler(async (req, res) => {
     name,
     address,
     email,
+    npwp,
     bank_account_number,
     emergency_contact_number
   } = req.body || {};
@@ -17,6 +18,7 @@ const addClient = asyncHandler(async (req, res) => {
     !name ||
     !address ||
     !email ||
+    !npwp ||
     !bank_account_number ||
     !emergency_contact_number
   )
@@ -25,6 +27,7 @@ const addClient = asyncHandler(async (req, res) => {
   const client = await Client.create({
     name,
     address,
+    npwp,
     email,
     bank_account_number,
     emergency_contact_number
@@ -76,6 +79,7 @@ const updateClient = asyncHandler(async (req, res) => {
   const {
     name,
     address,
+    npwp,
     email,
     bank_account_number,
     emergency_contact_number
@@ -86,6 +90,7 @@ const updateClient = asyncHandler(async (req, res) => {
 
   client.name = name || client.name;
   client.address = address || client.address;
+  client.npwp = npwp || client.npwp;
   client.email = email || client.email;
   client.bank_account_number =
     bank_account_number || client.bank_account_number;
