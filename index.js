@@ -37,9 +37,10 @@ app.use(cookieParser());
 
 app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
 
-app.use('/auth', require('./routes/authRouter')); // kalau ada
-app.use('/orders', require('./routes/orderRouter')); // kalau ada
+app.use('/auth', require('./routes/authRouter'));
+app.use('/orders', require('./routes/orderRouter'));
 app.use('/users', require('./routes/userRouter'));
+app.use('/expense-request', require('./routes/expenseRequestRouter'));
 
 app.use('/admin/products', require('./routes/admin/productRouter'));
 app.use('/comments', require('./routes/commentRouter'));
