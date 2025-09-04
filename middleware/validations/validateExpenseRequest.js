@@ -1,6 +1,13 @@
 const Joi = require('joi');
+const mongoose = require('mongoose');
 
-// Detail item schema
+const objectIdValidator = (value, helpers) => {
+  if (!mongoose.Types.ObjectId.isValid(value)) {
+    return helpers.error('any.invalid');
+  }
+  return value;
+};
+
 const detailSchema = Joi.object({
   purpose: Joi.string().required().messages({
     'string.base': 'Keperluan harus berupa teks',
@@ -27,14 +34,13 @@ const detailSchema = Joi.object({
   })
 });
 
-// CREATE validation
 const createExpenseRequestSchema = Joi.object({
-  name: Joi.string().required().messages({
-    'string.base': 'ID karyawan harus berupa teks',
+  name: Joi.string().required().custom(objectIdValidator).messages({
+    'any.invalid': 'ID karyawan tidak valid!',
     'any.required': 'Karyawan wajib diisi'
   }),
-  project: Joi.string().required().messages({
-    'string.base': 'ID proyek harus berupa teks',
+  project: Joi.string().required().custom(objectIdValidator).messages({
+    'any.invalid': 'ID Proyek tidak valid!',
     'any.required': 'Proyek wajib diisi'
   }),
   voucher_prefix: Joi.string()
@@ -79,7 +85,6 @@ const createExpenseRequestSchema = Joi.object({
   })
 });
 
-// UPDATE validation
 const updateExpenseRequestSchema = Joi.object({
   voucher_prefix: Joi.string().valid('PDLAP', 'PDOFC', 'PDPYR').optional(),
   expense_type: Joi.string()

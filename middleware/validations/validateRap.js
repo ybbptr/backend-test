@@ -37,6 +37,14 @@ const createRAPSchema = Joi.object({
     'string.base': 'Alamat harus berupa teks',
     'any.required': 'Kontak wajib diisi!'
   }),
+  date_start: Joi.date().required().messages({
+    'date.base': 'Tanggal mulai tidak valid',
+    'any.required': 'Tanggal mulai wajib diisi'
+  }),
+
+  date_end: Joi.date().allow(null).optional().messages({
+    'date.base': 'Tanggal selesai tidak valid'
+  }),
   npwp: Joi.string().required().messages({
     'string.base': 'Nomor NPWP tidak valid',
     'any.required': 'Kontak wajib diisi!'
@@ -76,9 +84,8 @@ const updateRAPSchema = Joi.object({
   }),
   nilai_pekerjaan_addendum: Joi.number().min(0).optional(),
   nomor_kontrak_addendum: Joi.string().optional(),
-  date_start: Joi.date().required().messages({
-    'date.base': 'Tanggal mulai tidak valid',
-    'any.required': 'Tanggal mulai wajib diisi'
+  date_start: Joi.date().messages({
+    'date.base': 'Tanggal mulai tidak valid'
   }),
 
   date_end: Joi.date().allow(null).optional().messages({

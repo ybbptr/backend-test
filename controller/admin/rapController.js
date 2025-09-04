@@ -36,7 +36,6 @@ const addRAP = asyncHandler(async (req, res) => {
     !nomor_kontrak ||
     !name ||
     !date_start ||
-    !date_end ||
     !location ||
     !address ||
     !npwp ||
@@ -62,7 +61,6 @@ const addRAP = asyncHandler(async (req, res) => {
 
   const rap = await RAP.create({
     project_name,
-    kontrak_file,
     nilai_pekerjaan,
     nomor_kontrak,
     nilai_pekerjaan_addendum,
