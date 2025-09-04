@@ -12,9 +12,11 @@ const validateToken = asyncHandler(async (req, _res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
+    console.log('Decoded accessToken:', decoded);
     req.user = { id: decoded.sub, role: decoded.role };
     return next();
   } catch (_err) {
+    console.error('JWT verify error:', _err.name, _err.message);
     throwError('Token tidak valid atau expired', 401);
   }
 });

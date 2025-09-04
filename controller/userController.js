@@ -756,7 +756,7 @@ const logoutUser = asyncHandler(async (req, res) => {
     if (token) {
       try {
         const payload = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
-        await User.findByIdAndUpdate(payload.sub, { refreshToken: null }); // ✅ pakai sub
+        await User.findByIdAndUpdate(payload.sub, { refreshToken: null });
       } catch (_) {}
     }
 
@@ -822,7 +822,6 @@ const refreshToken = asyncHandler(async (req, res) => {
     return res.json({ message: 'Access token berhasil di refresh' });
   } catch (err) {
     res
-      .clearCookie('refreshToken', { ...baseCookie, path: '/users' })
       .clearCookie('accessToken', { ...baseCookie, path: '/' })
       .clearCookie('refreshToken', { ...baseCookie, path: '/' });
     return res.status(401).json({ message: 'Refresh token invalid/expired' });
