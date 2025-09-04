@@ -206,7 +206,7 @@ const verifyRegisterOtp = asyncHandler(async (req, res) => {
   const { accessToken, refreshToken } = await generateTokens(user);
 
   res
-    .clearCookie('refreshToken', { ...baseCookie, path: '/' })
+    .clearCookie('refreshToken', { ...baseCookie, path: '/users' })
     .cookie('accessToken', accessToken, {
       ...baseCookie,
       path: '/',
@@ -406,7 +406,7 @@ const verifyEmailUpdateOtp = asyncHandler(async (req, res) => {
 
   const { accessToken, refreshToken } = await generateTokens(user);
   res
-    .clearCookie('refreshToken', { ...baseCookie, path: '/' })
+    .clearCookie('refreshToken', { ...baseCookie, path: '/users' })
     .cookie('accessToken', accessToken, {
       ...baseCookie,
       path: '/',
@@ -610,6 +610,7 @@ const resetPasswordWithToken = asyncHandler(async (req, res) => {
   const { accessToken, refreshToken } = await generateTokens(user);
 
   res
+    .clearCookie('refreshToken', { ...baseCookie, path: '/users' })
     .cookie('accessToken', accessToken, {
       ...baseCookie,
       path: '/',
@@ -672,6 +673,8 @@ const loginUser = asyncHandler(async (req, res) => {
   const { accessToken, refreshToken } = await generateTokens(user);
 
   res.clearCookie('refreshToken', { ...baseCookie, path: '/users' });
+  res.clearCookie('refreshToken', { ...baseCookie, path: '/' });
+  res.clearCookie('accessToken', { ...baseCookie, path: '/' });
 
   res
     .cookie('accessToken', accessToken, {
@@ -758,15 +761,15 @@ const logoutUser = asyncHandler(async (req, res) => {
     }
 
     res
+      .clearCookie('refreshToken', { ...baseCookie, path: '/users' })
       .clearCookie('accessToken', { ...baseCookie, path: '/' })
       .clearCookie('refreshToken', { ...baseCookie, path: '/' })
-      .clearCookie('refreshToken', { ...baseCookie, path: '/users' })
       .json({ message: 'Berhasil logout' });
   } catch (_) {
     res
+      .clearCookie('refreshToken', { ...baseCookie, path: '/users' })
       .clearCookie('accessToken', { ...baseCookie, path: '/' })
       .clearCookie('refreshToken', { ...baseCookie, path: '/' })
-      .clearCookie('refreshToken', { ...baseCookie, path: '/users' })
       .status(200)
       .json({ message: 'Berhasil logout' });
   }
@@ -804,6 +807,7 @@ const refreshToken = asyncHandler(async (req, res) => {
 
     res
       .clearCookie('refreshToken', { path: '/users' })
+      .clearCookie('refreshToken', { path: '/' })
       .cookie('accessToken', newAccessToken, {
         ...baseCookie,
         path: '/',
@@ -818,9 +822,9 @@ const refreshToken = asyncHandler(async (req, res) => {
     return res.json({ message: 'Access token berhasil di refresh' });
   } catch (err) {
     res
+      .clearCookie('refreshToken', { ...baseCookie, path: '/users' })
       .clearCookie('accessToken', { ...baseCookie, path: '/' })
-      .clearCookie('refreshToken', { ...baseCookie, path: '/' })
-      .clearCookie('refreshToken', { ...baseCookie, path: '/users' });
+      .clearCookie('refreshToken', { ...baseCookie, path: '/' });
     return res.status(401).json({ message: 'Refresh token invalid/expired' });
   }
 });
