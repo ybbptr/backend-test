@@ -677,7 +677,7 @@ const loginUser = asyncHandler(async (req, res) => {
     .cookie('accessToken', accessToken, {
       ...baseCookie,
       path: '/',
-      maxAge: 30 * 60 * 1000
+      maxAge: 1 * 60 * 1000
     })
     .cookie('refreshToken', refreshToken, {
       ...baseCookie,
