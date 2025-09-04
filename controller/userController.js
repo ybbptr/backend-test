@@ -783,9 +783,6 @@ const refreshToken = asyncHandler(async (req, res) => {
     const payload = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
     const user = await User.findById(payload.sub);
 
-    console.log('Cookie refreshToken:', token);
-    console.log('DB refreshToken:', user?.refreshToken);
-
     if (!user || user.refreshToken !== token) {
       return res.status(401).json({ message: 'Refresh token invalid' });
     }
