@@ -68,7 +68,14 @@ const createRAPSchema = Joi.object({
 
   nilai_pekerjaan_addendum: Joi.number().min(0).optional(),
   nomor_kontrak_addendum: Joi.string().optional(),
-  nilai_fix_pekerjaan: Joi.number().min(0).optional()
+  nilai_fix_pekerjaan: Joi.number().min(0).optional(),
+  persiapan_pekerjaan: Joi.object().optional(),
+  operasional_lapangan: Joi.object().optional(),
+  operasional_tenaga_ahli: Joi.object().optional(),
+  sewa_alat: Joi.object().optional(),
+  operasional_lab: Joi.object().optional(),
+  pajak: Joi.object().optional(),
+  biaya_lain_lain: Joi.object().optional()
 });
 
 const updateRAPSchema = Joi.object({
@@ -106,12 +113,15 @@ const updateRAPSchema = Joi.object({
   date_end: Joi.date().allow(null).optional().messages({
     'date.base': 'Tanggal selesai tidak valid'
   }),
-  nilai_fix_pekerjaan: Joi.number().min(0).optional()
-})
-  .min(1)
-  .messages({
-    'object.min': 'Minimal harus ada 1 field yang diupdate'
-  });
+  nilai_fix_pekerjaan: Joi.number().min(0).optional(),
+  persiapan_pekerjaan: Joi.object().optional(),
+  operasional_lapangan: Joi.object().optional(),
+  operasional_tenaga_ahli: Joi.object().optional(),
+  sewa_alat: Joi.object().optional(),
+  operasional_lab: Joi.object().optional(),
+  pajak: Joi.object().optional(),
+  biaya_lain_lain: Joi.object().optional()
+});
 
 module.exports = {
   createRAPSchema,
