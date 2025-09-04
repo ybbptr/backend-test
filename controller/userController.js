@@ -210,7 +210,7 @@ const verifyRegisterOtp = asyncHandler(async (req, res) => {
     .cookie('accessToken', accessToken, {
       ...baseCookie,
       path: '/',
-      maxAge: 30 * 60 * 1000
+      maxAge: 35 * 60 * 1000
     })
     .cookie('refreshToken', refreshToken, {
       ...baseCookie,
@@ -410,7 +410,7 @@ const verifyEmailUpdateOtp = asyncHandler(async (req, res) => {
     .cookie('accessToken', accessToken, {
       ...baseCookie,
       path: '/',
-      maxAge: 30 * 60 * 1000
+      maxAge: 35 * 60 * 1000
     })
     .cookie('refreshToken', refreshToken, {
       ...baseCookie,
@@ -614,7 +614,7 @@ const resetPasswordWithToken = asyncHandler(async (req, res) => {
     .cookie('accessToken', accessToken, {
       ...baseCookie,
       path: '/',
-      maxAge: 30 * 60 * 1000
+      maxAge: 35 * 60 * 1000
     })
     .cookie('refreshToken', refreshToken, {
       ...baseCookie,
@@ -808,7 +808,7 @@ const refreshToken = asyncHandler(async (req, res) => {
       .cookie('accessToken', newAccessToken, {
         ...baseCookie,
         path: '/',
-        maxAge: 30 * 60 * 1000
+        maxAge: 35 * 60 * 1000
       })
       .cookie('refreshToken', newRefreshToken, {
         ...baseCookie,
