@@ -1,4 +1,12 @@
 const Joi = require('joi');
+const mongoose = require('mongoose');
+
+const objectIdValidator = (value, helpers) => {
+  if (!mongoose.Types.ObjectId.isValid(value)) {
+    return helpers.error('any.invalid');
+  }
+  return value;
+};
 
 const biayaSchema = Joi.object({
   jumlah: Joi.number().min(0).required().messages({
@@ -15,6 +23,10 @@ const createRAPSchema = Joi.object({
   project_name: Joi.string().required().messages({
     'string.base': 'Nama proyek harus berupa teks',
     'any.required': 'Nama proyek wajib diisi'
+  }),
+  client: Joi.string().custom(objectIdValidator).required().messages({
+    'any.invalid': 'ID client tidak valid!',
+    'any.required': 'Client wajib diisi!'
   }),
   nomor_kontrak: Joi.string().required().messages({
     'string.base': 'Nomor kontrak harus berupa teks',
@@ -65,6 +77,9 @@ const updateRAPSchema = Joi.object({
   }),
   nomor_kontrak: Joi.string().messages({
     'string.base': 'Nomor kontrak harus berupa teks'
+  }),
+  client: Joi.string().custom(objectIdValidator).messages({
+    'any.invalid': 'ID client tidak valid!'
   }),
   name: Joi.string().messages({
     'string.base': 'Nama klien harus berupa teks'

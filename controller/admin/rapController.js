@@ -15,6 +15,7 @@ const addRAP = asyncHandler(async (req, res) => {
     nomor_kontrak_addendum,
     nilai_fix_pekerjaan,
     name,
+    client,
     date_start,
     date_end,
     location,
@@ -68,6 +69,7 @@ const addRAP = asyncHandler(async (req, res) => {
     nilai_fix_pekerjaan,
     location,
     name,
+    client,
     date_start,
     date_end,
     address,
@@ -153,6 +155,7 @@ const updateRAP = asyncHandler(async (req, res) => {
     nomor_kontrak_addendum,
     nilai_fix_pekerjaan,
     name,
+    client,
     date_start,
     date_end,
     location,
@@ -195,6 +198,7 @@ const updateRAP = asyncHandler(async (req, res) => {
   rap.name = name ?? rap.name;
   rap.phone = phone ?? rap.phone;
   rap.npwp = npwp ?? rap.npwp;
+  rap.client = client ?? rap.client;
   rap.location = location ?? rap.location;
   rap.date_start = date_start ?? rap.date_start;
   rap.date_end = date_end ?? rap.date_end;
