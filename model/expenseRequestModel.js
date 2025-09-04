@@ -62,8 +62,15 @@ const expenseRequestSchema = new mongoose.Schema(
     },
     approved_by: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Employee'
-    }
+      ref: 'Employee',
+      default: null
+    },
+    paid_by: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Employee',
+      default: null
+    },
+    payment_voucher: { type: String, default: null }
   },
   { timestamps: true }
 );

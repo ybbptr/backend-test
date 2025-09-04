@@ -26,7 +26,7 @@ const createRAPSchema = Joi.object({
   }),
   client: Joi.string().custom(objectIdValidator).required().messages({
     'any.invalid': 'ID client tidak valid!',
-    'any.required': 'Client wajib diisi!'
+    'any.required': 'Client wajib dipilih!'
   }),
   nomor_kontrak: Joi.string().required().messages({
     'string.base': 'Nomor kontrak harus berupa teks',
@@ -39,7 +39,7 @@ const createRAPSchema = Joi.object({
   }),
   name: Joi.string().required().messages({
     'string.base': 'Nama klien harus berupa teks',
-    'any.required': 'Nama klien wajib dipilih'
+    'any.required': 'Nama klien wajib diisi'
   }),
   phone: Joi.string().required().messages({
     'string.base': 'Masukkan nomor telp yang valid',

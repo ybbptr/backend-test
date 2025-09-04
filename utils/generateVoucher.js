@@ -9,3 +9,5 @@ async function generateVoucherNumber(prefix) {
 
   return `${prefix}-${String(counter.seq).padStart(4, '0')}`;
 }
+
+module.exports = generateVoucherNumber;

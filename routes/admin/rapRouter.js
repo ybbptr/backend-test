@@ -22,7 +22,6 @@ const { pdfUploader } = require('../../utils/fileUploader');
 Router.post(
   '/add-project',
   pdfUploader.single('kontrak'),
-
   validate(createRAPSchema),
   checkDuplicate(RAP, { nomor_kontrak: 'Nomor Kontrak' }),
   addRAP

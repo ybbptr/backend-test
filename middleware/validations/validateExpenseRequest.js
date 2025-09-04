@@ -27,19 +27,18 @@ const detailSchema = Joi.object({
     'number.min': 'Harga satuan tidak boleh negatif',
     'any.required': 'Harga satuan wajib diisi'
   }),
-  amount: Joi.number().min(0).required().messages({
+  amount: Joi.number().min(0).optional().messages({
     'number.base': 'Jumlah harus berupa angka',
-    'number.min': 'Jumlah tidak boleh negatif',
-    'any.required': 'Jumlah wajib diisi'
+    'number.min': 'Jumlah tidak boleh negatif'
   })
 });
 
 const createExpenseRequestSchema = Joi.object({
-  name: Joi.string().required().custom(objectIdValidator).messages({
+  name: Joi.custom(objectIdValidator).required().messages({
     'any.invalid': 'ID karyawan tidak valid!',
     'any.required': 'Karyawan wajib diisi'
   }),
-  project: Joi.string().required().custom(objectIdValidator).messages({
+  project: Joi.custom(objectIdValidator).required().messages({
     'any.invalid': 'ID Proyek tidak valid!',
     'any.required': 'Proyek wajib diisi'
   }),
@@ -70,11 +69,35 @@ const createExpenseRequestSchema = Joi.object({
     'any.only': 'Metode pembayaran harus Transfer atau Tunai',
     'any.required': 'Metode pembayaran wajib diisi'
   }),
-  bank_account_number: Joi.string().allow('').optional(),
-  bank: Joi.string().allow('').optional(),
-  bank_branch: Joi.string().allow('').optional(),
-  bank_account_holder: Joi.string().allow('').optional(),
-  description: Joi.string().allow('').optional(),
+  bank_account_number: Joi.string().when('method', {
+    is: 'Transfer',
+    then: Joi.required().messages({
+      'any.required': 'Nomor rekening wajib diisi jika metode Transfer'
+    }),
+    otherwise: Joi.optional().allow(null, '')
+  }),
+  bank: Joi.string().when('method', {
+    is: 'Transfer',
+    then: Joi.required().messages({
+      'any.required': 'Bank wajib diisi jika metode Transfer'
+    }),
+    otherwise: Joi.optional().allow(null, '')
+  }),
+  bank_branch: Joi.string().when('method', {
+    is: 'Transfer',
+    then: Joi.required().messages({
+      'any.required': 'Cabang bank wajib diisi jika metode Transfer'
+    }),
+    otherwise: Joi.optional().allow(null, '')
+  }),
+  bank_account_holder: Joi.string().when('method', {
+    is: 'Transfer',
+    then: Joi.required().messages({
+      'any.required': 'Pemilik rekening wajib diisi jika metode Transfer'
+    }),
+    otherwise: Joi.optional().allow(null, '')
+  }),
+  description: Joi.string().allow('', null),
   details: Joi.array().items(detailSchema).min(1).required().messages({
     'array.min': 'Minimal harus ada 1 detail keperluan'
   }),
@@ -85,31 +108,28 @@ const createExpenseRequestSchema = Joi.object({
   })
 });
 
-const updateExpenseRequestSchema = Joi.object({
-  voucher_prefix: Joi.string().valid('PDLAP', 'PDOFC', 'PDPYR').optional(),
-  expense_type: Joi.string()
-    .valid(
-      'Persiapan Pekerjaan',
-      'Operasional Lapangan',
-      'Operasional Tenaga Ahli',
-      'Sewa Alat',
-      'Operasional Lab',
-      'Pajak',
-      'Biaya Lain'
-    )
-    .optional(),
-  submission_date: Joi.date().optional(),
-  method: Joi.string().valid('Transfer', 'Tunai').optional(),
-  bank_account_number: Joi.string().allow('').optional(),
-  bank: Joi.string().allow('').optional(),
-  bank_branch: Joi.string().allow('').optional(),
-  bank_account_holder: Joi.string().allow('').optional(),
-  description: Joi.string().allow('').optional(),
-  details: Joi.array().items(detailSchema).optional(),
-  total_amount: Joi.number().min(1).optional(),
-  status: Joi.string().valid('Diproses', 'Disetujui', 'Ditolak').optional(),
-  approved_by: Joi.string().optional()
-})
+const updateExpenseRequestSchema = createExpenseRequestSchema
+  .keys({
+    voucher_prefix: Joi.string().valid('PDLAP', 'PDOFC', 'PDPYR').optional(),
+    expense_type: Joi.string()
+      .valid(
+        'Persiapan Pekerjaan',
+        'Operasional Lapangan',
+        'Operasional Tenaga Ahli',
+        'Sewa Alat',
+        'Operasional Lab',
+        'Pajak',
+        'Biaya Lain'
+      )
+      .optional(),
+    status: Joi.string().valid('Diproses', 'Disetujui', 'Ditolak').optional(),
+    approved_by: Joi.custom(objectIdValidator).optional().messages({
+      'any.invalid': 'ID approved_by tidak valid'
+    }),
+    paid_by: Joi.custom(objectIdValidator).optional().messages({
+      'any.invalid': 'ID paid_by tidak valid'
+    })
+  })
   .min(1)
   .messages({
     'object.min': 'Minimal harus ada 1 field yang diupdate'
