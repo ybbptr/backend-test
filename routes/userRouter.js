@@ -1,8 +1,7 @@
 const express = require('express');
-const Router = express.Router();
+const router = express.Router();
 
 const {
-  // registerUser,
   requestRegisterOtp,
   resendRegisterOtp,
   verifyRegisterOtp,
@@ -29,69 +28,66 @@ const validateRegister = require('../middleware/validations/validateRegister');
 const validateUpdate = require('../middleware/validations/validateUpdate');
 const validateLogin = require('../middleware/validations/validateLogin');
 const validateNewPassword = require('../middleware/validations/validateNewPassword');
-
 const { createRateLimiter } = require('../middleware/rateLimiter');
 const validate = require('../middleware/validations/validate');
 
+// Rate limiters
 const loginLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,
   max: 5,
   message: 'Terlalu banyak percobaan login, coba lagi nanti.'
 });
-
 const registerLimiter = createRateLimiter({
   windowMs: 60 * 60 * 1000,
   max: 3,
   message: 'Pendaftaran terlalu sering, coba lagi dalam 1 jam.'
 });
 
-// POST
-// Router.post(
-//   '/register',
-//   /*registerLimiter,*/ validate(validateRegister),
-//   registerUser
-// );
-
-Router.post(
+// ---------------- PUBLIC ROUTES ---------------- //
+// Register (OTP)
+router.post(
   '/register/request-otp',
   validate(validateRegister),
   requestRegisterOtp
 );
-Router.post('/register/resend-otp', resendRegisterOtp);
-Router.post('/register/verify-otp', verifyRegisterOtp);
+router.post('/register/resend-otp', resendRegisterOtp);
+router.post('/register/verify-otp', verifyRegisterOtp);
 
-Router.post('/security/confirm-password', validateToken, confirmPassword);
-Router.post('/update-email/request-otp', validateToken, requestEmailUpdateOtp);
-Router.post('/update-email/resend-otp', validateToken, resendEmailUpdateOtp);
-Router.post('/update-email/verify-otp', validateToken, verifyEmailUpdateOtp);
+// Forgot password (OTP)
+router.post('/forgot-password/request-otp', requestPasswordResetOtp);
+router.post('/forgot-password/resend-otp', resendPasswordResetOtp);
+router.post('/forgot-password/verify-otp', verifyPasswordResetOtp);
+router.post('/forgot-password/reset-password', resetPasswordWithToken);
 
-Router.post('/forgot-password/request-otp', requestPasswordResetOtp);
-Router.post('/forgot-password/resend-otp', resendPasswordResetOtp);
-Router.post('/forgot-password/verify-otp', verifyPasswordResetOtp);
-Router.post('/forgot-password/reset-password', resetPasswordWithToken);
+// Auth
+router.post('/login', /*loginLimiter,*/ validate(validateLogin), loginUser);
+router.post('/logout', logoutUser);
+router.post('/refresh-token', refreshToken);
 
-Router.post('/login', /*loginLimiter,*/ validate(validateLogin), loginUser);
-Router.post('/logout', logoutUser);
-Router.post('/refresh-token', refreshToken);
+// Testing only
+router.delete('/del', deleteTestAccount);
 
-// PUT
-Router.put(
+// ---------------- PROTECTED ROUTES ---------------- //
+// Email update (OTP)
+router.post('/security/confirm-password', validateToken, confirmPassword);
+router.post('/update-email/request-otp', validateToken, requestEmailUpdateOtp);
+router.post('/update-email/resend-otp', validateToken, resendEmailUpdateOtp);
+router.post('/update-email/verify-otp', validateToken, verifyEmailUpdateOtp);
+
+// User management
+router.get('/current-user', validateToken, getCurrentUser);
+router.put(
   '/update-profile',
   validateToken,
   validate(validateUpdate),
   updateUser
 );
-Router.put(
+router.put(
   '/change-password',
   validateToken,
   validate(validateNewPassword),
   updatePassword
 );
+router.get('/all-user', validateToken, getAllUsers);
 
-// GET
-Router.get('/current-user', validateToken, getCurrentUser);
-Router.get('/all-user', validateToken, getAllUsers);
-
-Router.delete('/del', deleteTestAccount);
-
-module.exports = Router;
+module.exports = router;
