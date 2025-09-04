@@ -31,7 +31,7 @@ const addStaff = asyncHandler(async (req, res) => {
   if (req.files?.gif) {
     const file = req.files.gif[0];
     const ext = path.extname(file.originalname);
-    const key = `Staff/${staff_name}/gif_${formatDate()}${ext}`;
+    const key = `staff/${staff_name}/gif_${formatDate()}${ext}`;
 
     await uploadBuffer(key, file.buffer);
 
@@ -155,7 +155,7 @@ const updateStaff = asyncHandler(async (req, res) => {
 
     if (staff.img?.key) await deleteFile(staff.img.key);
 
-    const key = `Staff/${staff.staff_name}/img_${formatDate()}${ext}`;
+    const key = `staff/${staff.staff_name}/img_${formatDate()}${ext}`;
     await uploadBuffer(key, file.buffer);
 
     staff.img = {

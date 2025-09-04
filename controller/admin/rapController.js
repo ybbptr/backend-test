@@ -114,7 +114,6 @@ const getAllRAP = asyncHandler(async (req, res) => {
 
   const totalItems = await RAP.countDocuments(filter);
   const raps = await RAP.find(filter)
-    .populate('client', 'name address npwp emergency_contact_number')
     .skip(skip)
     .limit(limit)
     .sort(sortOption)
