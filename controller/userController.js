@@ -671,7 +671,7 @@ const loginUser = asyncHandler(async (req, res) => {
 
   const { accessToken, refreshToken } = await generateTokens(user);
 
-  res.clearCookie('refreshToken', { ...baseCookie, path: '/' });
+  res.clearCookie('refreshToken', { ...baseCookie, path: '/users' });
 
   res
     .cookie('accessToken', accessToken, {
@@ -753,18 +753,20 @@ const logoutUser = asyncHandler(async (req, res) => {
     if (token) {
       try {
         const payload = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
-        await User.findByIdAndUpdate(payload.user.id, { refreshToken: null });
+        await User.findByIdAndUpdate(payload.sub, { refreshToken: null }); // ✅ pakai sub
       } catch (_) {}
     }
 
     res
       .clearCookie('accessToken', { ...baseCookie, path: '/' })
       .clearCookie('refreshToken', { ...baseCookie, path: '/' })
+      .clearCookie('refreshToken', { ...baseCookie, path: '/users' })
       .json({ message: 'Berhasil logout' });
   } catch (_) {
     res
       .clearCookie('accessToken', { ...baseCookie, path: '/' })
       .clearCookie('refreshToken', { ...baseCookie, path: '/' })
+      .clearCookie('refreshToken', { ...baseCookie, path: '/users' })
       .status(200)
       .json({ message: 'Berhasil logout' });
   }
@@ -776,29 +778,49 @@ const refreshToken = asyncHandler(async (req, res) => {
 
   try {
     const payload = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
-
     const user = await User.findById(payload.sub);
+
+    console.log('Cookie refreshToken:', token);
+    console.log('DB refreshToken:', user?.refreshToken);
+
     if (!user || user.refreshToken !== token) {
       return res.status(401).json({ message: 'Refresh token invalid' });
     }
 
+    // ✅ generate access & refresh baru
     const newAccessToken = jwt.sign(
-      { user: { id: user._id, role: user.role } },
+      { sub: user._id.toString(), role: user.role },
       process.env.ACCESS_TOKEN_SECRET,
       { expiresIn: '30m' }
     );
 
-    res.cookie('accessToken', newAccessToken, {
-      ...baseCookie,
-      path: '/',
-      maxAge: 30 * 60 * 1000
-    });
+    const newRefreshToken = jwt.sign(
+      { sub: user._id.toString(), role: user.role },
+      process.env.REFRESH_TOKEN_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    await User.findByIdAndUpdate(user._id, { refreshToken: newRefreshToken });
+
+    res
+      .clearCookie('refreshToken', { path: '/users' })
+      .cookie('accessToken', newAccessToken, {
+        ...baseCookie,
+        path: '/',
+        maxAge: 30 * 60 * 1000
+      })
+      .cookie('refreshToken', newRefreshToken, {
+        ...baseCookie,
+        path: '/',
+        maxAge: 7 * 24 * 60 * 60 * 1000
+      });
 
     return res.json({ message: 'Access token berhasil di refresh' });
   } catch (err) {
     res
       .clearCookie('accessToken', { ...baseCookie, path: '/' })
-      .clearCookie('refreshToken', { ...baseCookie, path: '/' });
+      .clearCookie('refreshToken', { ...baseCookie, path: '/' })
+      .clearCookie('refreshToken', { ...baseCookie, path: '/users' });
     return res.status(401).json({ message: 'Refresh token invalid/expired' });
   }
 });
