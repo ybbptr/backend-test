@@ -3,6 +3,7 @@ const asyncHandler = require('express-async-handler');
 const throwError = require('../utils/throwError');
 const generateVoucherNumber = require('../utils/generateVoucher');
 const ExpenseRequest = require('../model/expenseRequestModel');
+const Employee = require('../model/employeeModel');
 const RAP = require('../model/rapModel');
 
 function mapPaymentPrefix(voucherPrefix) {
@@ -347,11 +348,25 @@ const getCategoriesByExpenseType = asyncHandler(async (req, res) => {
   res.status(200).json({ expense_type, categories });
 });
 
+const getAllEmployee = asyncHandler(async (req, res) => {
+  const employee = await Employee.find().select('name');
+
+  res.json(employee);
+});
+
+const getAllProject = asyncHandler(async (req, res) => {
+  const project = await RAP.find().select('project_name');
+
+  res.json(project);
+});
+
 module.exports = {
   addExpenseRequest,
   getExpenseRequests,
   getExpenseRequest,
   updateExpenseRequest,
   deleteExpenseRequest,
-  getCategoriesByExpenseType
+  getCategoriesByExpenseType,
+  getAllEmployee,
+  getAllProject
 };
