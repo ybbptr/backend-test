@@ -93,9 +93,9 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
 
   // tentukan status berdasarkan role
   let status;
-  if (req.user?.role === 'Karyawan') {
+  if (req.user?.role === 'karyawan') {
     status = 'Diproses';
-  } else if (req.user?.role === 'Admin') {
+  } else if (req.user?.role === 'admin') {
     status = reqStatus || 'Diproses';
     console.log('Masuk ke role admin');
   } else {
@@ -109,7 +109,7 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
   let paidBy = null;
 
   // kalau admin langsung setujui
-  if (status === 'Disetujui' && req.user?.role === 'Admin') {
+  if (status === 'Disetujui' && req.user?.role === 'admin') {
     const paymentPrefix = mapPaymentPrefix(voucher_prefix);
     if (!paymentPrefix) throwError('Prefix voucher tidak valid', 400);
     payment_voucher = await generateVoucherNumber(paymentPrefix);
@@ -275,7 +275,7 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
   }
 
   // ============= ADMIN =============
-  if (userRole === 'Admin') {
+  if (userRole === 'admin') {
     Object.assign(expenseRequest, req.body);
 
     // handle method & bank info
