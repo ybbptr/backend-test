@@ -97,6 +97,9 @@ const createExpenseRequestSchema = Joi.object({
     }),
     otherwise: Joi.optional().allow(null, '')
   }),
+  status: Joi.string().valid('Diproses', 'Disetujui', 'Ditolak').messages({
+    'any.only': 'Status tidak valid'
+  }),
   description: Joi.string().allow('', null),
   details: Joi.array().items(detailSchema).min(1).required().messages({
     'array.min': 'Minimal harus ada 1 detail keperluan'
