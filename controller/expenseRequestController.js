@@ -70,7 +70,10 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
   const normalizedDetails = details.map((item) => {
     const qty = Number(item.quantity) || 0;
     const unitPrice = Number(item.unit_price) || 0;
-    return { ...item, amount: qty * unitPrice };
+    return {
+      ...item,
+      amount: qty * unitPrice
+    };
   });
 
   const total_amount = normalizedDetails.reduce(
@@ -78,7 +81,18 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
     0
   );
 
+  // generate nomor voucher
   const voucher_number = await generateVoucherNumber(voucher_prefix);
+
+  // tentukan status berdasarkan role
+  let status;
+  if (req.user?.role === 'Karyawan') {
+    status = 'Diproses';
+  } else if (req.user?.role === 'Admin') {
+    status = req.body.status || 'Diproses';
+  } else {
+    status = 'Diproses';
+  }
 
   const expenseRequest = await ExpenseRequest.create({
     name,
@@ -96,7 +110,7 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
     description,
     details: normalizedDetails,
     total_amount,
-    status: 'Diproses'
+    status
   });
 
   res.status(201).json({
@@ -163,7 +177,34 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
   const newStatus = req.body.status;
   const userRole = req.user?.role;
 
-  // kalau ada details → hitung ulang
+  // ===== handle jika expense_type berubah =====
+  if (
+    req.body.expense_type &&
+    req.body.expense_type !== expenseRequest.expense_type
+  ) {
+    expenseRequest.expense_type = req.body.expense_type;
+    expenseRequest.details = [];
+    expenseRequest.total_amount = 0;
+
+    // reset status
+    expenseRequest.status = 'Diproses';
+    expenseRequest.payment_voucher = null;
+    expenseRequest.approved_by = null;
+    expenseRequest.paid_by = null;
+
+    if (
+      !req.body.details ||
+      !Array.isArray(req.body.details) ||
+      !req.body.details.length
+    ) {
+      throwError(
+        'Jenis biaya diubah, harap isi ulang detail keperluan sesuai jenis biaya baru',
+        400
+      );
+    }
+  }
+
+  // ===== kalau ada details baru → hitung ulang total_amount =====
   if (req.body.details && Array.isArray(req.body.details)) {
     req.body.details = req.body.details.map((item) => {
       const qty = Number(item.quantity) || 0;
@@ -174,11 +215,15 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
       (acc, curr) => acc + curr.amount,
       0
     );
+  } else {
+    delete req.body.total_amount;
   }
 
-  if (userRole === 'admin') {
+  // ============= ADMIN =============
+  if (userRole === 'Admin') {
     Object.assign(expenseRequest, req.body);
 
+    // handle method & bank info
     if (req.body.method) {
       if (req.body.method === 'Tunai') {
         expenseRequest.bank_account_number = null;
@@ -187,34 +232,41 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
         expenseRequest.bank_account_holder = null;
       } else if (req.body.method === 'Transfer') {
         expenseRequest.bank_account_number =
-          req.body.bank_account_number || null;
-        expenseRequest.bank = req.body.bank || null;
-        expenseRequest.bank_branch = req.body.bank_branch || null;
+          req.body.bank_account_number ?? expenseRequest.bank_account_number;
+        expenseRequest.bank = req.body.bank ?? expenseRequest.bank;
+        expenseRequest.bank_branch =
+          req.body.bank_branch ?? expenseRequest.bank_branch;
         expenseRequest.bank_account_holder =
-          req.body.bank_account_holder || null;
+          req.body.bank_account_holder ?? expenseRequest.bank_account_holder;
       }
     }
 
-    if (prevStatus !== newStatus) {
-      if (
-        newStatus === 'Disetujui' &&
-        req.body.paid_by &&
-        !mongoose.Types.ObjectId.isValid(req.body.paid_by)
-      ) {
-        throwError('ID karyawan tidak valid untuk paid_by', 400);
-      }
+    // cek perubahan status
+    if (newStatus && prevStatus !== newStatus) {
+      // === Kalau disetujui ===
+      if (newStatus === 'Disetujui') {
+        if (!req.body.approved_by) {
+          throwError('approved_by wajib diisi saat menyetujui', 400);
+        }
+        if (!mongoose.Types.ObjectId.isValid(req.body.approved_by)) {
+          throwError('ID approved_by tidak valid', 400);
+        }
+        expenseRequest.approved_by = req.body.approved_by;
 
-      if (prevStatus !== 'Disetujui' && newStatus === 'Disetujui') {
+        if (req.body.paid_by) {
+          if (!mongoose.Types.ObjectId.isValid(req.body.paid_by)) {
+            throwError('ID paid_by tidak valid', 400);
+          }
+          expenseRequest.paid_by = req.body.paid_by;
+        }
+
         const paymentPrefix = mapPaymentPrefix(expenseRequest.voucher_prefix);
         if (!paymentPrefix) throwError('Prefix voucher tidak valid', 400);
         expenseRequest.payment_voucher = await generateVoucherNumber(
           paymentPrefix
         );
 
-        expenseRequest.approved_by = req.user.id;
-        expenseRequest.paid_by = req.body.paid_by || null;
-
-        // update RAP.jumlah (tambah)
+        // update RAP.jumlah
         for (const item of expenseRequest.details) {
           const group = mapExpenseType(expenseRequest.expense_type);
           if (group && item.category) {
@@ -226,12 +278,12 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
         }
       }
 
+      // === Kalau ditarik dari Disetujui ke status lain ===
       if (prevStatus === 'Disetujui' && newStatus !== 'Disetujui') {
         expenseRequest.payment_voucher = null;
         expenseRequest.approved_by = null;
         expenseRequest.paid_by = null;
 
-        // rollback RAP.jumlah (kurang)
         for (const item of expenseRequest.details) {
           const group = mapExpenseType(expenseRequest.expense_type);
           if (group && item.category) {
@@ -243,8 +295,9 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
         }
       }
     }
-  } else {
-    // === Karyawan ===
+  }
+  // ============= KARYAWAN =============
+  else {
     const { status, approved_by, paid_by, ...allowedUpdates } = req.body;
     Object.assign(expenseRequest, allowedUpdates);
 
@@ -256,16 +309,23 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
         expenseRequest.bank_account_holder = null;
       } else if (req.body.method === 'Transfer') {
         expenseRequest.bank_account_number =
-          req.body.bank_account_number || null;
-        expenseRequest.bank = req.body.bank || null;
-        expenseRequest.bank_branch = req.body.bank_branch || null;
+          req.body.bank_account_number ?? expenseRequest.bank_account_number;
+        expenseRequest.bank = req.body.bank ?? expenseRequest.bank;
+        expenseRequest.bank_branch =
+          req.body.bank_branch ?? expenseRequest.bank_branch;
         expenseRequest.bank_account_holder =
-          req.body.bank_account_holder || null;
+          req.body.bank_account_holder ?? expenseRequest.bank_account_holder;
       }
     }
 
-    // reset status kalau ada perubahan biaya
-    if (req.body.details || req.body.total_amount || req.body.description) {
+    // kalau ada perubahan biaya atau expense_type → reset status
+    if (
+      req.body.details ||
+      req.body.total_amount ||
+      req.body.description ||
+      req.body.method ||
+      req.body.expense_type
+    ) {
       expenseRequest.status = 'Diproses';
       expenseRequest.payment_voucher = null;
       expenseRequest.approved_by = null;
@@ -311,6 +371,66 @@ const deleteExpenseRequest = asyncHandler(async (req, res) => {
   res.status(200).json({ message: 'Pengajuan biaya berhasil dihapus' });
 });
 
+const categoryLabels = {
+  // PERSIAPAN PEKERJAAN
+  biaya_survey_awal_lapangan: 'Biaya Survey Awal Lapangan',
+  uang_saku_survey_osa: 'Uang Saku Survey / OSA',
+  biaya_perizinan_koordinasi_lokasi: 'Biaya Perizinan / Koordinasi @Lokasi',
+  akomodasi_surveyor: 'Akomodasi Surveyor',
+  mobilisasi_demobilisasi_alat: 'Mobilisasi dan Demobilisasi Alat',
+  mobilisasi_demobilisasi_tim: 'Mobilisasi dan Demobilisasi Tim',
+  akomodasi_tim: 'Akomodasi Tim',
+  penginapan_mess: 'Penginapan / Mess',
+  biaya_kalibrasi_alat_mesin: 'Biaya Kalibrasi Alat / Mesin',
+  biaya_accessories_alat_mesin: 'Biaya Accessories Alat / Mesin',
+  biaya_asuransi_tim: 'Biaya Asuransi Tim',
+  biaya_apd: 'Biaya APD',
+  biaya_atk: 'Biaya ATK',
+
+  // OPERASIONAL LAPANGAN
+  gaji: 'Gaji',
+  gaji_tenaga_lokal: 'Gaji Tenaga Lokal',
+  uang_makan: 'Uang Makan',
+  uang_wakar: 'Uang Wakar',
+  akomodasi_transport: 'Akomodasi Transport',
+  mobilisasi_demobilisasi_titik: 'Mobilisasi + Demobilisasi / Titik',
+  biaya_rtk_takterduga: 'Biaya RTK / Tak Terduga',
+
+  // OPERASIONAL TENAGA AHLI
+  penginapan: 'Penginapan',
+  transportasi_akomodasi_lokal: 'Transportasi & Akomodasi Lokal',
+  transportasi_akomodasi_site: 'Transportasi & Akomodasi Site',
+  uang_makan_ta: 'Uang Makan',
+  osa: 'Osa',
+  fee_tenaga_ahli: 'Fee Tenaga Ahli',
+
+  // SEWA ALAT
+  alat_sondir: 'Alat Sondir',
+  alat_bor: 'Alat Bor',
+  alat_cptu: 'Alat CPTu',
+  alat_topography: 'Alat Topography',
+  alat_geolistrik: 'Alat Geolistrik',
+
+  // OPERASIONAL LAB
+  ambil_sample: 'Ambil Sample',
+  packaging_sample: 'Packaging Sample',
+  kirim_sample: 'Kirim Sample',
+  uji_lab_vendor_luar: 'Uji Lab Vendor Luar',
+  biaya_perlengkapan_lab: 'Biaya Perlengkapan Lab',
+  alat_uji_lab: 'Alat Uji Lab',
+
+  // PAJAK
+  pajak_tenaga_ahli: 'Pajak Tenaga Ahli',
+  pajak_sewa: 'Pajak Sewa',
+  pajak_pph_final: 'Pajak PPh Final',
+  pajak_lapangan: 'Pajak Lapangan',
+  pajak_ppn: 'Pajak PPN',
+
+  // BIAYA LAIN-LAIN
+  scf: 'SCF',
+  admin_bank: 'Admin Bank'
+};
+
 const getCategoriesByExpenseType = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { expense_type } = req.query;
@@ -318,32 +438,38 @@ const getCategoriesByExpenseType = asyncHandler(async (req, res) => {
   const rap = await RAP.findById(id).lean();
   if (!rap) throwError('RAP tidak ditemukan', 404);
 
-  let categories = [];
+  let keys = [];
+
   switch (expense_type) {
     case 'Persiapan Pekerjaan':
-      categories = Object.keys(rap.persiapan_pekerjaan || {});
+      keys = Object.keys(rap.persiapan_pekerjaan || {});
       break;
     case 'Operasional Lapangan':
-      categories = Object.keys(rap.operasional_lapangan || {});
+      keys = Object.keys(rap.operasional_lapangan || {});
       break;
     case 'Operasional Tenaga Ahli':
-      categories = Object.keys(rap.operasional_tenaga_ahli || {});
+      keys = Object.keys(rap.operasional_tenaga_ahli || {});
       break;
     case 'Sewa Alat':
-      categories = Object.keys(rap.sewa_alat || {});
+      keys = Object.keys(rap.sewa_alat || {});
       break;
     case 'Operasional Lab':
-      categories = Object.keys(rap.operasional_lab || {});
+      keys = Object.keys(rap.operasional_lab || {});
       break;
     case 'Pajak':
-      categories = Object.keys(rap.pajak || {});
+      keys = Object.keys(rap.pajak || {});
       break;
     case 'Biaya Lain':
-      categories = Object.keys(rap.biaya_lain_lain || {});
+      keys = Object.keys(rap.biaya_lain_lain || {});
       break;
     default:
       throwError('Jenis biaya tidak valid', 400);
   }
+
+  const categories = keys.map((key) => ({
+    value: key, // untuk disimpan di DB
+    label: categoryLabels[key] || key // untuk ditampilkan di FE
+  }));
 
   res.status(200).json({ expense_type, categories });
 });
