@@ -41,6 +41,8 @@ app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
 
 // ---------------- PUBLIC ROUTES ---------------- //
 app.use('/auth', require('./routes/authRouter'));
+app.use('/admin/staffs', require('./routes/admin/staffRouter'));
+app.use('/admin/showcases', require('./routes/admin/showcaseRouter'));
 app.use('/users', require('./routes/userRouter')); // router ini handle campuran public & protected
 
 // ---------------- PROTECTED ROUTES (global) ---------------- //
@@ -58,8 +60,6 @@ app.use('/admin/loans', require('./routes/admin/loanRouter'));
 app.use('/admin/project-cost', require('./routes/admin/rapRouter'));
 app.use('/admin/shelves', require('./routes/admin/shelfRouter'));
 app.use('/admin/projects', require('./routes/admin/projectRouter'));
-app.use('/admin/staffs', require('./routes/admin/staffRouter'));
-app.use('/admin/showcases', require('./routes/admin/showcaseRouter'));
 app.use('/admin/dashboard', require('./routes/admin/adminDashboardRouter'));
 app.use(
   '/admin/loan-circulation',

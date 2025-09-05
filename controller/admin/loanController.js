@@ -1,7 +1,7 @@
 const asyncHandler = require('express-async-handler');
 const mongoose = require('mongoose');
 const throwError = require('../../utils/throwError');
-const generateLoanPdf = require('../../utils/generateLoanPdf');
+// const generateLoanPdf = require('../../utils/generateLoanPdf');
 const { getFileUrl } = require('../../utils/wasabi');
 const Loan = require('../../model/loanModel');
 const Employee = require('../../model/employeeModel');
@@ -499,41 +499,36 @@ const getShelves = asyncHandler(async (req, res) => {
 });
 
 const getLoanPdf = asyncHandler(async (req, res) => {
-  const loan = await Loan.findById(req.params.id)
-    .populate('borrower', 'name nik phone address position')
-    .populate(
-      'borrowed_items.product',
-      'product_name product_code brand product_image'
-    )
-    .populate('borrowed_items.project', 'project_name')
-    .lean();
-
-  if (!loan) throwError('Data peminjaman tidak ditemukan', 404);
-
-  loan.borrowed_items = await Promise.all(
-    loan.borrowed_items.map(async (it) => ({
-      ...it,
-      product_image_url: it.product?.product_image?.key
-        ? await getFileUrl(it.product.product_image.key, 300) // expired 5 menit
-        : null
-    }))
-  );
-
-  const pdfBuffer = await generateLoanPdf(loan);
-
-  if (req.query.download) {
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="loan-${loan.loan_number}.pdf"`
-    );
-  } else {
-    res.setHeader(
-      'Content-Disposition',
-      `inline; filename="loan-${loan.loan_number}.pdf"`
-    );
-  }
-
-  res.send(pdfBuffer);
+  // const loan = await Loan.findById(req.params.id)
+  //   .populate('borrower', 'name nik phone address position')
+  //   .populate(
+  //     'borrowed_items.product',
+  //     'product_name product_code brand product_image'
+  //   )
+  //   .populate('borrowed_items.project', 'project_name')
+  //   .lean();
+  // if (!loan) throwError('Data peminjaman tidak ditemukan', 404);
+  // loan.borrowed_items = await Promise.all(
+  //   loan.borrowed_items.map(async (it) => ({
+  //     ...it,
+  //     product_image_url: it.product?.product_image?.key
+  //       ? await getFileUrl(it.product.product_image.key, 300) // expired 5 menit
+  //       : null
+  //   }))
+  // );
+  // // const pdfBuffer = await generateLoanPdf(loan);
+  // if (req.query.download) {
+  //   res.setHeader(
+  //     'Content-Disposition',
+  //     `attachment; filename="loan-${loan.loan_number}.pdf"`
+  //   );
+  // } else {
+  //   res.setHeader(
+  //     'Content-Disposition',
+  //     `inline; filename="loan-${loan.loan_number}.pdf"`
+  //   );
+  // }
+  // res.send(pdfBuffer);
 });
 
 module.exports = {

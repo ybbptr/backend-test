@@ -1,6 +1,7 @@
 const express = require('express');
 const Router = express.Router();
 const validate = require('../../middleware/validations/validate');
+const validateToken = require('../../middleware/validations/validateTokenHandler');
 const {
   createStaffSchema,
   updateStaffSchema
@@ -30,6 +31,7 @@ const uploadStaffFiles = multer({
 
 Router.post(
   '/add-staff',
+  validateToken,
   uploadStaffFiles.fields([
     { name: 'img', maxCount: 1 },
     { name: 'gif', maxCount: 1 }
@@ -42,6 +44,7 @@ Router.get('/all-staff', getStaffs);
 
 Router.put(
   '/update/:id',
+  validateToken,
   uploadStaffFiles.fields([
     { name: 'img', maxCount: 1 },
     { name: 'gif', maxCount: 1 }
@@ -51,6 +54,6 @@ Router.put(
 );
 
 Router.get('/:id', getStaff);
-Router.delete('/remove/:id', removeStaff);
+validateToken, Router.delete('/remove/:id', validateToken, removeStaff);
 
 module.exports = Router;
