@@ -228,91 +228,98 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
   if (!expenseRequest) throwError('Pengajuan biaya tidak ditemukan', 404);
 
   const prevStatus = expenseRequest.status;
-  const newStatus = req.body.status;
   const userRole = req.user?.role;
-  console.log('Prev:', prevStatus, 'New:', newStatus);
+  const updates = req.body;
 
-  // ===== handle jika expense_type berubah =====
-  if (
-    req.body.expense_type &&
-    req.body.expense_type !== expenseRequest.expense_type
-  ) {
-    expenseRequest.expense_type = req.body.expense_type;
-    expenseRequest.details = [];
-    expenseRequest.total_amount = 0;
-
-    // reset status
-    expenseRequest.status = 'Diproses';
-    expenseRequest.payment_voucher = null;
-    expenseRequest.approved_by = null;
-    expenseRequest.paid_by = null;
-
+  // ==== ADMIN ====
+  if (userRole === 'Admin') {
+    // 1. Voucher prefix berubah → generate nomor baru
     if (
-      !req.body.details ||
-      !Array.isArray(req.body.details) ||
-      !req.body.details.length
+      updates.voucher_prefix &&
+      updates.voucher_prefix !== expenseRequest.voucher_prefix
     ) {
-      throwError(
-        'Jenis biaya diubah, harap isi ulang detail keperluan sesuai jenis biaya baru',
-        400
+      expenseRequest.voucher_prefix = updates.voucher_prefix;
+      expenseRequest.voucher_number = await generateVoucherNumber(
+        updates.voucher_prefix
       );
     }
-  }
 
-  // ===== kalau ada details baru → hitung ulang total_amount =====
-  if (req.body.details && Array.isArray(req.body.details)) {
-    req.body.details = req.body.details.map((item) => {
-      const qty = Number(item.quantity) || 0;
-      const unitPrice = Number(item.unit_price) || 0;
-      return { ...item, amount: qty * unitPrice };
-    });
-    req.body.total_amount = req.body.details.reduce(
-      (acc, curr) => acc + curr.amount,
-      0
-    );
-  } else {
-    delete req.body.total_amount;
-  }
+    // 2. Expense type berubah → reset details
+    if (
+      updates.expense_type &&
+      updates.expense_type !== expenseRequest.expense_type
+    ) {
+      expenseRequest.expense_type = updates.expense_type;
+      expenseRequest.details = [];
+      expenseRequest.total_amount = 0;
 
-  // ============= ADMIN =============
-  if (userRole === 'admin') {
-    Object.assign(expenseRequest, req.body);
+      expenseRequest.status = 'Diproses';
+      expenseRequest.payment_voucher = null;
+      expenseRequest.approved_by = null;
+      expenseRequest.paid_by = null;
 
-    // handle method & bank info
-    if (req.body.method) {
-      if (req.body.method === 'Tunai') {
-        expenseRequest.bank_account_number = null;
-        expenseRequest.bank = null;
-        expenseRequest.bank_branch = null;
-        expenseRequest.bank_account_holder = null;
-      } else if (req.body.method === 'Transfer') {
-        expenseRequest.bank_account_number =
-          req.body.bank_account_number ?? expenseRequest.bank_account_number;
-        expenseRequest.bank = req.body.bank ?? expenseRequest.bank;
-        expenseRequest.bank_branch =
-          req.body.bank_branch ?? expenseRequest.bank_branch;
-        expenseRequest.bank_account_holder =
-          req.body.bank_account_holder ?? expenseRequest.bank_account_holder;
+      if (!updates.details || !Array.isArray(updates.details)) {
+        throwError('Jenis biaya diubah, harap isi ulang detail keperluan', 400);
       }
     }
 
-    // cek perubahan status
-    if (newStatus && prevStatus !== newStatus) {
-      // === Kalau disetujui ===
-      if (newStatus === 'Disetujui') {
-        if (!req.body.approved_by) {
-          throwError('approved_by wajib diisi saat menyetujui', 400);
-        }
-        if (!mongoose.Types.ObjectId.isValid(req.body.approved_by)) {
-          throwError('ID approved_by tidak valid', 400);
-        }
-        expenseRequest.approved_by = req.body.approved_by;
+    // 3. Kalau ada details → hitung ulang total
+    if (updates.details && Array.isArray(updates.details)) {
+      expenseRequest.details = updates.details.map((item) => {
+        const qty = Number(item.quantity) || 0;
+        const unitPrice = Number(item.unit_price) || 0;
+        return {
+          ...item,
+          category:
+            typeof item.category === 'object'
+              ? item.category.value
+              : item.category,
+          amount: qty * unitPrice
+        };
+      });
 
-        if (req.body.paid_by) {
-          if (!mongoose.Types.ObjectId.isValid(req.body.paid_by)) {
+      expenseRequest.total_amount = expenseRequest.details.reduce(
+        (acc, curr) => acc + curr.amount,
+        0
+      );
+    }
+
+    // 4. Update field dasar
+    if (updates.description !== undefined)
+      expenseRequest.description = updates.description;
+    if (updates.method !== undefined) expenseRequest.method = updates.method;
+
+    // 5. Handle method bank
+    if (updates.method === 'Tunai') {
+      expenseRequest.bank_account_number = null;
+      expenseRequest.bank = null;
+      expenseRequest.bank_branch = null;
+      expenseRequest.bank_account_holder = null;
+    } else if (updates.method === 'Transfer') {
+      expenseRequest.bank_account_number =
+        updates.bank_account_number ?? expenseRequest.bank_account_number;
+      expenseRequest.bank = updates.bank ?? expenseRequest.bank;
+      expenseRequest.bank_branch =
+        updates.bank_branch ?? expenseRequest.bank_branch;
+      expenseRequest.bank_account_holder =
+        updates.bank_account_holder ?? expenseRequest.bank_account_holder;
+    }
+
+    // 6. Cek perubahan status
+    const newStatus = updates.status;
+    if (newStatus && prevStatus !== newStatus) {
+      if (newStatus === 'Disetujui') {
+        if (!updates.approved_by)
+          throwError('approved_by wajib diisi saat menyetujui', 400);
+        if (!mongoose.Types.ObjectId.isValid(updates.approved_by))
+          throwError('ID approved_by tidak valid', 400);
+
+        expenseRequest.approved_by = updates.approved_by;
+
+        if (updates.paid_by) {
+          if (!mongoose.Types.ObjectId.isValid(updates.paid_by))
             throwError('ID paid_by tidak valid', 400);
-          }
-          expenseRequest.paid_by = req.body.paid_by;
+          expenseRequest.paid_by = updates.paid_by;
         }
 
         const paymentPrefix = mapPaymentPrefix(expenseRequest.voucher_prefix);
@@ -321,7 +328,7 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
           paymentPrefix
         );
 
-        // update RAP.jumlah
+        // Tambah dana ke RAP.jumlah
         for (const item of expenseRequest.details) {
           const group = mapExpenseType(expenseRequest.expense_type);
           if (group && item.category) {
@@ -333,7 +340,6 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
         }
       }
 
-      // === Kalau ditarik dari Disetujui ke status lain ===
       if (prevStatus === 'Disetujui' && newStatus !== 'Disetujui') {
         expenseRequest.payment_voucher = null;
         expenseRequest.approved_by = null;
@@ -349,37 +355,64 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
           }
         }
       }
+
+      expenseRequest.status = newStatus;
     }
   }
-  // ============= KARYAWAN =============
-  else {
-    const { status, approved_by, paid_by, ...allowedUpdates } = req.body;
-    Object.assign(expenseRequest, allowedUpdates);
 
-    if (req.body.method) {
-      if (req.body.method === 'Tunai') {
-        expenseRequest.bank_account_number = null;
-        expenseRequest.bank = null;
-        expenseRequest.bank_branch = null;
-        expenseRequest.bank_account_holder = null;
-      } else if (req.body.method === 'Transfer') {
-        expenseRequest.bank_account_number =
-          req.body.bank_account_number ?? expenseRequest.bank_account_number;
-        expenseRequest.bank = req.body.bank ?? expenseRequest.bank;
-        expenseRequest.bank_branch =
-          req.body.bank_branch ?? expenseRequest.bank_branch;
-        expenseRequest.bank_account_holder =
-          req.body.bank_account_holder ?? expenseRequest.bank_account_holder;
-      }
+  // ==== KARYAWAN ====
+  else {
+    const { status, approved_by, paid_by, ...allowedUpdates } = updates;
+
+    // update field aman
+    if (allowedUpdates.description !== undefined)
+      expenseRequest.description = allowedUpdates.description;
+    if (allowedUpdates.method !== undefined)
+      expenseRequest.method = allowedUpdates.method;
+
+    if (allowedUpdates.details && Array.isArray(allowedUpdates.details)) {
+      expenseRequest.details = allowedUpdates.details.map((item) => {
+        const qty = Number(item.quantity) || 0;
+        const unitPrice = Number(item.unit_price) || 0;
+        return {
+          ...item,
+          category:
+            typeof item.category === 'object'
+              ? item.category.value
+              : item.category,
+          amount: qty * unitPrice
+        };
+      });
+      expenseRequest.total_amount = expenseRequest.details.reduce(
+        (acc, curr) => acc + curr.amount,
+        0
+      );
     }
 
-    // kalau ada perubahan biaya atau expense_type → reset status
+    if (allowedUpdates.method === 'Tunai') {
+      expenseRequest.bank_account_number = null;
+      expenseRequest.bank = null;
+      expenseRequest.bank_branch = null;
+      expenseRequest.bank_account_holder = null;
+    } else if (allowedUpdates.method === 'Transfer') {
+      expenseRequest.bank_account_number =
+        allowedUpdates.bank_account_number ??
+        expenseRequest.bank_account_number;
+      expenseRequest.bank = allowedUpdates.bank ?? expenseRequest.bank;
+      expenseRequest.bank_branch =
+        allowedUpdates.bank_branch ?? expenseRequest.bank_branch;
+      expenseRequest.bank_account_holder =
+        allowedUpdates.bank_account_holder ??
+        expenseRequest.bank_account_holder;
+    }
+
+    // reset status kalau ada perubahan
     if (
-      req.body.details ||
-      req.body.total_amount ||
-      req.body.description ||
-      req.body.method ||
-      req.body.expense_type
+      allowedUpdates.details ||
+      allowedUpdates.total_amount ||
+      allowedUpdates.description ||
+      allowedUpdates.method ||
+      allowedUpdates.expense_type
     ) {
       expenseRequest.status = 'Diproses';
       expenseRequest.payment_voucher = null;
