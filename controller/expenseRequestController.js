@@ -59,6 +59,7 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
     status: reqStatus // ambil dari body kalau admin
   } = req.body || {};
 
+  console.log('Role:', req.user.role, 'Status:', req.body.status);
   if (
     !name ||
     !project ||
@@ -96,8 +97,10 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
     status = 'Diproses';
   } else if (req.user?.role === 'Admin') {
     status = reqStatus || 'Diproses';
+    console.log('Masuk ke role admin');
   } else {
     status = 'Diproses';
+    console.log('Disini');
   }
 
   // default
@@ -227,6 +230,7 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
   const prevStatus = expenseRequest.status;
   const newStatus = req.body.status;
   const userRole = req.user?.role;
+  console.log('Prev:', prevStatus, 'New:', newStatus);
 
   // ===== handle jika expense_type berubah =====
   if (
