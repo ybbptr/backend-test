@@ -53,7 +53,10 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
     bank_branch,
     bank_account_holder,
     description,
-    details = []
+    details = [],
+    approved_by,
+    paid_by,
+    status: reqStatus // ambil dari body kalau admin
   } = req.body || {};
 
   if (
@@ -67,11 +70,14 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
     throwError('Field wajib tidak boleh kosong', 400);
   }
 
+  // hitung amount per detail
   const normalizedDetails = details.map((item) => {
     const qty = Number(item.quantity) || 0;
     const unitPrice = Number(item.unit_price) || 0;
     return {
       ...item,
+      category:
+        typeof item.category === 'object' ? item.category.value : item.category, // normalize category
       amount: qty * unitPrice
     };
   });
@@ -81,7 +87,7 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
     0
   );
 
-  // generate nomor voucher
+  // generate nomor voucher (PDxxx)
   const voucher_number = await generateVoucherNumber(voucher_prefix);
 
   // tentukan status berdasarkan role
@@ -89,17 +95,60 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
   if (req.user?.role === 'Karyawan') {
     status = 'Diproses';
   } else if (req.user?.role === 'Admin') {
-    status = req.body.status || 'Diproses';
+    status = reqStatus || 'Diproses';
   } else {
     status = 'Diproses';
   }
 
+  // default
+  let payment_voucher = null;
+  let approvedBy = null;
+  let paidBy = null;
+
+  // kalau admin langsung setujui
+  if (status === 'Disetujui' && req.user?.role === 'Admin') {
+    const paymentPrefix = mapPaymentPrefix(voucher_prefix);
+    if (!paymentPrefix) throwError('Prefix voucher tidak valid', 400);
+    payment_voucher = await generateVoucherNumber(paymentPrefix);
+
+    // isi approved_by & paid_by dari body
+    if (approved_by) {
+      if (!mongoose.Types.ObjectId.isValid(approved_by)) {
+        throwError('ID approved_by tidak valid', 400);
+      }
+      approvedBy = approved_by;
+    } else {
+      throwError('Approved_by wajib diisi saat status Disetujui', 400);
+    }
+
+    if (paid_by) {
+      if (!mongoose.Types.ObjectId.isValid(paid_by)) {
+        throwError('ID paid_by tidak valid', 400);
+      }
+      paidBy = paid_by;
+    } else {
+      throwError('Paid_by wajib diisi saat status Disetujui', 400);
+    }
+
+    // update RAP.jumlah
+    for (const item of normalizedDetails) {
+      const group = mapExpenseType(expense_type);
+      if (group && item.category) {
+        await RAP.updateOne(
+          { _id: project },
+          { $inc: { [`${group}.${item.category}.jumlah`]: item.amount } }
+        );
+      }
+    }
+  }
+
+  // create document
   const expenseRequest = await ExpenseRequest.create({
     name,
     project,
     voucher_prefix,
     voucher_number,
-    payment_voucher: null,
+    payment_voucher,
     expense_type,
     submission_date,
     method,
@@ -110,7 +159,9 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
     description,
     details: normalizedDetails,
     total_amount,
-    status
+    status,
+    approved_by: approvedBy,
+    paid_by: paidBy
   });
 
   res.status(201).json({
