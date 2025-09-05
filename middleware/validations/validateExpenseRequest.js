@@ -101,10 +101,9 @@ const createExpenseRequestSchema = Joi.object({
   details: Joi.array().items(detailSchema).min(1).required().messages({
     'array.min': 'Minimal harus ada 1 detail keperluan'
   }),
-  total_amount: Joi.number().min(1).required().messages({
+  total_amount: Joi.number().min(1).messages({
     'number.base': 'Total permohonan biaya harus berupa angka',
-    'number.min': 'Total permohonan biaya minimal 1',
-    'any.required': 'Total permohonan biaya wajib diisi'
+    'number.min': 'Total permohonan biaya minimal 1'
   })
 });
 
