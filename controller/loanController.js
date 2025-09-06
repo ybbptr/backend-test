@@ -547,7 +547,7 @@ const getLoansByEmployee = asyncHandler(async (req, res) => {
   if (!employee) throwError('Karyawan tidak ditemukan', 404);
 
   const { approval, project, search, sort } = req.query;
-  const filter = { borrower: employee._id };
+  const filter = { borrower: new mongoose.Types.ObjectId(employee._id) };
 
   if (approval) filter.approval = approval;
   if (project) filter['borrowed_items.project'] = project;

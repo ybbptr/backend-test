@@ -7,7 +7,7 @@ const Product = require('../../model/productModel');
 const Employee = require('../../model/employeeModel');
 const loanCirculationModel = require('../../model/loanCirculationModel');
 const ReturnLoan = require('../../model/returnLoanModel');
-const { uploadBuffer } = require('../../utils/wasabi');
+const { uploadBuffer, deleteFile, getFileUrl } = require('../../utils/wasabi');
 const formatDate = require('../../utils/formatDate');
 
 const createReturnLoan = asyncHandler(async (req, res) => {
@@ -124,7 +124,7 @@ const createReturnLoan = asyncHandler(async (req, res) => {
   }
 });
 
-const getReturnLoans = asyncHandler(async (req, res) => {
+const getAllReturnLoan = asyncHandler(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 10;
   const skip = (page - 1) * limit;
@@ -168,13 +168,8 @@ const getReturnLoans = asyncHandler(async (req, res) => {
   });
 });
 
-/* ========================= GET ONE (khusus karyawan login) ========================= */
 const getReturnLoan = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  if (!mongoose.Types.ObjectId.isValid(id)) throwError('ID tidak valid', 400);
-
-  if (!req.user?.name) throwError('User login tidak valid', 401);
-
   const returnLoan = await ReturnLoan.findOne({ id: id })
     .populate('inventory_manager', 'name')
     .populate('returned_items.product', 'product_code brand')
@@ -196,6 +191,90 @@ const getReturnLoan = asyncHandler(async (req, res) => {
   );
 
   res.status(200).json(returnLoan);
+});
+
+const updateReturnLoan = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.Types.ObjectId.isValid(id)) throwError('ID tidak valid', 400);
+
+  let returned_items = [];
+  if (req.body.returned_items) {
+    returned_items = JSON.parse(req.body.returned_items);
+  }
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const returnLoan = await ReturnLoan.findById(id).session(session);
+    if (!returnLoan) throwError('Data pengembalian tidak ditemukan', 404);
+
+    const circulation = await loanCirculationModel
+      .findOne({
+        loan_number: returnLoan.loan_number
+      })
+      .session(session);
+
+    if (!circulation) throwError('Sirkulasi tidak ditemukan', 404);
+
+    for (let i = 0; i < returned_items.length; i++) {
+      const ret = returned_items[i];
+      const oldItem = returnLoan.returned_items.id(ret._id);
+      if (!oldItem) throwError('Barang tidak valid di return loan', 400);
+
+      if (ret.condition_new) oldItem.condition_new = ret.condition_new;
+      if (ret.warehouse_return) oldItem.warehouse_return = ret.warehouse_return;
+      if (ret.shelf_return) oldItem.shelf_return = ret.shelf_return;
+
+      const file = req.files?.[`bukti_${i + 1}`]?.[0];
+      if (file) {
+        if (oldItem.proof_image?.key) {
+          await deleteFile(oldItem.proof_image.key);
+        }
+        const ext = path.extname(file.originalname);
+        const key = `bukti_pengembalian_barang/${
+          returnLoan.loan_number
+        }/bukti_update_${i + 1}_${formatDate()}${ext}`;
+
+        await uploadBuffer(file.buffer, key, file.mimetype);
+
+        oldItem.proof_image = {
+          key,
+          contentType: file.mimetype,
+          size: file.size,
+          uploadedAt: new Date()
+        };
+      }
+
+      // sinkron ke circulation (status tetap Dikembalikan)
+      const circItem = circulation.borrowed_items.id(ret._id);
+      if (circItem) {
+        circItem.item_status = 'Dikembalikan';
+        circItem.return_date_circulation =
+          req.body.return_date || returnLoan.return_date || new Date();
+      }
+    }
+
+    // update field header
+    if (req.body.borrower) returnLoan.borrower = req.body.borrower;
+    if (req.body.position) returnLoan.position = req.body.position;
+    if (req.body.report_date) returnLoan.report_date = req.body.report_date;
+    if (req.body.return_date) returnLoan.return_date = req.body.return_date;
+    if (req.body.inventory_manager)
+      returnLoan.inventory_manager = req.body.inventory_manager;
+
+    await circulation.save({ session });
+    await returnLoan.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(200).json(returnLoan);
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    throw error;
+  }
 });
 
 const getReturnForm = asyncHandler(async (req, res) => {
