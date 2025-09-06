@@ -14,7 +14,7 @@ const {
   getReturnForm,
   getAllWarehouse,
   getShelvesByWarehouse
-} = require('../controller/returnLoanController');
+} = require('../controller/employee/returnLoanController');
 
 Router.post('/add-return-loan', validate(validateReturnLoan), createReturnLoan)
   .get('/all-return-loan', getAllReturnLoan)

@@ -386,7 +386,7 @@ const getReturnForm = asyncHandler(async (req, res) => {
 
 const getAllWarehouse = asyncHandler(async (req, res) => {
   const warehouse = await Warehouse.find().select(
-    'warehouse_code warehouse_name shelves'
+    'warehouse_code warehouse_name'
   );
 
   res.json(warehouse);
