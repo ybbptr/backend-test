@@ -1,12 +1,12 @@
 const express = require('express');
 const Router = express.Router();
-const validate = require('../../middleware/validations/validate');
-const { checkDuplicate } = require('../../middleware/checkDuplicate');
-const Loan = require('../../model/loanModel');
+const validate = require('../middleware/validations/validate');
+const { checkDuplicate } = require('../middleware/checkDuplicate');
+const Loan = require('../model/loanModel');
 const {
   createLoanSchema,
   updateLoanSchema
-} = require('../../middleware/validations/validateLoan');
+} = require('../middleware/validations/validateLoan');
 const {
   addLoan,
   getLoan,
@@ -18,7 +18,7 @@ const {
   getLoanPdf,
   getAllWarehouse,
   getShelves
-} = require('../../controller/admin/loanController');
+} = require('../controller/loanController');
 
 Router.post(
   '/add-loan',

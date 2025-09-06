@@ -50,13 +50,13 @@ app.use(validateToken);
 
 app.use('/orders', require('./routes/orderRouter'));
 app.use('/expense-request', require('./routes/expenseRequestRouter'));
+app.use('/loans', require('./routes/loanRouter'));
 
 app.use('/admin/products', require('./routes/admin/productRouter'));
 app.use('/admin/employees', require('./routes/admin/employeeRouter'));
 app.use('/admin/warehouses', require('./routes/admin/warehouseRouter'));
 app.use('/admin/vendors', require('./routes/admin/vendorRouter'));
 app.use('/admin/clients', require('./routes/admin/clientRouter'));
-app.use('/admin/loans', require('./routes/admin/loanRouter'));
 app.use('/admin/project-cost', require('./routes/admin/rapRouter'));
 app.use('/admin/shelves', require('./routes/admin/shelfRouter'));
 app.use('/admin/projects', require('./routes/admin/projectRouter'));

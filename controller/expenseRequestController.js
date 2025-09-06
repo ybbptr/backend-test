@@ -589,10 +589,6 @@ const getMyExpenseRequests = asyncHandler(async (req, res) => {
       .populate('paid_by', 'name')
   ]);
 
-  if (!requests.length) {
-    throwError('Kamu belum pernah mengajukan biaya.', 404);
-  }
-
   res.status(200).json({
     page,
     limit,
