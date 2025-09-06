@@ -10,9 +10,9 @@ const loanCirculationSchema = new mongoose.Schema(
     },
     phone: { type: String, required: true },
     inventory_manager: { type: String, required: true },
-
     warehouse_to: { type: mongoose.Schema.Types.ObjectId, ref: 'Warehouse' },
     shelf_to: { type: mongoose.Schema.Types.ObjectId, ref: 'Shelf' },
+    loan_date_circulation: { type: Date },
 
     borrowed_items: [
       {
@@ -32,7 +32,8 @@ const loanCirculationSchema = new mongoose.Schema(
           size: Number,
           uploadedAt: Date
         },
-        // status: { type: String, enum: ['Dipinjam', 'Dikembalikan'] },
+        item_status: { type: String, enum: ['Dipinjam', 'Dikembalikan'] },
+        return_date_circulation: { type: Date, default: null },
         warehouse_from: {
           type: mongoose.Schema.Types.ObjectId,
           ref: 'Warehouse'

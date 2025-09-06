@@ -41,11 +41,11 @@ const createLoanSchema = Joi.object({
     'any.required': 'Tanggal pengambilan wajib diisi',
     'date.base': 'Tanggal pengambilan harus berupa tanggal yang valid'
   }),
-  return_date: Joi.date().greater(Joi.ref('pickup_date')).required().messages({
-    'any.required': 'Tanggal kembali wajib diisi',
-    'date.base': 'Tanggal kembali harus berupa tanggal yang valid',
-    'date.greater': 'Tanggal kembali harus lebih besar dari tanggal pengambilan'
-  }),
+  // return_date: Joi.date().greater(Joi.ref('pickup_date')).required().messages({
+  //   'any.required': 'Tanggal kembali wajib diisi',
+  //   'date.base': 'Tanggal kembali harus berupa tanggal yang valid',
+  //   'date.greater': 'Tanggal kembali harus lebih besar dari tanggal pengambilan'
+  // }),
   inventory_manager: Joi.string()
     .valid('Owan H.', 'Teguh F.', 'Korlap')
     .required()
@@ -120,9 +120,9 @@ const updateLoanSchema = Joi.object({
       'any.only': 'Penanggung jawab hanya Owan H., Teguh F., dan Korlap'
     }),
   pickup_date: Joi.date(),
-  return_date: Joi.date().greater(Joi.ref('pickup_date')).messages({
-    'date.greater': 'Tanggal kembali harus lebih besar dari tanggal pengambilan'
-  }),
+  // return_date: Joi.date().greater(Joi.ref('pickup_date')).messages({
+  //   'date.greater': 'Tanggal kembali harus lebih besar dari tanggal pengambilan'
+  // }),
   warehouse: Joi.string().custom(objectIdValidator).messages({
     'any.invalid': 'ID gudang tidak valid!'
   }),
