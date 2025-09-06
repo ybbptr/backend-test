@@ -597,7 +597,9 @@ const getLoansByEmployee = asyncHandler(async (req, res) => {
 });
 
 const getEmployee = asyncHandler(async (req, res) => {
-  const employee = await Employee.findOne({ user: req.user.id }).select('name');
+  const employee = await Employee.findOne({ user: req.user.id }).select(
+    'name nik phone address position'
+  );
 
   if (!employee) throwError('Data karyawan tidak ditemukan', 404);
 
