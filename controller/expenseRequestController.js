@@ -568,6 +568,12 @@ const getAllEmployee = asyncHandler(async (req, res) => {
   res.json(employee);
 });
 
+const getEmployee = asyncHandler(async (req, res) => {
+  const employee = await Employee.findOne(req.user?.id).select('name');
+
+  res.json(employee);
+});
+
 const getAllProject = asyncHandler(async (req, res) => {
   const project = await RAP.find().select('project_name');
 
@@ -582,5 +588,6 @@ module.exports = {
   deleteExpenseRequest,
   getCategoriesByExpenseType,
   getAllEmployee,
+  getEmployee,
   getAllProject
 };
