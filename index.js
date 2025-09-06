@@ -71,6 +71,7 @@ app.use(
 );
 
 app.use('/employee/projects', require('./routes/employee/dailyProgressRouter'));
+app.use('/employee/return-loan', require('./routes/returnLoanRouter'));
 
 // Error handler
 app.use(errorHandler);

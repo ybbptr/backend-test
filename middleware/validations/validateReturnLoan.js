@@ -14,20 +14,20 @@ const objectId = (label) =>
     });
 
 const validateReturnedItem = Joi.object({
-  product: objectId('ID barang').required(),
-  product_code: Joi.string().required().messages({
+  product: objectId('ID barang'),
+  product_code: Joi.string().messages({
     'any.required': 'Kode barang wajib diisi'
   }),
-  brand: Joi.string().required().messages({
+  brand: Joi.string().messages({
     'any.required': 'Merek wajib diisi'
   }),
-  quantity: Joi.number().integer().min(1).required().messages({
+  quantity: Joi.number().integer().min(1).messages({
     'number.base': 'Jumlah harus berupa angka',
     'number.integer': 'Jumlah harus bilangan bulat',
     'number.min': 'Jumlah minimal 1',
     'any.required': 'Jumlah wajib diisi'
   }),
-  warehouse_return: objectId('ID gudang pengembalian').required(),
+  warehouse_return: objectId('ID gudang pengembalian'),
   shelf_return: objectId('ID lemari pengembalian').optional().allow(null),
   condition_new: Joi.string().valid('Baik', 'Rusak', 'Maintenance').required(),
   project: objectId('ID proyek').optional().allow(null),

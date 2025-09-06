@@ -5,6 +5,8 @@ const throwError = require('../../utils/throwError');
 const Loan = require('../../model/loanModel');
 const Product = require('../../model/productModel');
 const Employee = require('../../model/employeeModel');
+const Warehouse = require('../../model/warehouseModel');
+const Shelf = require('../../model/shelfModel');
 const loanCirculationModel = require('../../model/loanCirculationModel');
 const ReturnLoan = require('../../model/returnLoanModel');
 const { uploadBuffer, deleteFile, getFileUrl } = require('../../utils/wasabi');
@@ -170,7 +172,7 @@ const getAllReturnLoan = asyncHandler(async (req, res) => {
 
 const getReturnLoan = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const returnLoan = await ReturnLoan.findOne({ id: id })
+  const returnLoan = await ReturnLoan.findById(id)
     .populate('inventory_manager', 'name')
     .populate('returned_items.product', 'product_code brand')
     .populate('returned_items.warehouse_return', 'warehouse_name')
@@ -234,7 +236,7 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
         const ext = path.extname(file.originalname);
         const key = `bukti_pengembalian_barang/${
           returnLoan.loan_number
-        }/bukti_update_${i + 1}_${formatDate()}${ext}`;
+        }/bukti_${i + 1}_${formatDate()}${ext}`;
 
         await uploadBuffer(file.buffer, key, file.mimetype);
 
@@ -246,7 +248,6 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
         };
       }
 
-      // sinkron ke circulation (status tetap Dikembalikan)
       const circItem = circulation.borrowed_items.id(ret._id);
       if (circItem) {
         circItem.item_status = 'Dikembalikan';
@@ -255,7 +256,6 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
       }
     }
 
-    // update field header
     if (req.body.borrower) returnLoan.borrower = req.body.borrower;
     if (req.body.position) returnLoan.position = req.body.position;
     if (req.body.report_date) returnLoan.report_date = req.body.report_date;
@@ -285,6 +285,66 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
     await session.abortTransaction();
     session.endSession();
     throw error;
+  }
+});
+
+const deleteReturnLoan = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.Types.ObjectId.isValid(id)) throwError('ID tidak valid', 400);
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const returnLoan = await ReturnLoan.findById(id).session(session);
+    if (!returnLoan) throwError('Data pengembalian tidak ditemukan', 404);
+
+    const loan = await Loan.findOne({
+      loan_number: returnLoan.loan_number
+    }).session(session);
+    const circulation = await loanCirculationModel
+      .findOne({ loan_number: returnLoan.loan_number })
+      .session(session);
+
+    if (!loan || !circulation)
+      throwError('Data peminjaman tidak ditemukan', 404);
+
+    for (const item of returnLoan.returned_items) {
+      const product = await Product.findById(item.product).session(session);
+      if (product) {
+        product.quantity -= item.quantity;
+        product.loan_quantity += item.quantity;
+        await product.save({ session });
+      }
+
+      const circItem = circulation.borrowed_items.id(item._id);
+      if (circItem) {
+        circItem.item_status = 'Dipinjam';
+        circItem.return_date_circulation = null;
+      }
+
+      if (item.proof_image?.key) {
+        await deleteFile(item.proof_image.key);
+      }
+    }
+
+    await circulation.save({ session });
+
+    await returnLoan.deleteOne({ session });
+
+    loan.circulation_status = 'Aktif';
+    await loan.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(200).json({
+      message: 'Laporan pengembalian berhasil dihapus & data di-rollback.'
+    });
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    throw err;
   }
 });
 
@@ -324,4 +384,32 @@ const getReturnForm = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { createReturnLoan };
+const getAllWarehouse = asyncHandler(async (req, res) => {
+  const warehouse = await Warehouse.find().select(
+    'warehouse_code warehouse_name shelves'
+  );
+
+  res.json(warehouse);
+});
+
+const getShelvesByWarehouse = asyncHandler(async (req, res) => {
+  const { warehouse } = req.query;
+  if (!warehouse) throwError('ID gudang tidak valid', 400);
+
+  const shelves = await Shelf.find({ warehouse }).select(
+    'shelf_name shelf_code'
+  );
+
+  res.json(shelves);
+});
+
+module.exports = {
+  createReturnLoan,
+  deleteReturnLoan,
+  getAllReturnLoan,
+  getReturnLoan,
+  getReturnForm,
+  updateReturnLoan,
+  getShelvesByWarehouse,
+  getAllWarehouse
+};
