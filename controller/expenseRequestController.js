@@ -5,6 +5,7 @@ const generateVoucherNumber = require('../utils/generateVoucher');
 const ExpenseRequest = require('../model/expenseRequestModel');
 const Employee = require('../model/employeeModel');
 const RAP = require('../model/rapModel');
+const expenseRequestModel = require('../model/expenseRequestModel');
 
 function mapPaymentPrefix(voucherPrefix) {
   switch (voucherPrefix) {
@@ -564,14 +565,41 @@ const getCategoriesByExpenseType = asyncHandler(async (req, res) => {
 
 const getAllEmployee = asyncHandler(async (req, res) => {
   const employee = await Employee.find().select('name');
+  if (!employee) throwError('Karyawan tidak ada', 404);
 
-  res.json(employee);
+  res.status(200).json(employee);
 });
 
-const getEmployee = asyncHandler(async (req, res) => {
-  const employee = await Employee.findOne(req.user?.id).select('name');
+const getMyExpenseRequests = asyncHandler(async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
 
-  res.json(employee);
+  // filter hanya data milik karyawan yg sedang login
+  const filter = { name: req.user.id };
+
+  const [totalItems, requests] = await Promise.all([
+    ExpenseRequest.countDocuments(filter),
+    ExpenseRequest.find(filter)
+      .skip(skip)
+      .limit(limit)
+      .sort({ createdAt: -1 })
+      .populate('project', 'project_name')
+      .populate('approved_by', 'name')
+      .populate('paid_by', 'name')
+  ]);
+
+  if (!requests.length) {
+    throwError('Kamu belum pernah mengajukan biaya.', 404);
+  }
+
+  res.status(200).json({
+    page,
+    limit,
+    totalItems,
+    totalPages: Math.ceil(totalItems / limit),
+    data: requests
+  });
 });
 
 const getAllProject = asyncHandler(async (req, res) => {
@@ -588,6 +616,6 @@ module.exports = {
   deleteExpenseRequest,
   getCategoriesByExpenseType,
   getAllEmployee,
-  getEmployee,
+  getMyExpenseRequests,
   getAllProject
 };
