@@ -29,6 +29,7 @@ Router.post(
 
 Router.get('/all-expense', getExpenseRequests);
 Router.get('/all-employee', getAllEmployee);
+Router.get('/employee', getAllEmployee);
 Router.get('/all-project', getAllProject);
 Router.get('/my-expense-request', getMyExpenseRequests);
 

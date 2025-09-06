@@ -543,7 +543,7 @@ const getLoansByEmployee = asyncHandler(async (req, res) => {
   const limit = parseInt(req.query.limit) || 10;
   const skip = (page - 1) * limit;
 
-  const employee = await Employee.findOne({ user: req.user.id }).select('_id');
+  const employee = await Employee.findOne({ user: req.user.id }).select('name');
   if (!employee) throwError('Karyawan tidak ditemukan', 404);
 
   const { approval, project, search, sort } = req.query;
@@ -596,6 +596,14 @@ const getLoansByEmployee = asyncHandler(async (req, res) => {
   });
 });
 
+const getEmployee = asyncHandler(async (req, res) => {
+  const employee = await Employee.findOne({ user: req.user.id }).select('name');
+
+  if (!employee) throwError('Data karyawan tidak ditemukan', 404);
+
+  res.status(200).json(employee);
+});
+
 const getLoanPdf = asyncHandler(async (req, res) => {
   // const loan = await Loan.findById(req.params.id)
   //   .populate('borrower', 'name nik phone address position')
@@ -640,5 +648,6 @@ module.exports = {
   getAllWarehouse,
   getShelves,
   getLoanPdf,
+  getEmployee,
   getLoansByEmployee
 };

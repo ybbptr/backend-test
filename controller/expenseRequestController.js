@@ -570,6 +570,14 @@ const getAllEmployee = asyncHandler(async (req, res) => {
   res.status(200).json(employee);
 });
 
+const getEmployee = asyncHandler(async (req, res) => {
+  const employee = await Employee.findOne({ user: req.user.id }).select('name');
+
+  if (!employee) throwError('Data karyawan tidak ditemukan', 404);
+
+  res.status(200).json(employee);
+});
+
 const getMyExpenseRequests = asyncHandler(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 10;
@@ -577,7 +585,7 @@ const getMyExpenseRequests = asyncHandler(async (req, res) => {
 
   const employee = await Employee.findOne({ user: req.user.id }).select('name');
   console.log(req.user.id);
-  console.log(employee.user);
+  console.log(employee);
 
   if (!employee) throwError('Karyawan tidak ditemukan', 404);
 
@@ -617,6 +625,7 @@ module.exports = {
   deleteExpenseRequest,
   getCategoriesByExpenseType,
   getAllEmployee,
+  getEmployee,
   getMyExpenseRequests,
   getAllProject
 };

@@ -18,7 +18,8 @@ const {
   getLoanPdf,
   getAllWarehouse,
   getShelves,
-  getLoansByEmployee
+  getLoansByEmployee,
+  getEmployee
 } = require('../controller/loanController');
 
 Router.post(
@@ -29,6 +30,7 @@ Router.post(
 )
   .get('/all-loan', getLoans)
   .get('/all-employee', getAllEmployee)
+  .get('/employee', getEmployee)
   .get('/all-product', getAllProduct)
   .get('/all-warehouse', getAllWarehouse)
   .get('/my-loans', getLoansByEmployee);
