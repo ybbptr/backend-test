@@ -103,7 +103,7 @@ const addEmployee = asyncHandler(async (req, res) => {
   await User.findByIdAndUpdate(user, { role: 'karyawan' });
 
   res.status(201).json({
-    message: 'Employee berhasil ditambahkan',
+    message: 'Karyawan berhasil ditambahkan',
     data: employee
   });
 });

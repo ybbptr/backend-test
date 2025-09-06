@@ -575,7 +575,7 @@ const getMyExpenseRequests = asyncHandler(async (req, res) => {
   const limit = parseInt(req.query.limit) || 10;
   const skip = (page - 1) * limit;
 
-  const employee = await Employee.findOne({ user: req.user.id }).select('_id');
+  const employee = await Employee.findOne({ user: req.user.id }).select('user');
   console.log(req.user.id);
   console.log(employee);
 
