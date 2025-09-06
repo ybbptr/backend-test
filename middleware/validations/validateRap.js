@@ -100,6 +100,9 @@ const updateRAPSchema = Joi.object({
   npwp: Joi.string().messages({
     'string.base': 'Nomor NPWP tidak valid'
   }),
+  location: Joi.string().messages({
+    'string.base': 'Lokasi harus berupa teks'
+  }),
   nilai_pekerjaan: Joi.number().min(1).messages({
     'number.base': 'Nilai pekerjaan harus berupa angka',
     'number.min': 'Nilai pekerjaan minimal 1'

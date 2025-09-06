@@ -803,8 +803,8 @@ const refreshToken = asyncHandler(async (req, res) => {
     await User.findByIdAndUpdate(user._id, { refreshToken: newRefreshToken });
 
     res
-      .clearCookie('refreshToken', { path: '/users' })
-      .clearCookie('refreshToken', { path: '/' })
+      // .clearCookie('refreshToken', { path: '/users' })
+      // .clearCookie('refreshToken', { path: '/' })
       .cookie('accessToken', newAccessToken, {
         ...baseCookie,
         path: '/',
