@@ -575,9 +575,9 @@ const getMyExpenseRequests = asyncHandler(async (req, res) => {
   const limit = parseInt(req.query.limit) || 10;
   const skip = (page - 1) * limit;
 
-  const employee = await Employee.findOne({ user: req.user.id }).select('user');
+  const employee = await Employee.findOne({ user: req.user.id }).select('name');
   console.log(req.user.id);
-  console.log(employee);
+  console.log(employee.user);
 
   if (!employee) throwError('Karyawan tidak ditemukan', 404);
 
