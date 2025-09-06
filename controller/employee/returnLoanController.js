@@ -266,6 +266,17 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
     await circulation.save({ session });
     await returnLoan.save({ session });
 
+    const loan = await Loan.findOne({
+      loan_number: returnLoan.loan_number
+    }).session(session);
+    if (loan) {
+      const allReturned = circulation.borrowed_items.every(
+        (it) => it.item_status === 'Dikembalikan'
+      );
+      loan.circulation_status = allReturned ? 'Selesai' : 'Aktif';
+      await loan.save({ session });
+    }
+
     await session.commitTransaction();
     session.endSession();
 
