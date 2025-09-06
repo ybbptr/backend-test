@@ -538,6 +538,64 @@ const getShelves = asyncHandler(async (req, res) => {
   res.json(shelves);
 });
 
+const getLoansByEmployee = asyncHandler(async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
+
+  const employee = await Employee.findOne({ user: req.user.id }).select('_id');
+  if (!employee) throwError('Karyawan tidak ditemukan', 404);
+
+  const { approval, project, search, sort } = req.query;
+  const filter = { borrower: employee._id };
+
+  if (approval) filter.approval = approval;
+  if (project) filter['borrowed_items.project'] = project;
+
+  if (search) {
+    filter.$or = [
+      { loan_number: { $regex: search, $options: 'i' } },
+      { nik: { $regex: search, $options: 'i' } },
+      { address: { $regex: search, $options: 'i' } },
+      { phone: { $regex: search, $options: 'i' } }
+    ];
+  }
+
+  let sortOption = { createdAt: -1 };
+  if (sort) {
+    const [field, order] = sort.split(':');
+    sortOption = { [field]: order === 'asc' ? 1 : -1 };
+  }
+
+  const [totalItems, loans] = await Promise.all([
+    Loan.countDocuments(filter),
+    Loan.find(filter)
+      .populate([
+        { path: 'borrower', select: 'name' },
+        { path: 'warehouse', select: 'warehouse_name' },
+        { path: 'shelf', select: 'shelf_name' },
+        {
+          path: 'borrowed_items.product',
+          select: 'brand product_code quantity condition'
+        },
+        { path: 'borrowed_items.project', select: 'project_name' }
+      ])
+      .skip(skip)
+      .limit(limit)
+      .sort(sortOption)
+      .lean()
+  ]);
+
+  res.status(200).json({
+    page,
+    limit,
+    totalItems,
+    totalPages: Math.ceil(totalItems / limit),
+    sort: sortOption,
+    data: loans
+  });
+});
+
 const getLoanPdf = asyncHandler(async (req, res) => {
   // const loan = await Loan.findById(req.params.id)
   //   .populate('borrower', 'name nik phone address position')
@@ -581,5 +639,6 @@ module.exports = {
   getAllProduct,
   getAllWarehouse,
   getShelves,
-  getLoanPdf
+  getLoanPdf,
+  getLoansByEmployee
 };

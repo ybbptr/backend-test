@@ -575,8 +575,10 @@ const getMyExpenseRequests = asyncHandler(async (req, res) => {
   const limit = parseInt(req.query.limit) || 10;
   const skip = (page - 1) * limit;
 
-  // filter hanya data milik karyawan yg sedang login
-  const filter = { name: req.user.id };
+  const employee = await Employee.findOne({ user: req.user.id }).select('_id');
+  if (!employee) throwError('Karyawan tidak ditemukan', 404);
+
+  const filter = { name: employee._id };
 
   const [totalItems, requests] = await Promise.all([
     ExpenseRequest.countDocuments(filter),
