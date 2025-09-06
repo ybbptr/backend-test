@@ -17,7 +17,8 @@ const {
   getCategoriesByExpenseType,
   getAllProject,
   getAllEmployee,
-  getMyExpenseRequests
+  getMyExpenseRequests,
+  getEmployee
 } = require('../controller/expenseRequestController');
 
 Router.post(
@@ -29,7 +30,7 @@ Router.post(
 
 Router.get('/all-expense', getExpenseRequests);
 Router.get('/all-employee', getAllEmployee);
-Router.get('/employee', getAllEmployee);
+Router.get('/employee', getEmployee);
 Router.get('/all-project', getAllProject);
 Router.get('/my-expense-request', getMyExpenseRequests);
 
