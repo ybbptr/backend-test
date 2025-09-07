@@ -8,6 +8,7 @@ const Employee = require('../model/employeeModel');
 const Warehouse = require('../model/warehouseModel');
 const Shelf = require('../model/shelfModel');
 const loanCirculationModel = require('../model/loanCirculationModel');
+const productCirculationModel = require('../model/productCirculationModel');
 const ReturnLoan = require('../model/returnLoanModel');
 const { uploadBuffer, deleteFile, getFileUrl } = require('../utils/wasabi');
 const formatDate = require('../utils/formatDate');
