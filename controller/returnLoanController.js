@@ -1,16 +1,16 @@
 const asyncHandler = require('express-async-handler');
 const mongoose = require('mongoose');
 const path = require('path');
-const throwError = require('../../utils/throwError');
-const Loan = require('../../model/loanModel');
-const Product = require('../../model/productModel');
-const Employee = require('../../model/employeeModel');
-const Warehouse = require('../../model/warehouseModel');
-const Shelf = require('../../model/shelfModel');
-const loanCirculationModel = require('../../model/loanCirculationModel');
-const ReturnLoan = require('../../model/returnLoanModel');
-const { uploadBuffer, deleteFile, getFileUrl } = require('../../utils/wasabi');
-const formatDate = require('../../utils/formatDate');
+const throwError = require('../utils/throwError');
+const Loan = require('../model/loanModel');
+const Product = require('../model/productModel');
+const Employee = require('../model/employeeModel');
+const Warehouse = require('../model/warehouseModel');
+const Shelf = require('../model/shelfModel');
+const loanCirculationModel = require('../model/loanCirculationModel');
+const ReturnLoan = require('../model/returnLoanModel');
+const { uploadBuffer, deleteFile, getFileUrl } = require('../utils/wasabi');
+const formatDate = require('../utils/formatDate');
 
 const createReturnLoan = asyncHandler(async (req, res) => {
   const {
@@ -131,10 +131,16 @@ const getAllReturnLoan = asyncHandler(async (req, res) => {
   const limit = parseInt(req.query.limit) || 10;
   const skip = (page - 1) * limit;
 
-  const employee = await Employee.findOne({ user: req.user.id }).select('name');
-  if (!employee) throwError('Karyawan tidak ditemukan', 404);
+  let filter = {};
 
-  const filter = { borrower: employee._id };
+  if (req.user.role === 'karyawan') {
+    const employee = await Employee.findOne({ user: req.user.id }).select(
+      'name'
+    );
+    if (!employee) throwError('Karyawan tidak ditemukan', 404);
+
+    filter = { borrower: employee._id };
+  }
 
   const totalItems = await ReturnLoan.countDocuments(filter);
 
@@ -172,6 +178,8 @@ const getAllReturnLoan = asyncHandler(async (req, res) => {
 
 const getReturnLoan = asyncHandler(async (req, res) => {
   const { id } = req.params;
+  if (!mongoose.Types.ObjectId.isValid(id)) throwError('ID tidak valid', 400);
+
   const returnLoan = await ReturnLoan.findById(id)
     .populate('inventory_manager', 'name')
     .populate('returned_items.product', 'product_code brand')
@@ -181,6 +189,19 @@ const getReturnLoan = asyncHandler(async (req, res) => {
     .lean();
 
   if (!returnLoan) throwError('Data pengembalian tidak ditemukan', 404);
+
+  // 🚨 Validasi kepemilikan kalau karyawan
+  if (req.user.role === 'karyawan') {
+    const employee = await Employee.findOne({ user: req.user.id }).select(
+      'name'
+    );
+    if (
+      !employee ||
+      returnLoan.borrower.toString() !== employee._id.toString()
+    ) {
+      throwError('Tidak punya akses ke data ini', 403);
+    }
+  }
 
   returnLoan.returned_items = await Promise.all(
     returnLoan.returned_items.map(async (item) => {
@@ -299,6 +320,18 @@ const deleteReturnLoan = asyncHandler(async (req, res) => {
     const returnLoan = await ReturnLoan.findById(id).session(session);
     if (!returnLoan) throwError('Data pengembalian tidak ditemukan', 404);
 
+    if (req.user.role === 'karyawan') {
+      const employee = await Employee.findOne({ user: req.user.id }).select(
+        'name'
+      );
+      if (
+        !employee ||
+        returnLoan.borrower.toString() !== employee._id.toString()
+      ) {
+        throwError('Tidak punya akses untuk menghapus data ini', 403);
+      }
+    }
+
     const loan = await Loan.findOne({
       loan_number: returnLoan.loan_number
     }).session(session);
@@ -385,9 +418,7 @@ const getReturnForm = asyncHandler(async (req, res) => {
 });
 
 const getAllWarehouse = asyncHandler(async (req, res) => {
-  const warehouse = await Warehouse.find().select(
-    'warehouse_code warehouse_name'
-  );
+  const warehouse = await Warehouse.find().select('warehouse_name -shelves');
 
   res.json(warehouse);
 });
@@ -396,9 +427,7 @@ const getShelvesByWarehouse = asyncHandler(async (req, res) => {
   const { warehouse } = req.query;
   if (!warehouse) throwError('ID gudang tidak valid', 400);
 
-  const shelves = await Shelf.find({ warehouse }).select(
-    'shelf_name shelf_code'
-  );
+  const shelves = await Shelf.find({ warehouse }).select('shelf_name');
 
   res.json(shelves);
 });

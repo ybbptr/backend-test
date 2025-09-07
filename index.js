@@ -27,7 +27,12 @@ app.use(
       return cb(new Error('Not allowed by CORS: ' + origin));
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Requested-With',
+      'requiresAuth'
+    ],
     credentials: true
   })
 );
@@ -51,6 +56,7 @@ app.use(validateToken);
 app.use('/orders', require('./routes/orderRouter'));
 app.use('/expense-request', require('./routes/expenseRequestRouter'));
 app.use('/loans', require('./routes/loanRouter'));
+app.use('/return-loan', require('./routes/returnLoanRouter'));
 
 app.use('/admin/products', require('./routes/admin/productRouter'));
 app.use('/admin/employees', require('./routes/admin/employeeRouter'));
@@ -71,7 +77,6 @@ app.use(
 );
 
 app.use('/employee/projects', require('./routes/employee/dailyProgressRouter'));
-app.use('/employee/return-loan', require('./routes/returnLoanRouter'));
 
 // Error handler
 app.use(errorHandler);
