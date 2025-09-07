@@ -60,22 +60,16 @@ const validateReturnedItem = Joi.object({
   project: objectId('ID proyek').optional().allow(null, '').messages({
     'any.required': 'ID proyek wajib diisi bila ada'
   }),
-  proof_image: Joi.object({
-    key: Joi.string().required().messages({
-      'string.base': 'Key bukti harus berupa teks',
-      'string.empty': 'Key bukti tidak boleh kosong',
-      'any.required': 'Key bukti wajib diisi'
-    }),
-    contentType: Joi.string().optional().messages({
-      'string.base': 'Content type bukti harus berupa teks'
-    }),
-    size: Joi.number().optional().messages({
-      'number.base': 'Ukuran bukti harus berupa angka'
-    }),
-    uploadedAt: Joi.date().optional().messages({
-      'date.base': 'Tanggal upload bukti harus berupa tanggal yang valid'
-    })
-  }).optional()
+  proof_image: Joi.alternatives().conditional('condition_new', {
+    is: 'Hilang',
+    then: Joi.valid(null).optional(),
+    otherwise: Joi.object({
+      key: Joi.string().required(),
+      contentType: Joi.string().optional(),
+      size: Joi.number().optional(),
+      uploadedAt: Joi.date().optional()
+    }).optional()
+  })
 });
 
 const validateReturnLoan = Joi.object({
@@ -84,8 +78,8 @@ const validateReturnLoan = Joi.object({
     'string.empty': 'Nomor peminjaman tidak boleh kosong',
     'any.required': 'Nomor peminjaman wajib diisi'
   }),
-  borrower: objectId('ID barang').required().messages({
-    'any.required': 'ID barang wajib diisi'
+  borrower: objectId('ID karyawan').required().messages({
+    'any.required': 'ID karyawan wajib diisi'
   }),
   position: Joi.string().required().messages({
     'string.base': 'Jabatan harus berupa teks',

@@ -203,18 +203,6 @@ const getAllReturnLoan = asyncHandler(async (req, res) => {
     .sort({ createdAt: -1 })
     .lean();
 
-  for (const rl of data) {
-    rl.returned_items = await Promise.all(
-      rl.returned_items.map(async (item) => {
-        let proof_url = null;
-        if (item.proof_image?.key) {
-          proof_url = await getFileUrl(item.proof_image.key);
-        }
-        return { ...item, proof_url };
-      })
-    );
-  }
-
   res.status(200).json({
     page,
     limit,
@@ -241,7 +229,7 @@ const getReturnLoan = asyncHandler(async (req, res) => {
   // 🚨 Validasi kepemilikan kalau karyawan
   if (req.user.role === 'karyawan') {
     const employee = await Employee.findOne({ user: req.user.id }).select(
-      'name'
+      '_id name'
     );
     if (
       !employee ||
@@ -255,7 +243,7 @@ const getReturnLoan = asyncHandler(async (req, res) => {
     returnLoan.returned_items.map(async (item) => {
       let proof_url = null;
       if (item.proof_image?.key) {
-        proof_url = await getFileUrl(item.proof_image.key, 60 * 5);
+        proof_url = await getFileUrl(item.proof_image.key);
       }
       return { ...item, proof_url };
     })

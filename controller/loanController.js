@@ -369,7 +369,7 @@ const updateLoan = asyncHandler(async (req, res) => {
         if (
           product.condition === 'Rusak' ||
           product.condition === 'Maintenance' ||
-          item.condition === 'Hilang'
+          product.condition === 'Hilang'
         )
           throwError(
             'Barang rusak/maintenance/hilang, tidak dapat dipinjam',
@@ -486,7 +486,7 @@ const updateLoan = asyncHandler(async (req, res) => {
           inventory_manager: inventory_manager || loan_item.inventory_manager,
           warehouse_to: warehouse || loan_item.warehouse,
           shelf_to: shelf || loan_item.shelf,
-          loan_date_circulation: loan_item[0].pickup_date,
+          loan_date_circulation: loan_item.pickup_date,
           borrowed_items: borrowedItemsCirculation
         },
         { session }
