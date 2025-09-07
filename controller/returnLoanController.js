@@ -416,12 +416,14 @@ const getShelvesByWarehouse = asyncHandler(async (req, res) => {
 });
 
 const getMyLoanNumbers = asyncHandler(async (req, res) => {
-  const employee = await Employee.findOne({ user: req.user.id }).select('user');
+  const employee = await Employee.findOne({ user: req.user.id }).select(
+    '_id name'
+  );
   console.log('Logged in user:', req.user.id);
-  console.log('Matched employee:', employee.user);
+  console.log('Matched employee:', employee._id);
   if (!employee) throwError('Karyawan tidak ditemukan', 404);
 
-  const loans = await Loan.find({ borrower: employee.user })
+  const loans = await Loan.find({ borrower: employee._id })
     .select('loan_number circulation_status')
     .sort({ createdAt: -1 })
     .lean();
