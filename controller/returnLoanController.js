@@ -193,6 +193,7 @@ const getAllReturnLoan = asyncHandler(async (req, res) => {
   const totalItems = await ReturnLoan.countDocuments(filter);
 
   let data = await ReturnLoan.find(filter)
+    .populate('borrower', 'name')
     .populate('returned_items.product', 'product_code brand')
     .populate('returned_items.warehouse_return', 'warehouse_name')
     .populate('returned_items.shelf_return', 'shelf_name')
@@ -228,6 +229,7 @@ const getReturnLoan = asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(id)) throwError('ID tidak valid', 400);
 
   const returnLoan = await ReturnLoan.findById(id)
+    .populate('borrower', 'name')
     .populate('returned_items.product', 'product_code brand')
     .populate('returned_items.warehouse_return', 'warehouse_name')
     .populate('returned_items.shelf_return', 'shelf_name')
@@ -442,7 +444,7 @@ const getReturnForm = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     loan_number: loan.loan_number,
-    borrower: loan.borrower?.name || loan.borrower,
+    borrower: loan.borrower,
     position: loan.position || loan.borrower?.position || null,
     inventory_manager: loan.inventory_manager,
     items: circulation.borrowed_items.map((it) => ({

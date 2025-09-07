@@ -39,7 +39,11 @@ const returnedItemSchema = new mongoose.Schema({
 const returnLoanSchema = new mongoose.Schema(
   {
     loan_number: { type: String, required: true },
-    borrower: { type: String, required: true },
+    borrower: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Employee',
+      required: true
+    },
     position: { type: String, required: true },
     report_date: { type: Date, default: Date.now }, // tanggal laporan
     return_date: { type: Date, default: Date.now }, // tanggal pengembalian
