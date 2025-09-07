@@ -87,13 +87,15 @@ const createReturnLoan = asyncHandler(async (req, res) => {
       const circItem = circulation.borrowed_items.id(ret._id);
 
       if (ret.condition_new === 'Hilang') {
-        // Barang hilang → hanya kurangi loan_quantity
+        // Barang hilang → hanya kurangi loan_quantity + update jdi hilang
         product.loan_quantity -= ret.quantity;
+        product.condition = ret.condition_new;
         await product.save({ session });
 
         ret.proof_image = null;
         if (circItem) {
           circItem.item_status = 'Hilang';
+          circItem.condition = ret.condition_new;
           circItem.return_date_circulation = return_date || new Date();
         }
       } else {
@@ -126,6 +128,7 @@ const createReturnLoan = asyncHandler(async (req, res) => {
 
         if (circItem) {
           circItem.item_status = 'Dikembalikan';
+          circItem.condition = ret.condition_new;
           circItem.return_date_circulation = return_date || new Date();
         }
 
@@ -255,6 +258,13 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
     const returnLoan = await ReturnLoan.findById(id).session(session);
     if (!returnLoan) throwError('Data pengembalian tidak ditemukan', 404);
 
+    const loan = await Loan.findOne({
+      loan_number: returnLoan.loan_number
+    }).session(session);
+    if (loan?.circulation_status === 'Selesai') {
+      throwError('Pengembalian sudah selesai, tidak dapat diedit lagi', 400);
+    }
+
     const circulation = await loanCirculationModel
       .findOne({ loan_number: returnLoan.loan_number })
       .session(session);
@@ -280,6 +290,7 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
         const circItem = circulation.borrowed_items.id(ret._id);
         if (circItem) {
           circItem.item_status = 'Hilang';
+          circItem.condition = ret.condition_new;
           circItem.return_date_circulation =
             req.body.return_date || returnLoan.return_date || new Date();
         }
@@ -302,6 +313,7 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
         const circItem = circulation.borrowed_items.id(ret._id);
         if (circItem) {
           circItem.item_status = 'Dikembalikan';
+          circItem.condition = ret.condition_new;
           circItem.return_date_circulation =
             req.body.return_date || returnLoan.return_date || new Date();
         }
