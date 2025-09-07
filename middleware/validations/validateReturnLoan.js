@@ -27,10 +27,12 @@ const validateReturnedItem = Joi.object({
     'number.min': 'Jumlah minimal 1',
     'any.required': 'Jumlah wajib diisi'
   }),
-  warehouse_return: objectId('ID gudang pengembalian'),
-  shelf_return: objectId('ID lemari pengembalian').optional().allow(null),
-  condition_new: Joi.string().valid('Baik', 'Rusak', 'Maintenance').required(),
-  project: objectId('ID proyek').optional().allow(null),
+  warehouse_return: objectId('ID gudang pengembalian').allow(null, ''),
+  shelf_return: objectId('ID lemari pengembalian').optional().allow(null, ''),
+  condition_new: Joi.string()
+    .valid('Baik', 'Rusak', 'Maintenance', 'Hilang')
+    .required(),
+  project: objectId('ID proyek').optional().allow(null, ''),
   proof_image: Joi.object({
     key: Joi.string().required(),
     contentType: Joi.string().optional(),
