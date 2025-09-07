@@ -50,7 +50,20 @@ const validateReturnLoan = Joi.object({
     .messages({
       'any.only': 'Penanggung jawab hanya Owan H., Teguh F., dan Korlap'
     }),
-  returned_items: Joi.array().items(validateReturnedItem).min(1).required()
+  returned_items: Joi.alternatives()
+    .try(
+      Joi.array().items(validateReturnedItem),
+      Joi.string().custom((value, helpers) => {
+        try {
+          const parsed = JSON.parse(value);
+          if (!Array.isArray(parsed)) throw new Error();
+          return parsed;
+        } catch (err) {
+          return helpers.error('any.invalid');
+        }
+      })
+    )
+    .required()
 });
 
 module.exports = { validateReturnLoan };
