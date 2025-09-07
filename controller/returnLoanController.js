@@ -23,8 +23,20 @@ const createReturnLoan = asyncHandler(async (req, res) => {
     inventory_manager
   } = req.body || {};
   let returned_items = [];
-  if (req.body.returned_items)
-    returned_items = JSON.parse(req.body.returned_items);
+  if (req.body.returned_items) {
+    try {
+      const parsed = Array.isArray(req.body.returned_items)
+        ? req.body.returned_items
+        : JSON.parse(req.body.returned_items);
+
+      if (!Array.isArray(parsed)) {
+        throwError('returned_items harus berupa array', 400);
+      }
+      returned_items = parsed;
+    } catch (e) {
+      throwError('Format returned_items tidak valid', 400);
+    }
+  }
 
   if (!loan_number || returned_items.length === 0) {
     throwError('Nomor peminjaman dan daftar barang wajib diisi!', 400);
@@ -242,8 +254,20 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(id)) throwError('ID tidak valid', 400);
 
   let returned_items = [];
-  if (req.body.returned_items)
-    returned_items = JSON.parse(req.body.returned_items);
+  if (req.body.returned_items) {
+    try {
+      const parsed = Array.isArray(req.body.returned_items)
+        ? req.body.returned_items
+        : JSON.parse(req.body.returned_items);
+
+      if (!Array.isArray(parsed)) {
+        throwError('returned_items harus berupa array', 400);
+      }
+      returned_items = parsed;
+    } catch (e) {
+      throwError('Format returned_items tidak valid', 400);
+    }
+  }
 
   const session = await mongoose.startSession();
   session.startTransaction();
