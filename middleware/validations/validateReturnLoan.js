@@ -78,9 +78,7 @@ const validateReturnLoan = Joi.object({
     'string.empty': 'Nomor peminjaman tidak boleh kosong',
     'any.required': 'Nomor peminjaman wajib diisi'
   }),
-  borrower: objectId('ID karyawan').required().messages({
-    'any.required': 'ID karyawan wajib diisi'
-  }),
+  borrower: objectId('ID karyawan').optional(),
   position: Joi.string().required().messages({
     'string.base': 'Jabatan harus berupa teks',
     'string.empty': 'Jabatan tidak boleh kosong',
