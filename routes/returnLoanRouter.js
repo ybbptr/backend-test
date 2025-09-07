@@ -4,7 +4,6 @@ const validate = require('../middleware/validations/validate');
 const {
   validateReturnLoan
 } = require('../middleware/validations/validateReturnLoan');
-
 const {
   createReturnLoan,
   getAllReturnLoan,
@@ -18,16 +17,36 @@ const {
   getMyLoanNumbers
 } = require('../controller/returnLoanController');
 
+const {
+  uploadProofs,
+  filterProofFiles
+} = require('../middleware/uploadProofs');
+
 Router.get('/all-warehouse', getAllWarehouse);
 Router.get('/shelves', getShelvesByWarehouse);
 
-Router.post('/add-return-loan', validate(validateReturnLoan), createReturnLoan)
-  .get('/all-return-loan', getAllReturnLoan)
+Router.post(
+  '/add-return-loan',
+  uploadProofs,
+  filterProofFiles,
+  validate(validateReturnLoan),
+  createReturnLoan
+);
+
+Router.get('/all-return-loan', getAllReturnLoan)
   .get('/all-employee', getAllEmployee)
   .get('/my-loan', getMyLoanNumbers)
-  .get('/form/:loan_number', getReturnForm)
-  .get('/:id', getReturnLoan)
-  .put('/update/:id', validate(validateReturnLoan), updateReturnLoan)
-  .delete('/remove/:id', deleteReturnLoan);
+  .get('/form/:loan_number', getReturnForm);
+
+Router.get('/:id', getReturnLoan);
+Router.delete('/remove/:id', deleteReturnLoan);
+
+Router.put(
+  '/update/:id',
+  uploadProofs,
+  filterProofFiles,
+  validate(validateReturnLoan),
+  updateReturnLoan
+);
 
 module.exports = Router;

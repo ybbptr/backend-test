@@ -347,7 +347,7 @@ const updateLoan = asyncHandler(async (req, res) => {
 
     // 1. Belum → Disetujui
     if (loan_item.approval !== 'Disetujui' && approval === 'Disetujui') {
-      loan_item.status = 'Aktif';
+      loan_item.circulation_status = 'Aktif';
       const stockMap = new Map();
       for (const it of processedItems) {
         const product = await Product.findById(it.product).session(session);
@@ -408,7 +408,7 @@ const updateLoan = asyncHandler(async (req, res) => {
 
     // 2. Disetujui → Ditolak / Diproses
     if (loan_item.approval === 'Disetujui' && approval !== 'Disetujui') {
-      loan_item.status = 'Pending';
+      loan_item.circulation_status = 'Pending';
       for (const it of loan_item.borrowed_items) {
         const product = await Product.findById(it.product).session(session);
         if (!product) throwError('Produk tidak ditemukan', 404);
@@ -425,6 +425,7 @@ const updateLoan = asyncHandler(async (req, res) => {
 
     // 3. Sama-sama Disetujui → cek selisih jumlah
     if (loan_item.approval === 'Disetujui' && approval === 'Disetujui') {
+      loan_item.circulation_status = 'Aktif';
       for (const newItem of processedItems) {
         const oldItem = loan_item.borrowed_items.find(
           (it) => it.product.toString() === newItem.product.toString()
