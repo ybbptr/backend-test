@@ -7,7 +7,7 @@ async function attachImageUrl(circ) {
   const doc = circ.toObject ? circ.toObject() : circ;
 
   if (doc.product_image?.key) {
-    doc.product_image_url = await getFileUrl(doc.product_image.key); // expired 5 menit
+    doc.product_image_url = await getFileUrl(doc.product_image.key);
   } else {
     doc.product_image_url = null;
   }

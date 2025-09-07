@@ -392,6 +392,13 @@ const getReturnForm = asyncHandler(async (req, res) => {
   });
 });
 
+const getAllEmployee = asyncHandler(async (req, res) => {
+  const employee = await Employee.find().select('name');
+  if (!employee) throwError('Karyawan tidak ada', 404);
+
+  res.status(200).json(employee);
+});
+
 const getAllWarehouse = asyncHandler(async (req, res) => {
   const warehouse = await Warehouse.find().select('warehouse_name -shelves');
 
@@ -415,5 +422,6 @@ module.exports = {
   getReturnForm,
   updateReturnLoan,
   getShelvesByWarehouse,
-  getAllWarehouse
+  getAllWarehouse,
+  getAllEmployee
 };

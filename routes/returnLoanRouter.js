@@ -13,11 +13,13 @@ const {
   deleteReturnLoan,
   getReturnForm,
   getAllWarehouse,
-  getShelvesByWarehouse
+  getShelvesByWarehouse,
+  getAllEmployee
 } = require('../controller/returnLoanController');
 
 Router.post('/add-return-loan', validate(validateReturnLoan), createReturnLoan)
   .get('/all-return-loan', getAllReturnLoan)
+  .get('/all-employee', getAllEmployee)
   .get('/form/:loan_number', getReturnForm)
   .get('/:id', getReturnLoan)
   .put('/update/:id', validate(validateReturnLoan), updateReturnLoan)
