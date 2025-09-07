@@ -47,6 +47,8 @@ const createReturnLoan = asyncHandler(async (req, res) => {
     inventory_manager
   } = req.body || {};
   let returned_items = parseReturnedItems(req.body.returned_items);
+  console.log('DEBUG returned_items raw:', req.body.returned_items);
+  console.log('DEBUG returned_items parsed:', parsed);
 
   if (!loan_number || returned_items.length === 0) {
     throwError('Nomor peminjaman dan daftar barang wajib diisi!', 400);
