@@ -226,19 +226,6 @@ const getReturnLoan = asyncHandler(async (req, res) => {
 
   if (!returnLoan) throwError('Data pengembalian tidak ditemukan', 404);
 
-  // 🚨 Validasi kepemilikan kalau karyawan
-  if (req.user.role === 'karyawan') {
-    const employee = await Employee.findOne({ user: req.user.id }).select(
-      '_id name'
-    );
-    if (
-      !employee ||
-      returnLoan.borrower.toString() !== employee._id.toString()
-    ) {
-      throwError('Tidak punya akses ke data ini', 403);
-    }
-  }
-
   returnLoan.returned_items = await Promise.all(
     returnLoan.returned_items.map(async (item) => {
       let proof_url = null;
