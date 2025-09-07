@@ -13,6 +13,30 @@ const ReturnLoan = require('../model/returnLoanModel');
 const { uploadBuffer, deleteFile, getFileUrl } = require('../utils/wasabi');
 const formatDate = require('../utils/formatDate');
 
+function parseReturnedItems(raw) {
+  if (!raw) return [];
+
+  let parsed = raw;
+
+  if (typeof raw === 'string') {
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      throwError('Format returned_items bukan JSON valid', 400);
+    }
+  }
+
+  if (!Array.isArray(parsed) && typeof parsed === 'object') {
+    parsed = Object.values(parsed);
+  }
+
+  if (!Array.isArray(parsed)) {
+    throwError('returned_items harus berupa array', 400);
+  }
+
+  return parsed;
+}
+
 const createReturnLoan = asyncHandler(async (req, res) => {
   const {
     loan_number,
@@ -22,21 +46,7 @@ const createReturnLoan = asyncHandler(async (req, res) => {
     return_date,
     inventory_manager
   } = req.body || {};
-  let returned_items = [];
-  if (req.body.returned_items) {
-    try {
-      const parsed = Array.isArray(req.body.returned_items)
-        ? req.body.returned_items
-        : JSON.parse(req.body.returned_items);
-
-      if (!Array.isArray(parsed)) {
-        throwError('returned_items harus berupa array', 400);
-      }
-      returned_items = parsed;
-    } catch (e) {
-      throwError('Format returned_items tidak valid', 400);
-    }
-  }
+  let returned_items = parseReturnedItems(req.body.returned_items);
 
   if (!loan_number || returned_items.length === 0) {
     throwError('Nomor peminjaman dan daftar barang wajib diisi!', 400);
@@ -253,20 +263,9 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!mongoose.Types.ObjectId.isValid(id)) throwError('ID tidak valid', 400);
 
-  let returned_items = [];
-  if (req.body.returned_items) {
-    try {
-      const parsed = Array.isArray(req.body.returned_items)
-        ? req.body.returned_items
-        : JSON.parse(req.body.returned_items);
-
-      if (!Array.isArray(parsed)) {
-        throwError('returned_items harus berupa array', 400);
-      }
-      returned_items = parsed;
-    } catch (e) {
-      throwError('Format returned_items tidak valid', 400);
-    }
+  let returned_items = parseReturnedItems(req.body.returned_items);
+  if (returned_items.length === 0) {
+    throwError('Daftar barang wajib diisi!', 400);
   }
 
   const session = await mongoose.startSession();
