@@ -400,7 +400,7 @@ const getAllEmployee = asyncHandler(async (req, res) => {
 });
 
 const getAllWarehouse = asyncHandler(async (req, res) => {
-  const warehouse = await Warehouse.find().select('warehouse_name -shelves');
+  const warehouse = await Warehouse.find().select('warehouse_name');
 
   res.json(warehouse);
 });
