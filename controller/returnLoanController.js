@@ -415,6 +415,29 @@ const getShelvesByWarehouse = asyncHandler(async (req, res) => {
   res.json(shelves);
 });
 
+const getMyLoanNumbers = asyncHandler(async (req, res) => {
+  const employee = await Employee.findOne({ user: req.user.id }).select(
+    '_id name'
+  );
+  if (!employee) throwError('Karyawan tidak ditemukan', 404);
+
+  const loans = await Loan.find({ borrower: employee._id })
+    .select('loan_number circulation_status')
+    .sort({ createdAt: -1 })
+    .lean();
+
+  res.status(200).json({
+    borrower: employee.name,
+    total: loans.length,
+    loan_numbers: loans.map((loan) => ({
+      id: loan._id,
+      loan_number: loan.loan_number,
+      circulation_status: loan.circulation_status,
+      createdAt: loan.createdAt
+    }))
+  });
+});
+
 module.exports = {
   createReturnLoan,
   deleteReturnLoan,
@@ -424,5 +447,6 @@ module.exports = {
   updateReturnLoan,
   getShelvesByWarehouse,
   getAllWarehouse,
-  getAllEmployee
+  getAllEmployee,
+  getMyLoanNumbers
 };
