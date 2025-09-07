@@ -168,7 +168,6 @@ const getAllReturnLoan = asyncHandler(async (req, res) => {
   const totalItems = await ReturnLoan.countDocuments(filter);
 
   let data = await ReturnLoan.find(filter)
-    .populate('inventory_manager', 'name')
     .populate('returned_items.product', 'product_code brand')
     .populate('returned_items.warehouse_return', 'warehouse_name')
     .populate('returned_items.shelf_return', 'shelf_name')
@@ -204,7 +203,6 @@ const getReturnLoan = asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(id)) throwError('ID tidak valid', 400);
 
   const returnLoan = await ReturnLoan.findById(id)
-    .populate('inventory_manager', 'name')
     .populate('returned_items.product', 'product_code brand')
     .populate('returned_items.warehouse_return', 'warehouse_name')
     .populate('returned_items.shelf_return', 'shelf_name')
@@ -403,7 +401,6 @@ const getReturnForm = asyncHandler(async (req, res) => {
 
   const loan = await Loan.findOne({ loan_number })
     .populate('borrower', 'name position')
-    .populate('inventory_manager', 'name')
     .lean();
 
   if (!loan) throwError('Peminjaman tidak ditemukan!', 404);
@@ -420,7 +417,7 @@ const getReturnForm = asyncHandler(async (req, res) => {
     loan_number: loan.loan_number,
     borrower: loan.borrower?.name || loan.borrower,
     position: loan.position || loan.borrower?.position || null,
-    inventory_manager: loan.inventory_manager?.name || loan.inventory_manager,
+    inventory_manager: loan.inventory_manager,
     items: circulation.borrowed_items.map((it) => ({
       _id: it._id,
       product: it.product,

@@ -44,9 +44,8 @@ const returnLoanSchema = new mongoose.Schema(
     report_date: { type: Date, default: Date.now }, // tanggal laporan
     return_date: { type: Date, default: Date.now }, // tanggal pengembalian
     inventory_manager: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Employee',
-      required: true
+      type: String,
+      enum: ['Owan H.', 'Teguh F.', 'Korlap']
     },
     returned_items: [returnedItemSchema]
   },

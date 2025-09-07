@@ -45,7 +45,10 @@ const validateReturnLoan = Joi.object({
   position: Joi.string().required(),
   report_date: Joi.date().required(),
   return_date: Joi.date().required(),
-  inventory_manager: objectId('ID barang').required(),
+  inventory_manager: {
+    type: String,
+    enum: ['Owan H.', 'Teguh F.', 'Korlap']
+  },
   returned_items: Joi.array().items(validateReturnedItem).min(1).required()
 });
 
