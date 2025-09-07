@@ -49,6 +49,7 @@ app.use('/auth', require('./routes/authRouter'));
 app.use('/admin/staffs', require('./routes/admin/staffRouter'));
 app.use('/admin/showcases', require('./routes/admin/showcaseRouter'));
 app.use('/users', require('./routes/userRouter')); // router ini handle campuran public & protected
+app.use('/return-loan', require('./routes/returnLoanRouter'));
 
 // ---------------- PROTECTED ROUTES (global) ---------------- //
 app.use(validateToken);
@@ -56,7 +57,7 @@ app.use(validateToken);
 app.use('/orders', require('./routes/orderRouter'));
 app.use('/expense-request', require('./routes/expenseRequestRouter'));
 app.use('/loans', require('./routes/loanRouter'));
-app.use('/return-loan', require('./routes/returnLoanRouter'));
+// app.use('/return-loan', require('./routes/returnLoanRouter'));
 
 app.use('/admin/products', require('./routes/admin/productRouter'));
 app.use('/admin/employees', require('./routes/admin/employeeRouter'));

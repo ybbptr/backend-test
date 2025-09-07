@@ -111,7 +111,10 @@ const createReturnLoan = asyncHandler(async (req, res) => {
           const key = `bukti_pengembalian_barang/${loan_number}/bukti_${
             i + 1
           }_${formatDate()}${ext}`;
-          await uploadBuffer(file.buffer, key, file.mimetype);
+          if (!key || typeof key !== 'string') {
+            throwError('Key untuk bukti pengembalian tidak valid', 400);
+          }
+          await uploadBuffer(key, file.buffer);
 
           ret.proof_image = {
             key,
@@ -310,7 +313,8 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
         const key = `bukti_pengembalian_barang/${
           returnLoan.loan_number
         }/bukti_${i + 1}_${formatDate()}${ext}`;
-        await uploadBuffer(file.buffer, key, file.mimetype);
+        await uploadBuffer(key, file.buffer);
+
         oldItem.proof_image = {
           key,
           contentType: file.mimetype,

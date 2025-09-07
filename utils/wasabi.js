@@ -21,6 +21,7 @@ async function uploadBuffer(key, body) {
     Key: key,
     Body: body
   });
+
   return await s3.send(command);
 }
 
