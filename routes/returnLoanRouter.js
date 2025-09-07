@@ -17,10 +17,7 @@ const {
   getMyLoanNumbers
 } = require('../controller/returnLoanController');
 
-const {
-  uploadProofs,
-  filterProofFiles
-} = require('../middleware/uploadProofs');
+const { uploadProofs, filterProofFiles } = require('../utils/uploadProofs');
 
 Router.get('/all-warehouse', getAllWarehouse);
 Router.get('/shelves', getShelvesByWarehouse);
