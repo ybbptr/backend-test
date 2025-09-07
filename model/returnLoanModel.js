@@ -21,7 +21,7 @@ const returnedItemSchema = new mongoose.Schema({
   },
   condition_new: {
     type: String,
-    enum: ['Baik', 'Rusak', 'Maintenance']
+    enum: ['Baik', 'Rusak', 'Maintenance', 'Hilang']
   },
   project: {
     type: mongoose.Schema.Types.ObjectId,

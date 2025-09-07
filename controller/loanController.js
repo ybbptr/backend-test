@@ -79,8 +79,15 @@ const addLoan = asyncHandler(async (req, res) => {
       if (normalizedApproval === 'Disetujui') {
         if (availableStock < quantity)
           throwError(`Stok tidak mencukupi untuk ${item.brand}`, 400);
-        if (item.condition === 'Rusak' || item.condition === 'Maintenance')
-          throwError('Barang rusak/maintenance, tidak dapat dipinjam', 400);
+        if (
+          item.condition === 'Rusak' ||
+          item.condition === 'Maintenance' ||
+          item.condition === 'Hilang'
+        )
+          throwError(
+            'Barang rusak/maintenance/hilang, tidak dapat dipinjam',
+            400
+          );
 
         stockMap.set(item._id.toString(), availableStock - quantity);
 
@@ -361,9 +368,13 @@ const updateLoan = asyncHandler(async (req, res) => {
           throwError('Stok tidak mencukupi', 400);
         if (
           product.condition === 'Rusak' ||
-          product.condition === 'Maintenance'
+          product.condition === 'Maintenance' ||
+          item.condition === 'Hilang'
         )
-          throwError('Barang rusak/maintenance, tidak dapat dipinjam', 400);
+          throwError(
+            'Barang rusak/maintenance/hilang, tidak dapat dipinjam',
+            400
+          );
 
         stockMap.set(product._id.toString(), availableStock - it.quantity);
 

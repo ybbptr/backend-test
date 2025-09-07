@@ -32,7 +32,10 @@ const loanCirculationSchema = new mongoose.Schema(
           size: Number,
           uploadedAt: Date
         },
-        item_status: { type: String, enum: ['Dipinjam', 'Dikembalikan'] },
+        item_status: {
+          type: String,
+          enum: ['Dipinjam', 'Dikembalikan', 'Hilang']
+        },
         return_date_circulation: { type: Date, default: null },
         warehouse_from: {
           type: mongoose.Schema.Types.ObjectId,

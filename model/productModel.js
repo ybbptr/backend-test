@@ -28,7 +28,7 @@ const productSchema = new mongoose.Schema(
       type: String,
       trim: true,
       required: true,
-      enum: ['Maintenance', 'Rusak', 'Baik']
+      enum: ['Maintenance', 'Rusak', 'Baik', 'Hilang']
     },
     warehouse: {
       type: mongoose.Schema.Types.ObjectId,
