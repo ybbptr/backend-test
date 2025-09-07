@@ -21,11 +21,9 @@ const createReturnLoan = asyncHandler(async (req, res) => {
     return_date,
     inventory_manager
   } = req.body || {};
-
   let returned_items = [];
-  if (req.body.returned_items) {
+  if (req.body.returned_items)
     returned_items = JSON.parse(req.body.returned_items);
-  }
 
   if (!loan_number || returned_items.length === 0) {
     throwError('Nomor peminjaman dan daftar barang wajib diisi!', 400);
@@ -37,26 +35,32 @@ const createReturnLoan = asyncHandler(async (req, res) => {
   try {
     const loan = await Loan.findOne({ loan_number }).session(session);
     if (!loan) throwError('Peminjaman tidak ditemukan!', 404);
-    if (loan.circulation_status !== 'Aktif') {
-      throwError('Peminjaman tidak aktif atau sudah selesai!', 400);
-    }
 
     const circulation = await loanCirculationModel
       .findOne({ loan_number })
       .session(session);
     if (!circulation) throwError('Sirkulasi tidak ditemukan!', 404);
 
-    // === Proses setiap barang yang dikembalikan ===
+    const [returnLoan] = await ReturnLoan.create(
+      [
+        {
+          loan_number,
+          borrower,
+          position,
+          report_date,
+          return_date,
+          inventory_manager,
+          returned_items: []
+        }
+      ],
+      { session }
+    );
+
     for (let i = 0; i < returned_items.length; i++) {
       const ret = returned_items[i];
-
-      // ✅ pastikan FE kirim juga _id circulation item
-      if (!ret._id) throwError('ID item circulation wajib diisi', 400);
-
       const product = await Product.findById(ret.product).session(session);
       if (!product) throwError('Produk tidak ditemukan', 404);
 
-      // update stok
       product.quantity += ret.quantity;
       product.loan_quantity -= ret.quantity;
       product.warehouse = ret.warehouse_return || product.warehouse;
@@ -64,12 +68,10 @@ const createReturnLoan = asyncHandler(async (req, res) => {
       product.condition = ret.condition_new || product.condition;
       await product.save({ session });
 
-      // upload bukti
       const file = req.files?.[`bukti_${i + 1}`]?.[0];
       if (file) {
         const ext = path.extname(file.originalname);
         const key = `bukti_pengembalian_barang/${loan_number}/bukti_pengembalian_${formatDate()}${ext}`;
-
         await uploadBuffer(file.buffer, key, file.mimetype);
 
         ret.proof_image = {
@@ -80,33 +82,35 @@ const createReturnLoan = asyncHandler(async (req, res) => {
         };
       }
 
-      // ✅ update circulation pakai _id item
       const circItem = circulation.borrowed_items.id(ret._id);
       if (circItem) {
         circItem.item_status = 'Dikembalikan';
         circItem.return_date_circulation = return_date || new Date();
       }
+
+      returnLoan.returned_items.push(ret);
+
+      await productCirculationModel.create(
+        [
+          {
+            product: product._id,
+            product_code: product.product_code,
+            product_name: product.brand,
+            product_image: product.product_image,
+            warehouse_from: loan.warehouse,
+            shelf_from: loan.shelf,
+            warehouse_to: ret.warehouse_return,
+            shelf_to: ret.shelf_return,
+            return_loan_id: returnLoan._id
+          }
+        ],
+        { session }
+      );
     }
 
+    await returnLoan.save({ session });
     await circulation.save({ session });
 
-    // simpan laporan pengembalian
-    const returnLoan = await ReturnLoan.create(
-      [
-        {
-          loan_number,
-          borrower,
-          position,
-          report_date,
-          return_date,
-          inventory_manager,
-          returned_items
-        }
-      ],
-      { session }
-    );
-
-    // cek apakah semua barang sudah kembali
     const allReturned = circulation.borrowed_items.every(
       (it) => it.item_status === 'Dikembalikan'
     );
@@ -118,11 +122,11 @@ const createReturnLoan = asyncHandler(async (req, res) => {
     await session.commitTransaction();
     session.endSession();
 
-    res.status(201).json(returnLoan[0]);
-  } catch (error) {
+    res.status(201).json(returnLoan);
+  } catch (err) {
     await session.abortTransaction();
     session.endSession();
-    throw error;
+    throw err;
   }
 });
 
@@ -221,9 +225,8 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(id)) throwError('ID tidak valid', 400);
 
   let returned_items = [];
-  if (req.body.returned_items) {
+  if (req.body.returned_items)
     returned_items = JSON.parse(req.body.returned_items);
-  }
 
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -233,11 +236,8 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
     if (!returnLoan) throwError('Data pengembalian tidak ditemukan', 404);
 
     const circulation = await loanCirculationModel
-      .findOne({
-        loan_number: returnLoan.loan_number
-      })
+      .findOne({ loan_number: returnLoan.loan_number })
       .session(session);
-
     if (!circulation) throwError('Sirkulasi tidak ditemukan', 404);
 
     for (let i = 0; i < returned_items.length; i++) {
@@ -251,16 +251,12 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
 
       const file = req.files?.[`bukti_${i + 1}`]?.[0];
       if (file) {
-        if (oldItem.proof_image?.key) {
-          await deleteFile(oldItem.proof_image.key);
-        }
+        if (oldItem.proof_image?.key) await deleteFile(oldItem.proof_image.key);
         const ext = path.extname(file.originalname);
         const key = `bukti_pengembalian_barang/${
           returnLoan.loan_number
         }/bukti_${i + 1}_${formatDate()}${ext}`;
-
         await uploadBuffer(file.buffer, key, file.mimetype);
-
         oldItem.proof_image = {
           key,
           contentType: file.mimetype,
@@ -275,37 +271,29 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
         circItem.return_date_circulation =
           req.body.return_date || returnLoan.return_date || new Date();
       }
-    }
 
-    if (req.body.borrower) returnLoan.borrower = req.body.borrower;
-    if (req.body.position) returnLoan.position = req.body.position;
-    if (req.body.report_date) returnLoan.report_date = req.body.report_date;
-    if (req.body.return_date) returnLoan.return_date = req.body.return_date;
-    if (req.body.inventory_manager)
-      returnLoan.inventory_manager = req.body.inventory_manager;
-
-    await circulation.save({ session });
-    await returnLoan.save({ session });
-
-    const loan = await Loan.findOne({
-      loan_number: returnLoan.loan_number
-    }).session(session);
-    if (loan) {
-      const allReturned = circulation.borrowed_items.every(
-        (it) => it.item_status === 'Dikembalikan'
+      await productCirculationModel.findOneAndUpdate(
+        { product: oldItem.product, return_loan_id: returnLoan._id },
+        {
+          $set: {
+            warehouse_to: ret.warehouse_return,
+            shelf_to: ret.shelf_return
+          }
+        },
+        { session }
       );
-      loan.circulation_status = allReturned ? 'Selesai' : 'Aktif';
-      await loan.save({ session });
     }
+
+    await returnLoan.save({ session });
+    await circulation.save({ session });
 
     await session.commitTransaction();
     session.endSession();
-
     res.status(200).json(returnLoan);
-  } catch (error) {
+  } catch (err) {
     await session.abortTransaction();
     session.endSession();
-    throw error;
+    throw err;
   }
 });
 
@@ -320,25 +308,12 @@ const deleteReturnLoan = asyncHandler(async (req, res) => {
     const returnLoan = await ReturnLoan.findById(id).session(session);
     if (!returnLoan) throwError('Data pengembalian tidak ditemukan', 404);
 
-    if (req.user.role === 'karyawan') {
-      const employee = await Employee.findOne({ user: req.user.id }).select(
-        'name'
-      );
-      if (
-        !employee ||
-        returnLoan.borrower.toString() !== employee._id.toString()
-      ) {
-        throwError('Tidak punya akses untuk menghapus data ini', 403);
-      }
-    }
-
     const loan = await Loan.findOne({
       loan_number: returnLoan.loan_number
     }).session(session);
     const circulation = await loanCirculationModel
       .findOne({ loan_number: returnLoan.loan_number })
       .session(session);
-
     if (!loan || !circulation)
       throwError('Data peminjaman tidak ditemukan', 404);
 
@@ -356,13 +331,13 @@ const deleteReturnLoan = asyncHandler(async (req, res) => {
         circItem.return_date_circulation = null;
       }
 
-      if (item.proof_image?.key) {
-        await deleteFile(item.proof_image.key);
-      }
+      if (item.proof_image?.key) await deleteFile(item.proof_image.key);
     }
 
     await circulation.save({ session });
-
+    await productCirculationModel
+      .deleteMany({ return_loan_id: returnLoan._id })
+      .session(session);
     await returnLoan.deleteOne({ session });
 
     loan.circulation_status = 'Aktif';
@@ -370,9 +345,9 @@ const deleteReturnLoan = asyncHandler(async (req, res) => {
 
     await session.commitTransaction();
     session.endSession();
-
     res.status(200).json({
-      message: 'Laporan pengembalian berhasil dihapus & data di-rollback.'
+      message:
+        'Laporan pengembalian & histori perpindahan dihapus, stok di-rollback.'
     });
   } catch (err) {
     await session.abortTransaction();

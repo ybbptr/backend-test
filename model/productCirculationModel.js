@@ -9,7 +9,12 @@ const productCirculationSchema = new mongoose.Schema(
     },
     product_code: { type: String, required: true },
     product_name: { type: String, required: true },
-    imageUrl: { type: String },
+    product_image: {
+      key: { type: String },
+      contentType: { type: String },
+      size: { type: Number },
+      uploadedAt: { type: Date, default: Date.now }
+    },
     warehouse_from: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Warehouse',
@@ -29,6 +34,11 @@ const productCirculationSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Shelf',
       required: true
+    },
+    return_loan_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ReturnLoan',
+      default: null
     }
   },
   { timestamps: true }
