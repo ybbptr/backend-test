@@ -85,21 +85,33 @@ const createReturnLoan = asyncHandler(async (req, res) => {
       if (!product) throwError('Produk tidak ditemukan', 404);
 
       const circItem = circulation.borrowed_items.id(ret._id);
+      if (!circItem) throwError('Item tidak ditemukan di sirkulasi', 404);
+
+      // ✅ Validasi jumlah
+      const alreadyReturned = returnLoan.returned_items
+        .filter((it) => it.product.toString() === ret.product.toString())
+        .reduce((acc, it) => acc + it.quantity, 0);
+
+      const availableToReturn = circItem.quantity - alreadyReturned;
+      if (ret.quantity > availableToReturn) {
+        throwError(
+          `Jumlah pengembalian (${ret.quantity}) melebihi sisa yang dipinjam (${availableToReturn})`,
+          400
+        );
+      }
 
       if (ret.condition_new === 'Hilang') {
-        // Barang hilang → hanya kurangi loan_quantity + update jdi hilang
+        // Barang hilang
         product.loan_quantity -= ret.quantity;
         product.condition = ret.condition_new;
         await product.save({ session });
 
         ret.proof_image = null;
-        if (circItem) {
-          circItem.item_status = 'Hilang';
-          circItem.condition = ret.condition_new;
-          circItem.return_date_circulation = return_date || new Date();
-        }
+        circItem.item_status = 'Hilang';
+        circItem.condition = ret.condition_new;
+        circItem.return_date_circulation = return_date || new Date();
       } else {
-        // Barang kembali normal (Baik / Rusak / Maintenance)
+        // Barang kembali fisik
         product.quantity += ret.quantity;
         product.loan_quantity -= ret.quantity;
         product.warehouse = ret.warehouse_return || product.warehouse;
@@ -113,9 +125,6 @@ const createReturnLoan = asyncHandler(async (req, res) => {
           const key = `bukti_pengembalian_barang/${loan_number}/bukti_${
             i + 1
           }_${formatDate()}${ext}`;
-          if (!key || typeof key !== 'string') {
-            throwError('Key untuk bukti pengembalian tidak valid', 400);
-          }
           await uploadBuffer(key, file.buffer);
 
           ret.proof_image = {
@@ -126,13 +135,10 @@ const createReturnLoan = asyncHandler(async (req, res) => {
           };
         }
 
-        if (circItem) {
-          circItem.item_status = 'Dikembalikan';
-          circItem.condition = ret.condition_new;
-          circItem.return_date_circulation = return_date || new Date();
-        }
+        circItem.item_status = 'Dikembalikan';
+        circItem.condition = ret.condition_new;
+        circItem.return_date_circulation = return_date || new Date();
 
-        // Catat perpindahan hanya kalau ada barang fisik
         await productCirculationModel.create(
           [
             {
@@ -157,7 +163,7 @@ const createReturnLoan = asyncHandler(async (req, res) => {
     await returnLoan.save({ session });
     await circulation.save({ session });
 
-    // Kalau semua status sudah Dikembalikan atau Hilang → selesai
+    // Semua barang sudah kembali?
     const allReturned = circulation.borrowed_items.every((it) =>
       ['Dikembalikan', 'Hilang'].includes(it.item_status)
     );
@@ -275,27 +281,40 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
       const oldItem = returnLoan.returned_items.id(ret._id);
       if (!oldItem) throwError('Barang tidak valid di return loan', 400);
 
+      const circItem = circulation.borrowed_items.id(ret._id);
+      if (!circItem) throwError('Item tidak ditemukan di sirkulasi', 404);
+
+      const otherReturns = returnLoan.returned_items
+        .filter(
+          (it) =>
+            it._id.toString() !== ret._id.toString() &&
+            it.product.toString() === ret.product.toString()
+        )
+        .reduce((acc, it) => acc + it.quantity, 0);
+
+      const availableToReturn = circItem.quantity - otherReturns;
+      if (ret.quantity > availableToReturn) {
+        throwError(
+          `Jumlah pengembalian (${ret.quantity}) melebihi sisa yang dipinjam (${availableToReturn})`,
+          400
+        );
+      }
+
+      oldItem.quantity = ret.quantity;
       if (ret.condition_new) oldItem.condition_new = ret.condition_new;
       if (ret.warehouse_return) oldItem.warehouse_return = ret.warehouse_return;
       if (ret.shelf_return) oldItem.shelf_return = ret.shelf_return;
 
       const file = req.files?.[`bukti_${i + 1}`]?.[0];
       if (ret.condition_new === 'Hilang') {
-        // Pastikan bukti kosong
-        if (oldItem.proof_image?.key) {
-          await deleteFile(oldItem.proof_image.key);
-        }
+        if (oldItem.proof_image?.key) await deleteFile(oldItem.proof_image.key);
         oldItem.proof_image = null;
 
-        const circItem = circulation.borrowed_items.id(ret._id);
-        if (circItem) {
-          circItem.item_status = 'Hilang';
-          circItem.condition = ret.condition_new;
-          circItem.return_date_circulation =
-            req.body.return_date || returnLoan.return_date || new Date();
-        }
+        circItem.item_status = 'Hilang';
+        circItem.condition = ret.condition_new;
+        circItem.return_date_circulation =
+          req.body.return_date || returnLoan.return_date || new Date();
       } else if (file) {
-        // Update foto
         if (oldItem.proof_image?.key) await deleteFile(oldItem.proof_image.key);
         const ext = path.extname(file.originalname);
         const key = `bukti_pengembalian_barang/${
@@ -310,16 +329,12 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
           uploadedAt: new Date()
         };
 
-        const circItem = circulation.borrowed_items.id(ret._id);
-        if (circItem) {
-          circItem.item_status = 'Dikembalikan';
-          circItem.condition = ret.condition_new;
-          circItem.return_date_circulation =
-            req.body.return_date || returnLoan.return_date || new Date();
-        }
+        circItem.item_status = 'Dikembalikan';
+        circItem.condition = ret.condition_new;
+        circItem.return_date_circulation =
+          req.body.return_date || returnLoan.return_date || new Date();
       }
 
-      // Update histori pergerakan hanya untuk barang fisik
       if (ret.condition_new !== 'Hilang') {
         await productCirculationModel.findOneAndUpdate(
           { product: oldItem.product, return_loan_id: returnLoan._id },
@@ -441,8 +456,7 @@ const getReturnForm = asyncHandler(async (req, res) => {
       brand: it.brand,
       quantity: it.quantity,
       item_status: it.item_status,
-      project: it.project?._id || null,
-      project_name: it.project?.project_name || null
+      project: it.project
     }))
   });
 });

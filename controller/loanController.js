@@ -541,6 +541,12 @@ const getAllWarehouse = asyncHandler(async (req, res) => {
   res.json(warehouse);
 });
 
+const getAllProject = asyncHandler(async (req, res) => {
+  const project = await RAP.find().select('project_name');
+
+  res.json(project);
+});
+
 const getShelves = asyncHandler(async (req, res) => {
   const { warehouse } = req.query;
   if (!warehouse) throwError('ID gudang tidak valid', 400);
@@ -663,5 +669,6 @@ module.exports = {
   getShelves,
   getLoanPdf,
   getEmployee,
-  getLoansByEmployee
+  getLoansByEmployee,
+  getAllProject
 };
