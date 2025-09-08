@@ -6,6 +6,7 @@ const { getFileUrl } = require('../utils/wasabi');
 const Loan = require('../model/loanModel');
 const Employee = require('../model/employeeModel');
 const Product = require('../model/productModel');
+const RAP = require('../model/rapModel');
 const Warehouse = require('../model/warehouseModel');
 const Shelf = require('../model/shelfModel');
 const loanCirculationModel = require('../model/loanCirculationModel');
