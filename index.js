@@ -81,7 +81,7 @@ app.use(
 );
 
 app.use('/employee/projects', require('./routes/employee/dailyProgressRouter'));
-app.use('/employee/profile', require('./routes/employee/dailyProgressRouter'));
+app.use('/employee/profile', require('./routes/employee/editProfileRouter'));
 
 // Error handler
 app.use(errorHandler);
