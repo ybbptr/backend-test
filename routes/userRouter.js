@@ -8,7 +8,6 @@ const {
   loginUser,
   getCurrentUser,
   updateUser,
-  getAllUsers,
   updatePassword,
   logoutUser,
   refreshToken,
@@ -88,6 +87,5 @@ router.put(
   validate(validateNewPassword),
   updatePassword
 );
-router.get('/all-user', validateToken, getAllUsers);
 
 module.exports = router;

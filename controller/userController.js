@@ -1,7 +1,7 @@
 const asyncHandler = require('express-async-handler');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { Types } = require('mongoose');
+// const { Types } = require('mongoose');
 
 const OtpChallenge = require('../model/otpChallengeModel');
 const User = require('../model/userModel');
@@ -717,15 +717,6 @@ const updateUser = asyncHandler(async (req, res) => {
   res.status(200).json({ message: 'Berhasil di update!', user: updatedUser });
 });
 
-const getAllUsers = asyncHandler(async (req, res) => {
-  const me = await User.findById(req.user.id).select('role');
-  if (!me || me.role !== 'admin') {
-    return throwError('Anda tidak memiliki izin untuk mengakses data!', 403);
-  }
-  const users = await User.find({ role: 'user' }).select('-role');
-  res.status(200).json({ users });
-});
-
 const updatePassword = asyncHandler(async (req, res) => {
   const { currentPassword, newPassword } = req.body || {};
 
@@ -837,7 +828,6 @@ module.exports = {
   loginUser,
   getCurrentUser,
   updateUser,
-  getAllUsers,
   updatePassword,
   logoutUser,
   refreshToken,
