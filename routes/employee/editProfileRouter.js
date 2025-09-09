@@ -33,7 +33,7 @@ const Router = express.Router();
 Router.get('/me', getMyProfile);
 
 Router.put(
-  '/update/me',
+  '/me/update',
   uploadEmployeeFiles.fields([
     { name: 'ktp', maxCount: 1 },
     { name: 'asuransi', maxCount: 1 },
