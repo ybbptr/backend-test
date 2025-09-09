@@ -343,7 +343,7 @@ const downloadEmployeeDocs = asyncHandler(async (req, res) => {
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader(
     'Content-Disposition',
-    `attachment; filename=${employee.name}-docs.zip`
+    `attachment; filename="${employee.name}-docs.zip"`
   );
 
   const archive = archiver('zip', { zlib: { level: 9 } });
@@ -351,7 +351,8 @@ const downloadEmployeeDocs = asyncHandler(async (req, res) => {
 
   for (const [docName, docValue] of docEntries) {
     const stream = await getFileStream(docValue.key);
-    archive.append(stream, { name: `${docName}-${docValue.key}` });
+    const ext = path.extname(docValue.key) || '';
+    archive.append(stream, { name: `${docName}${ext}` });
   }
 
   await archive.finalize();
