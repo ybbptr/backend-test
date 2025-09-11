@@ -56,11 +56,19 @@ const loanSchema = new mongoose.Schema(
           ref: 'Project',
           required: true
         },
-
-        condition_at_borrow: { type: String }
+        condition_at_borrow: { type: String, required: true },
+        warehouse_from: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Warehouse',
+          required: true
+        },
+        shelf_from: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Shelf',
+          required: true
+        }
       }
     ],
-
     approval: {
       type: String,
       enum: ['Disetujui', 'Ditolak', 'Diproses'],

@@ -6,6 +6,7 @@ const { getFileUrl } = require('../utils/wasabi');
 const Loan = require('../model/loanModel');
 const Employee = require('../model/employeeModel');
 const Product = require('../model/productModel');
+const Inventory = require('../model/inventoryModel');
 const RAP = require('../model/rapModel');
 const Warehouse = require('../model/warehouseModel');
 const Shelf = require('../model/shelfModel');
@@ -21,8 +22,6 @@ const addLoan = asyncHandler(async (req, res) => {
     position,
     phone,
     inventory_manager,
-    warehouse,
-    shelf,
     borrowed_items,
     approval
   } = req.body || {};
@@ -36,15 +35,12 @@ const addLoan = asyncHandler(async (req, res) => {
     !position ||
     !inventory_manager ||
     !phone ||
-    !warehouse ||
-    !shelf ||
     !Array.isArray(borrowed_items) ||
     borrowed_items.length === 0
   ) {
     throwError('Field wajib belum diisi lengkap', 400);
   }
 
-  // ✅ Normalisasi approval: hanya admin yang bisa setujuin langsung
   const normalizedApproval = req.user?.role === 'admin' ? approval : 'Diproses';
 
   const session = await mongoose.startSession();
@@ -52,58 +48,52 @@ const addLoan = asyncHandler(async (req, res) => {
 
   try {
     const processedItems = [];
-    const stockMap = new Map();
 
     for (const it of borrowed_items) {
-      const { product, quantity, project } = it;
+      const { inventory: inventoryId, quantity, project } = it;
 
-      if (!product || !quantity || !project) {
+      if (!inventoryId || !quantity || !project) {
         throwError('Data barang yang dipinjam tidak lengkap', 400);
       }
 
-      const item = await Product.findById(product).session(session);
-      if (!item) throwError('Produk tidak ditemukan', 404);
+      const inv = await Inventory.findById(inventoryId)
+        .populate('product', 'product_code brand')
+        .populate('warehouse', 'warehouse_name')
+        .populate('shelf', 'shelf_name')
+        .session(session);
 
-      // ✅ tidak boleh pilih gudang sama
-      if (warehouse.toString() === item.warehouse.toString()) {
-        throwError(
-          'Gudang tujuan tidak boleh sama dengan gudang asal barang',
-          400
-        );
-      }
-
-      // ✅ cek stok dengan stockMap
-      const availableStock = stockMap.has(item._id.toString())
-        ? stockMap.get(item._id.toString())
-        : item.quantity;
-
+      if (!inv) throwError('Inventory tidak ditemukan', 404);
       if (normalizedApproval === 'Disetujui') {
-        if (availableStock < quantity)
-          throwError(`Stok tidak mencukupi untuk ${item.brand}`, 400);
-        if (
-          item.condition === 'Rusak' ||
-          item.condition === 'Maintenance' ||
-          item.condition === 'Hilang'
-        )
+        if (inv.on_hand < quantity) {
           throwError(
-            'Barang rusak/maintenance/hilang, tidak dapat dipinjam',
+            `Stok tidak cukup untuk ${inv.product.brand} di gudang ${inv.warehouse.warehouse_name}`,
             400
           );
+        }
+        if (inv.condition !== 'Baik') {
+          throwError(
+            `Barang di kondisi ${inv.condition}, tidak bisa dipinjam`,
+            400
+          );
+        }
 
-        stockMap.set(item._id.toString(), availableStock - quantity);
-
-        item.quantity = stockMap.get(item._id.toString());
-        item.loan_quantity = (item.loan_quantity || 0) + quantity;
-        await item.save({ session });
+        // update stok
+        inv.on_hand -= quantity;
+        inv.on_loan += quantity;
+        inv.last_out_at = new Date();
+        await inv.save({ session });
       }
 
       processedItems.push({
-        product: item._id,
-        product_code: item.product_code,
-        brand: item.brand,
+        inventory: inv._id,
+        product: inv.product._id,
+        product_code: inv.product.product_code,
+        brand: inv.product.brand,
         quantity,
         project,
-        condition: item.condition
+        condition_at_borrow: inv.condition,
+        warehouse_from: inv.warehouse._id,
+        shelf_from: inv.shelf._id
       });
     }
 
@@ -118,8 +108,6 @@ const addLoan = asyncHandler(async (req, res) => {
           position,
           inventory_manager,
           phone,
-          warehouse,
-          shelf,
           borrowed_items: processedItems,
           approval: normalizedApproval,
           circulation_status:
@@ -129,25 +117,20 @@ const addLoan = asyncHandler(async (req, res) => {
       { session }
     );
 
-    // ✅ buat circulation jika disetujui oleh admin
+    // Buat circulation jika disetujui
     if (normalizedApproval === 'Disetujui') {
-      const borrowedItemsCirculation = [];
-
-      for (const it of processedItems) {
-        const product = await Product.findById(it.product).lean();
-        borrowedItemsCirculation.push({
-          product: product._id,
-          product_code: product.product_code,
-          brand: product.brand,
-          quantity: it.quantity,
-          project: it.project,
-          condition: product.condition,
-          product_image: product.product_image || null,
-          warehouse_from: product?.warehouse || null,
-          shelf_from: product?.shelf || null,
-          item_status: 'Dipinjam' // ✅ default dipinjam
-        });
-      }
+      const borrowedItemsCirculation = processedItems.map((it) => ({
+        inventory: it.inventory,
+        product: it.product,
+        product_code: it.product_code,
+        brand: it.brand,
+        quantity: it.quantity,
+        project: it.project,
+        condition: it.condition_at_borrow,
+        warehouse_from: it.warehouse_from,
+        shelf_from: it.shelf_from,
+        item_status: 'Dipinjam'
+      }));
 
       await loanCirculationModel.create(
         [
@@ -156,9 +139,7 @@ const addLoan = asyncHandler(async (req, res) => {
             borrower: loan[0].borrower,
             phone: loan[0].phone,
             inventory_manager: loan[0].inventory_manager,
-            warehouse_to: loan[0].warehouse,
-            shelf_to: loan[0].shelf,
-            loan_date_circulation: loan[0].pickup_date, // ✅ ambil dari pickup_date
+            loan_date_circulation: loan[0].pickup_date,
             borrowed_items: borrowedItemsCirculation
           }
         ],
@@ -170,10 +151,10 @@ const addLoan = asyncHandler(async (req, res) => {
     session.endSession();
 
     res.status(201).json(loan[0]);
-  } catch (error) {
+  } catch (err) {
     await session.abortTransaction();
     session.endSession();
-    throw error;
+    throw err;
   }
 });
 
@@ -188,7 +169,6 @@ const getLoans = asyncHandler(async (req, res) => {
   if (borrower) filter.borrower = borrower;
   if (nik) filter.nik = { $regex: nik, $options: 'i' };
   if (approval) filter.approval = approval;
-
   if (project) filter['borrowed_items.project'] = project;
 
   if (search) {
@@ -207,29 +187,19 @@ const getLoans = asyncHandler(async (req, res) => {
   }
 
   const loans = await Loan.find(filter)
-    .populate([
-      { path: 'borrower', select: 'name' },
-      { path: 'warehouse', select: 'warehouse_name' },
-      { path: 'shelf', select: 'shelf_name' },
-      {
-        path: 'borrowed_items.product',
-        select: 'brand product_code quantity condition'
-      },
-      { path: 'borrowed_items.project', select: 'project_name' }
-    ])
+    .populate([{ path: 'borrower', select: 'name' }])
     .skip(skip)
     .limit(limit)
     .sort(sortOption)
     .lean();
 
   const totalItems = await Loan.countDocuments(filter);
-  const totalPages = Math.ceil(totalItems / limit);
 
   res.status(200).json({
     page,
     limit,
     totalItems,
-    totalPages,
+    totalPages: Math.ceil(totalItems / limit),
     sort: sortOption,
     data: loans
   });
@@ -238,15 +208,12 @@ const getLoans = asyncHandler(async (req, res) => {
 const getLoan = asyncHandler(async (req, res) => {
   const loan_item = await Loan.findById(req.params.id).populate([
     { path: 'borrower', select: 'name' },
-    { path: 'warehouse', select: 'warehouse_name' },
-    { path: 'shelf', select: 'shelf_name' },
-    {
-      path: 'borrowed_items.product',
-      select: 'brand product_code quantity condition'
-    },
-    { path: 'borrowed_items.project', select: 'project_name' }
+    { path: 'borrowed_items.product', select: 'brand product_code' },
+    { path: 'borrowed_items.project', select: 'project_name' },
+    { path: 'borrowed_items.inventory', populate: ['warehouse', 'shelf'] }
   ]);
-  if (!loan_item) throwError('Pengajuan alat tidak terdaftar!', 400);
+
+  if (!loan_item) throwError('Pengajuan alat tidak terdaftar!', 404);
 
   res.status(200).json(loan_item);
 });
@@ -257,11 +224,11 @@ const removeLoan = asyncHandler(async (req, res) => {
 
   try {
     const loan_item = await Loan.findById(req.params.id).session(session);
-    if (!loan_item) throwError('Pengajuan tidak terdaftar!', 400);
+    if (!loan_item) throwError('Pengajuan tidak terdaftar!', 404);
 
     if (loan_item.approval === 'Disetujui') {
       throwError(
-        'Pengajuan yang sudah disetujui tidak dapat dihapus. Silakan lakukan pengembalian alat.',
+        'Pengajuan yang sudah disetujui tidak dapat dihapus. Lakukan pengembalian alat.',
         400
       );
     }
@@ -273,15 +240,12 @@ const removeLoan = asyncHandler(async (req, res) => {
     await loan_item.deleteOne({ session });
 
     await session.commitTransaction();
-    session.endSession();
-
-    res.status(200).json({
-      message: 'Pengajuan berhasil dihapus.'
-    });
-  } catch (error) {
+    res.status(200).json({ message: 'Pengajuan berhasil dihapus.' });
+  } catch (err) {
     await session.abortTransaction();
+    throw err;
+  } finally {
     session.endSession();
-    throw error;
   }
 });
 
@@ -290,118 +254,72 @@ const updateLoan = asyncHandler(async (req, res) => {
   session.startTransaction();
 
   try {
-    const {
-      loan_date,
-      pickup_date,
-      borrower,
-      approval,
-      nik,
-      address,
-      position,
-      inventory_manager,
-      warehouse,
-      shelf,
-      phone,
-      borrowed_items
-    } = req.body || {};
+    const { approval, borrowed_items, ...otherFields } = req.body;
 
-    const loan_item = await Loan.findById(req.params.id).session(session);
+    const loan_item = await Loan.findById(req.params.id)
+      .populate('borrowed_items.inventory')
+      .session(session);
     if (!loan_item) throwError('Pengajuan tidak terdaftar!', 404);
 
-    // ✅ restriksi role karyawan (tidak boleh ubah status)
+    // Restriksi role
     if (req.user?.role === 'karyawan' && approval !== undefined) {
       throwError('Karyawan tidak diperbolehkan mengubah status', 403);
     }
 
-    // build ulang items jika ada perubahan
     let processedItems = loan_item.borrowed_items;
+
+    /* ===== Rebuild borrowed_items kalau dikirim dari FE ===== */
     if (borrowed_items) {
       processedItems = [];
-      const stockMap = new Map();
 
       for (const it of borrowed_items) {
-        const product = await Product.findById(it.product).session(session);
-        if (!product) throwError('Produk tidak ditemukan', 404);
+        const inv = await Inventory.findById(it.inventory)
+          .populate('product', 'product_code brand')
+          .populate('warehouse')
+          .populate('shelf')
+          .session(session);
 
-        // ✅ gudang asal ≠ tujuan
-        if (
-          (warehouse || loan_item.warehouse).toString() ===
-          product.warehouse.toString()
-        ) {
-          throwError(
-            'Gudang tujuan tidak boleh sama dengan gudang asal barang',
-            400
-          );
-        }
-
-        const availableStock = stockMap.has(product._id.toString())
-          ? stockMap.get(product._id.toString())
-          : product.quantity;
-
-        stockMap.set(product._id.toString(), availableStock); // simpan sementara
+        if (!inv) throwError('Inventory tidak ditemukan', 404);
 
         processedItems.push({
-          product: product._id,
-          product_code: product.product_code,
-          brand: product.brand,
+          inventory: inv._id,
+          product: inv.product._id,
+          product_code: inv.product.product_code,
+          brand: inv.product.brand,
           quantity: it.quantity,
-          project: it.project || null,
-          condition: product.condition
+          project: it.project,
+          condition_at_borrow: inv.condition,
+          warehouse_from: inv.warehouse._id,
+          shelf_from: inv.shelf._id
         });
       }
     }
 
     /* ===== Kondisi Approval ===== */
 
-    // 1. Belum → Disetujui
+    // 1. Belum Disetujui → Disetujui
     if (loan_item.approval !== 'Disetujui' && approval === 'Disetujui') {
       loan_item.circulation_status = 'Aktif';
-      const stockMap = new Map();
+
       for (const it of processedItems) {
-        const product = await Product.findById(it.product).session(session);
-        if (!product) throwError('Produk tidak ditemukan', 404);
+        const inv = await Inventory.findById(it.inventory).session(session);
+        if (!inv) throwError('Inventory tidak ditemukan', 404);
 
-        const availableStock = stockMap.has(product._id.toString())
-          ? stockMap.get(product._id.toString())
-          : product.quantity;
+        if (inv.on_hand < it.quantity)
+          throwError(`Stok tidak cukup di ${inv._id}`, 400);
 
-        if (availableStock < it.quantity)
-          throwError('Stok tidak mencukupi', 400);
-        if (
-          product.condition === 'Rusak' ||
-          product.condition === 'Maintenance' ||
-          product.condition === 'Hilang'
-        )
+        if (inv.condition !== 'Baik')
           throwError(
-            'Barang rusak/maintenance/hilang, tidak dapat dipinjam',
+            `Barang dengan kondisi ${inv.condition} tidak dapat dipinjam`,
             400
           );
 
-        stockMap.set(product._id.toString(), availableStock - it.quantity);
-
-        product.quantity = stockMap.get(product._id.toString());
-        product.loan_quantity = (product.loan_quantity || 0) + it.quantity;
-        await product.save({ session });
+        inv.on_hand -= it.quantity;
+        inv.on_loan += it.quantity;
+        await inv.save({ session });
       }
 
-      // buat circulation baru
-      const borrowedItemsCirculation = [];
-      for (const it of processedItems) {
-        const product = await Product.findById(it.product).lean();
-        borrowedItemsCirculation.push({
-          product: product._id,
-          product_code: product.product_code,
-          brand: product.brand,
-          quantity: it.quantity,
-          project: it.project,
-          condition: product.condition,
-          product_image: product.product_image || null,
-          warehouse_from: product?.warehouse || null,
-          shelf_from: product?.shelf || null,
-          item_status: 'Dipinjam'
-        });
-      }
-
+      // Buat circulation
       await loanCirculationModel.create(
         [
           {
@@ -409,25 +327,36 @@ const updateLoan = asyncHandler(async (req, res) => {
             borrower: loan_item.borrower,
             phone: loan_item.phone,
             inventory_manager: loan_item.inventory_manager,
-            warehouse_to: warehouse || loan_item.warehouse,
-            shelf_to: shelf || loan_item.shelf,
-            borrowed_items: borrowedItemsCirculation
+            loan_date_circulation: loan_item.pickup_date,
+            borrowed_items: processedItems.map((it) => ({
+              inventory: it.inventory,
+              product: it.product,
+              product_code: it.product_code,
+              brand: it.brand,
+              quantity: it.quantity,
+              project: it.project,
+              condition: it.condition_at_borrow,
+              warehouse_from: it.warehouse_from,
+              shelf_from: it.shelf_from,
+              item_status: 'Dipinjam'
+            }))
           }
         ],
         { session }
       );
     }
 
-    // 2. Disetujui → Ditolak / Diproses
+    // 2. Disetujui → Ditolak/Diproses
     if (loan_item.approval === 'Disetujui' && approval !== 'Disetujui') {
       loan_item.circulation_status = 'Pending';
-      for (const it of loan_item.borrowed_items) {
-        const product = await Product.findById(it.product).session(session);
-        if (!product) throwError('Produk tidak ditemukan', 404);
 
-        product.quantity += it.quantity;
-        product.loan_quantity -= it.quantity;
-        await product.save({ session });
+      for (const it of loan_item.borrowed_items) {
+        const inv = await Inventory.findById(it.inventory).session(session);
+        if (!inv) continue;
+
+        inv.on_hand += it.quantity;
+        inv.on_loan -= it.quantity;
+        await inv.save({ session });
       }
 
       await loanCirculationModel
@@ -438,87 +367,66 @@ const updateLoan = asyncHandler(async (req, res) => {
     // 3. Sama-sama Disetujui → cek selisih jumlah
     if (loan_item.approval === 'Disetujui' && approval === 'Disetujui') {
       loan_item.circulation_status = 'Aktif';
+
       for (const newItem of processedItems) {
         const oldItem = loan_item.borrowed_items.find(
-          (it) => it.product.toString() === newItem.product.toString()
+          (it) => it.inventory.toString() === newItem.inventory.toString()
         );
-        if (!oldItem) throwError('Barang lama tidak ditemukan di loan', 400);
-
-        const product = await Product.findById(newItem.product).session(
-          session
-        );
-        if (!product) throwError('Produk tidak ditemukan', 404);
+        if (!oldItem) continue;
 
         const diff = newItem.quantity - oldItem.quantity;
+        const inv = await Inventory.findById(newItem.inventory).session(
+          session
+        );
+        if (!inv) continue;
+
         if (diff > 0) {
-          if (product.quantity < diff) throwError('Stok tidak mencukupi', 400);
-          product.quantity -= diff;
+          if (inv.on_hand < diff) throwError('Stok tidak mencukupi', 400);
+          inv.on_hand -= diff;
+          inv.on_loan += diff;
         } else if (diff < 0) {
-          product.quantity += Math.abs(diff);
+          inv.on_hand += Math.abs(diff);
+          inv.on_loan -= Math.abs(diff);
         }
 
-        product.loan_quantity = (product.loan_quantity || 0) + diff;
-        await product.save({ session });
+        await inv.save({ session });
       }
 
-      // update circulation
-      const borrowedItemsCirculation = [];
-      for (const it of processedItems) {
-        const product = await Product.findById(it.product).lean();
-        borrowedItemsCirculation.push({
-          product: product._id,
-          product_code: product.product_code,
-          brand: product.brand,
-          quantity: it.quantity,
-          project: it.project,
-          condition: product.condition,
-          product_image: product.product_image || null,
-          warehouse_from: product?.warehouse || null,
-          shelf_from: product?.shelf || null,
-          item_status: 'Dipinjam'
-        });
-      }
-
+      // Update circulation
       await loanCirculationModel.findOneAndUpdate(
         { loan_number: loan_item.loan_number },
         {
-          borrower: borrower || loan_item.borrower,
-          phone: phone || loan_item.phone,
-          inventory_manager: inventory_manager || loan_item.inventory_manager,
-          warehouse_to: warehouse || loan_item.warehouse,
-          shelf_to: shelf || loan_item.shelf,
-          loan_date_circulation: loan_item.pickup_date,
-          borrowed_items: borrowedItemsCirculation
+          borrowed_items: processedItems.map((it) => ({
+            inventory: it.inventory,
+            product: it.product,
+            product_code: it.product_code,
+            brand: it.brand,
+            quantity: it.quantity,
+            project: it.project,
+            condition: it.condition_at_borrow,
+            warehouse_from: it.warehouse_from,
+            shelf_from: it.shelf_from,
+            item_status: 'Dipinjam'
+          }))
         },
         { session }
       );
     }
 
     /* ===== Update field utama ===== */
-    if (loan_date !== undefined) loan_item.loan_date = loan_date;
-    if (pickup_date !== undefined) loan_item.pickup_date = pickup_date;
-    if (borrower !== undefined) loan_item.borrower = borrower;
-    if (nik !== undefined) loan_item.nik = nik;
-    if (address !== undefined) loan_item.address = address;
-    if (position !== undefined) loan_item.position = position;
-    if (inventory_manager !== undefined)
-      loan_item.inventory_manager = inventory_manager;
-    if (phone !== undefined) loan_item.phone = phone;
-    if (warehouse !== undefined) loan_item.warehouse = warehouse;
-    if (shelf !== undefined) loan_item.shelf = shelf;
+    Object.assign(loan_item, otherFields);
     if (approval !== undefined) loan_item.approval = approval;
     if (borrowed_items) loan_item.borrowed_items = processedItems;
 
     await loan_item.save({ session });
 
     await session.commitTransaction();
-    session.endSession();
-
     res.status(200).json(loan_item);
-  } catch (error) {
+  } catch (err) {
     await session.abortTransaction();
+    throw err;
+  } finally {
     session.endSession();
-    throw error;
   }
 });
 
@@ -531,9 +439,8 @@ const getAllEmployee = asyncHandler(async (req, res) => {
 });
 
 const getAllProduct = asyncHandler(async (req, res) => {
-  const product = await Product.find().select('product_code brand condition');
-
-  res.json(product);
+  const data = await Product.find().select('brand product_code');
+  res.json({ success: true, data });
 });
 
 const getAllWarehouse = asyncHandler(async (req, res) => {
@@ -555,6 +462,29 @@ const getShelves = asyncHandler(async (req, res) => {
   const shelves = await Shelf.find({ warehouse }).select('shelf_name');
 
   res.json(shelves);
+});
+
+const getAvailableInventoriesByProduct = asyncHandler(async (req, res) => {
+  const { productId } = req.params;
+
+  const inventories = await Inventory.find({
+    product: productId,
+    on_hand: { $gt: 0 }
+  })
+    .populate('warehouse', 'warehouse_name')
+    .populate('shelf', 'shelf_name')
+    .lean();
+
+  res.json({
+    success: true,
+    data: inventories.map((inv) => ({
+      inventory_id: inv._id,
+      warehouse: inv.warehouse.warehouse_name,
+      shelf: inv.shelf.shelf_name,
+      condition: inv.condition,
+      stock: inv.on_hand
+    }))
+  });
 });
 
 const getLoansByEmployee = asyncHandler(async (req, res) => {

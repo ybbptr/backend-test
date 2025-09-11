@@ -192,6 +192,20 @@ const getProducts = asyncHandler(async (req, res) => {
     { $limit: limit }
   ]);
 
+  // generate signed URL utk setiap gambar produk
+  const productsWithUrl = await Promise.all(
+    products.map(async (p) => {
+      let imageUrl = null;
+      if (p.product_image?.key) {
+        imageUrl = await getFileUrl(p.product_image.key, 60 * 5); // expired 5 menit
+      }
+      return {
+        ...p,
+        product_image_url: imageUrl
+      };
+    })
+  );
+
   const totalItems = await Product.countDocuments(filter);
   const totalPages = Math.ceil(totalItems / limit);
 
@@ -201,7 +215,7 @@ const getProducts = asyncHandler(async (req, res) => {
     totalItems,
     totalPages,
     sort: sortOption,
-    data: products
+    data: productsWithUrl
   });
 });
 
