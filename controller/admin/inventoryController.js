@@ -342,6 +342,83 @@ const getWarehousesWithStock = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, data });
 });
 
+const getTotalByWarehouse = asyncHandler(async (req, res) => {
+  const data = await Inventory.aggregate([
+    {
+      $group: {
+        _id: '$warehouse',
+        total_on_hand: { $sum: '$on_hand' },
+        total_on_loan: { $sum: '$on_loan' }
+      }
+    },
+    {
+      $lookup: {
+        from: 'warehouses',
+        localField: '_id',
+        foreignField: '_id',
+        as: 'warehouse'
+      }
+    },
+    { $unwind: '$warehouse' },
+    {
+      $project: {
+        _id: 0,
+        warehouse_id: '$warehouse._id',
+        warehouse_name: '$warehouse.warehouse_name',
+        warehouse_code: '$warehouse.warehouse_code',
+        total_on_hand: 1,
+        total_on_loan: 1
+      }
+    }
+  ]);
+
+  res.status(200).json({ success: true, data });
+});
+
+const getTotalByShelf = asyncHandler(async (req, res) => {
+  const data = await Inventory.aggregate([
+    {
+      $group: {
+        _id: '$shelf',
+        total_on_hand: { $sum: '$on_hand' },
+        total_on_loan: { $sum: '$on_loan' }
+      }
+    },
+    {
+      $lookup: {
+        from: 'shelves',
+        localField: '_id',
+        foreignField: '_id',
+        as: 'shelf'
+      }
+    },
+    { $unwind: '$shelf' },
+    {
+      $lookup: {
+        from: 'warehouses',
+        localField: 'shelf.warehouse',
+        foreignField: '_id',
+        as: 'warehouse'
+      }
+    },
+    { $unwind: '$warehouse' },
+    {
+      $project: {
+        _id: 0,
+        shelf_id: '$shelf._id',
+        shelf_name: '$shelf.shelf_name',
+        shelf_code: '$shelf.shelf_code',
+        warehouse_id: '$warehouse._id',
+        warehouse_name: '$warehouse.warehouse_name',
+        total_on_hand: 1,
+        total_on_loan: 1
+      }
+    }
+  ]);
+
+  res.status(200).json({ success: true, data });
+});
+
 module.exports = {
   // Tambah barang baru
   addNewProductInInventory,
@@ -354,5 +431,8 @@ module.exports = {
   updateInventory,
   removeInventory,
   getProductList,
-  getWarehousesWithStock
+  getWarehousesWithStock,
+  // Dashboard
+  getTotalByWarehouse,
+  getTotalByShelf
 };

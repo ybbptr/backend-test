@@ -11,7 +11,9 @@ const {
   getWarehouses,
   getShelvesByWarehouse,
   getWarehousesWithStock,
-  getProductList
+  getProductList,
+  getTotalByShelf,
+  getTotalByWarehouse
 } = require('../../controller/admin/inventoryController');
 
 const multer = require('multer');
@@ -52,6 +54,8 @@ Router.post(
 Router.get('/all-inventory', getInventory);
 
 Router.get('/product-list', getProductList);
+Router.get('/warehouse-list', getTotalByWarehouse);
+Router.get('/shelf-list', getTotalByShelf);
 
 // Ambil semua gudang (list basic)
 Router.get('/all-warehouse', getWarehouses);
