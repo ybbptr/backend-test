@@ -38,34 +38,38 @@ const createProductSchema = Joi.object({
   }),
 
   // initial stock untuk inventory
-  initial_stock: Joi.object({
-    warehouse: Joi.string().custom(objectIdValidator).required().messages({
-      'any.required': 'Gudang wajib diisi',
-      'any.invalid': 'ID gudang tidak valid'
-    }),
-    shelf: Joi.string().custom(objectIdValidator).required().messages({
-      'any.required': 'Lemari wajib diisi',
-      'any.invalid': 'ID lemari tidak valid'
-    }),
-    condition: Joi.string()
-      .valid('Baik', 'Rusak', 'Maintenance')
-      .default('Baik')
-      .messages({
-        'any.only':
-          'Kondisi harus salah satu dari: Baik, Rusak, atau Maintenance'
+  initial_stock: Joi.alternatives()
+    .try(
+      Joi.object({
+        warehouse: Joi.string().custom(objectIdValidator).required().messages({
+          'any.required': 'Gudang wajib diisi',
+          'any.invalid': 'ID gudang tidak valid'
+        }),
+        shelf: Joi.string().custom(objectIdValidator).required().messages({
+          'any.required': 'Lemari wajib diisi',
+          'any.invalid': 'ID lemari tidak valid'
+        }),
+        condition: Joi.string()
+          .valid('Baik', 'Rusak', 'Maintenance')
+          .default('Baik')
+          .messages({
+            'any.only':
+              'Kondisi harus salah satu dari: Baik, Rusak, atau Maintenance'
+          }),
+        quantity: Joi.number().min(1).required().messages({
+          'any.required': 'Jumlah stok wajib diisi',
+          'number.base': 'Jumlah stok harus berupa angka',
+          'number.min': 'Jumlah stok minimal 1'
+        })
       }),
-    quantity: Joi.number().min(1).required().messages({
-      'any.required': 'Jumlah stok wajib diisi',
-      'number.base': 'Jumlah stok harus berupa angka',
-      'number.min': 'Jumlah stok minimal 1'
-    })
-  })
+      Joi.string().messages({
+        'string.base': 'Stok awal harus berupa JSON string valid'
+      })
+    )
     .required()
     .messages({
-      'any.required': 'Stok awal wajib diisi',
-      'object.base': 'Stok awal harus berupa objek'
+      'any.required': 'Stok awal wajib diisi'
     }),
-
   description: Joi.string().allow('', null).messages({
     'string.base': 'Deskripsi harus berupa teks'
   })

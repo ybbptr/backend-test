@@ -26,7 +26,11 @@ const addNewProductInInventory = asyncHandler(async (req, res) => {
     } = req.body;
 
     if (typeof initial_stock === 'string') {
-      initial_stock = JSON.parse(initial_stock);
+      try {
+        initial_stock = JSON.parse(initial_stock);
+      } catch (e) {
+        throwError('Format initial_stock tidak valid (harus JSON)', 400);
+      }
     }
 
     const files = req.files || {};

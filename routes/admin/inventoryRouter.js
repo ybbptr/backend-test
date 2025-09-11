@@ -1,6 +1,10 @@
 const express = require('express');
 const Product = require('../../model/productModel');
 const { checkDuplicate } = require('../../middleware/checkDuplicate');
+const validate = require('../../middleware/validations/validate');
+const {
+  createProductSchema
+} = require('../../middleware/validations/validateProduct');
 const {
   addStock,
   getInventory,
@@ -46,6 +50,7 @@ Router.post(
     { name: 'product_image', maxCount: 1 },
     { name: 'invoice', maxCount: 1 }
   ]),
+  validate(createProductSchema),
   checkDuplicate(Product, { product_code: 'Kode barang' }),
   addNewProductInInventory
 );
