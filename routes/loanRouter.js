@@ -20,7 +20,8 @@ const {
   getShelves,
   getLoansByEmployee,
   getEmployee,
-  getAllProject
+  getAllProject,
+  getAvailableInventoriesByProduct
 } = require('../controller/loanController');
 
 Router.post(
@@ -38,6 +39,8 @@ Router.post(
   .get('/all-project', getAllProject);
 
 Router.get('/shelves', getShelves);
+
+Router.get('/inventory/:id', getAvailableInventoriesByProduct);
 Router.get('/:id/pdf', getLoanPdf);
 Router.get('/:id', getLoan)
   .put(

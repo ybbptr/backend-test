@@ -601,5 +601,6 @@ module.exports = {
   getLoanPdf,
   getEmployee,
   getLoansByEmployee,
-  getAllProject
+  getAllProject,
+  getAvailableInventoriesByProduct
 };

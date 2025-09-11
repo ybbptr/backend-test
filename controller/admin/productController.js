@@ -197,7 +197,7 @@ const getProducts = asyncHandler(async (req, res) => {
     products.map(async (p) => {
       let imageUrl = null;
       if (p.product_image?.key) {
-        imageUrl = await getFileUrl(p.product_image.key, 60 * 5); // expired 5 menit
+        imageUrl = await getFileUrl(p.product_image.key); // expired 5 menit
       }
       return {
         ...p,

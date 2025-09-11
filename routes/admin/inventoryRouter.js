@@ -66,7 +66,7 @@ Router.get('/shelf-list', getTotalByShelf);
 Router.get('/all-warehouse', getWarehouses);
 
 // Ambil semua gudang beserta shelves + total stok
-Router.get('/warehouses-with-stock', getWarehousesWithStock);
+Router.get('/warehouse', getWarehousesWithStock);
 
 // Ambil lemari berdasarkan gudang
 Router.get('/warehouses/:id/shelves', getShelvesByWarehouse);
