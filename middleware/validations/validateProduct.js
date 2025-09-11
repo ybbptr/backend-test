@@ -54,7 +54,7 @@ const createProductSchema = Joi.object({
         'any.only':
           'Kondisi harus salah satu dari: Baik, Rusak, atau Maintenance'
       }),
-    qty: Joi.number().min(1).required().messages({
+    quantity: Joi.number().min(1).required().messages({
       'any.required': 'Jumlah stok wajib diisi',
       'number.base': 'Jumlah stok harus berupa angka',
       'number.min': 'Jumlah stok minimal 1'
