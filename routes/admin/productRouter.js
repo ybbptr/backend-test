@@ -2,16 +2,21 @@ const express = require('express');
 const Product = require('../../model/productModel');
 const { checkDuplicate } = require('../../middleware/checkDuplicate');
 const {
+  // Master Product
   addProduct,
   getProducts,
   getProduct,
   updateProduct,
   removeProduct,
   getAllWarehouse,
-  getShelvesByWarehouse
+  getShelvesByWarehouse,
+  // Tambah stok
+  addStock,
+  getWarehousesAndShelvesWithStock,
+  // Utility
+  getProductList
 } = require('../../controller/admin/productController');
 
-const Router = express.Router();
 const validate = require('../../middleware/validations/validate');
 const {
   createProductSchema,
@@ -26,11 +31,8 @@ const fileFilter = (req, file, cb) => {
   const isImage = /jpeg|jpg|png/.test(file.mimetype.toLowerCase());
   const isPdf = /pdf/.test(file.mimetype.toLowerCase());
 
-  if (isImage || isPdf) {
-    cb(null, true);
-  } else {
-    cb(new Error('File harus berupa jpg, jpeg, png, atau pdf'));
-  }
+  if (isImage || isPdf) cb(null, true);
+  else cb(new Error('File harus berupa jpg, jpeg, png, atau pdf'));
 };
 
 const uploadProductFiles = multer({
@@ -39,6 +41,11 @@ const uploadProductFiles = multer({
   limits: { fileSize: 10 * 1024 * 1024 } // 10 MB
 });
 
+const Router = express.Router();
+
+/* ================== MASTER PRODUCT ================== */
+
+// Tambah produk baru (metadata master)
 Router.post(
   '/add-product',
   uploadProductFiles.fields([
@@ -50,11 +57,22 @@ Router.post(
   addProduct
 );
 
-Router.get('/all-product', getProducts)
-  .get('/all-warehouse', getAllWarehouse)
-  .get('/shelves', getShelvesByWarehouse);
+// Ambil semua produk (plus total stok agregat)
+Router.get('/all-product', getProducts);
 
+// Ambil daftar produk (ringkas, untuk dropdown/autocomplete)
+Router.get('/product-list', getProductList);
+
+// Ambil daftar gudang (support FE form)
+Router.get('/all-warehouse', getAllWarehouse);
+
+// Ambil lemari berdasarkan gudang
+Router.get('/warehouses/:id/shelves', getShelvesByWarehouse);
+
+// Ambil detail produk + breakdown stok
 Router.get('/:id', getProduct);
+
+// Update metadata produk
 Router.put(
   '/update/:id',
   uploadProductFiles.fields([
@@ -65,6 +83,14 @@ Router.put(
   checkDuplicate(Product, { product_code: 'Kode barang' }),
   updateProduct
 );
+
+// Hapus produk
 Router.delete('/remove/:id', removeProduct);
+
+// Tambah stok produk existing langsung dari halaman Master
+Router.post('/:id/add-stock', addStock);
+
+// Dropdown khusus untuk pilih gudang+lemari sekaligus lihat stok existing produk
+Router.get('/:id/warehouses-with-stock', getWarehousesAndShelvesWithStock);
 
 module.exports = Router;

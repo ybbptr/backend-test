@@ -1,9 +1,15 @@
+// models/Product.js
 const mongoose = require('mongoose');
 
 const productSchema = new mongoose.Schema(
   {
-    purchase_date: { type: Date, required: true },
-    price: { type: Number, required: true },
+    product_code: {
+      type: String,
+      unique: true,
+      required: true,
+      trim: true
+    },
+
     category: {
       type: String,
       trim: true,
@@ -19,34 +25,21 @@ const productSchema = new mongoose.Schema(
         'Perlengkapan lainnya'
       ]
     },
+
     brand: { type: String, trim: true, required: true }, // merk
-    type: { type: String, trim: true, required: true }, // type
-    description: String,
-    quantity: { type: Number, default: 0, required: true },
-    loan_quantity: { type: Number, default: 0 },
-    condition: {
-      type: String,
-      trim: true,
-      required: true,
-      enum: ['Maintenance', 'Rusak', 'Baik', 'Hilang']
-    },
-    warehouse: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Warehouse',
-      required: true
-    },
-    shelf: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Shelf',
-      required: true
-    },
-    product_code: { type: String, unique: true, required: true, trim: true }, // kode barang
+    type: { type: String, trim: true, required: true }, // tipe / model
+    description: { type: String },
+
+    purchase_date: { type: Date, required: true },
+    price: { type: Number, required: true },
+
     product_image: {
       key: { type: String },
       contentType: { type: String },
       size: { type: Number },
       uploadedAt: { type: Date, default: Date.now }
     },
+
     invoice: {
       key: { type: String, required: true },
       contentType: { type: String, required: true },
@@ -57,7 +50,6 @@ const productSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-productSchema.index({ warehouse: 1 });
-productSchema.index({ shelf: 1 });
+productSchema.index({ category: 1, brand: 1, type: 1 });
 
 module.exports = mongoose.model('Product', productSchema);
