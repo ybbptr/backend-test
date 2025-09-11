@@ -377,12 +377,17 @@ const getAllWarehouse = asyncHandler(async (req, res) => {
 });
 
 const getShelvesByWarehouse = asyncHandler(async (req, res) => {
-  const { warehouse } = req.query;
-  if (!warehouse) throwError('ID gudang tidak valid', 400);
+  const { id } = req.params;
 
-  const shelves = await Shelf.find({ warehouse }).select('shelf_name');
+  if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+    throwError('ID gudang tidak valid', 400);
+  }
 
-  res.json(shelves);
+  const shelves = await Shelf.find({ warehouse: id })
+    .select('shelf_name')
+    .lean();
+
+  res.status(200).json({ success: true, data: shelves });
 });
 
 const addStock = asyncHandler(async (req, res) => {
