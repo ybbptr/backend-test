@@ -371,7 +371,7 @@ const getTotalByWarehouse = asyncHandler(async (req, res) => {
         warehouse_id: '$warehouse._id',
         warehouse_name: '$warehouse.warehouse_name',
         warehouse_code: '$warehouse.warehouse_code',
-        warehouse_image: '$warehouse.image',
+        warehouse_image: '$warehouse.warehouse_image',
         total_on_hand: 1,
         total_on_loan: 1,
         total_products: { $size: '$products' } // hitung panjang array produk
