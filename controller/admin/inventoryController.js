@@ -352,7 +352,8 @@ const getTotalByWarehouse = asyncHandler(async (req, res) => {
       $group: {
         _id: '$warehouse',
         total_on_hand: { $sum: '$on_hand' },
-        total_on_loan: { $sum: '$on_loan' }
+        total_on_loan: { $sum: '$on_loan' },
+        products: { $addToSet: '$product' } // kumpulin produk unik
       }
     },
     {
@@ -372,39 +373,36 @@ const getTotalByWarehouse = asyncHandler(async (req, res) => {
         warehouse_code: '$warehouse.warehouse_code',
         warehouse_image: '$warehouse.image',
         total_on_hand: 1,
-        total_on_loan: 1
+        total_on_loan: 1,
+        total_products: { $size: '$products' } // hitung panjang array produk
       }
     }
   ]);
 
-  // generate signed URL + hitung summary
-  let grand_on_hand = 0;
-  let grand_on_loan = 0;
+  // Hitung summary global
+  const summary = data.reduce(
+    (acc, w) => {
+      acc.total_on_hand += w.total_on_hand;
+      acc.total_on_loan += w.total_on_loan;
+      acc.total_products += w.total_products;
+      return acc;
+    },
+    { total_on_hand: 0, total_on_loan: 0, total_products: 0 }
+  );
+  summary.total_all = summary.total_on_hand + summary.total_on_loan;
 
+  // Generate signed URL
   const withUrls = await Promise.all(
     data.map(async (w) => {
       let image_url = null;
       if (w.warehouse_image?.key) {
         image_url = await getFileUrl(w.warehouse_image.key);
       }
-      grand_on_hand += w.total_on_hand;
-      grand_on_loan += w.total_on_loan;
-      return {
-        ...w,
-        warehouse_image_url: image_url
-      };
+      return { ...w, warehouse_image_url: image_url };
     })
   );
 
-  res.status(200).json({
-    success: true,
-    summary: {
-      total_on_hand: grand_on_hand,
-      total_on_loan: grand_on_loan,
-      total_all: grand_on_hand + grand_on_loan
-    },
-    data: withUrls
-  });
+  res.status(200).json({ success: true, summary, data: withUrls });
 });
 
 const getTotalByShelf = asyncHandler(async (req, res) => {
@@ -413,7 +411,8 @@ const getTotalByShelf = asyncHandler(async (req, res) => {
       $group: {
         _id: '$shelf',
         total_on_hand: { $sum: '$on_hand' },
-        total_on_loan: { $sum: '$on_loan' }
+        total_on_loan: { $sum: '$on_loan' },
+        products: { $addToSet: '$product' }
       }
     },
     {
@@ -443,21 +442,22 @@ const getTotalByShelf = asyncHandler(async (req, res) => {
         warehouse_id: '$warehouse._id',
         warehouse_name: '$warehouse.warehouse_name',
         total_on_hand: 1,
-        total_on_loan: 1
+        total_on_loan: 1,
+        total_products: { $size: '$products' }
       }
     }
   ]);
 
-  // hitung summary global
+  // Summary global
   const summary = data.reduce(
     (acc, s) => {
       acc.total_on_hand += s.total_on_hand;
       acc.total_on_loan += s.total_on_loan;
+      acc.total_products += s.total_products;
       return acc;
     },
-    { total_on_hand: 0, total_on_loan: 0 }
+    { total_on_hand: 0, total_on_loan: 0, total_products: 0 }
   );
-
   summary.total_all = summary.total_on_hand + summary.total_on_loan;
 
   res.status(200).json({ success: true, summary, data });
