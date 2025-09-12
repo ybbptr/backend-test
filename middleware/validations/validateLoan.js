@@ -48,17 +48,10 @@ const createLoanSchema = Joi.object({
       'any.required': 'Penanggung jawab wajib diisi',
       'any.only': 'Penanggung jawab hanya Owan H., Teguh F., dan Korlap'
     }),
-
-  // TOP LEVEL warehouse & shelf
-  warehouse: Joi.string().custom(objectIdValidator).required().messages({
+  warehouse_to: Joi.string().custom(objectIdValidator).required().messages({
     'any.invalid': 'ID gudang tidak valid!',
     'any.required': 'Gudang wajib diisi!'
   }),
-  shelf: Joi.string().custom(objectIdValidator).required().messages({
-    'any.invalid': 'ID lemari tidak valid!',
-    'any.required': 'Lemari wajib diisi!'
-  }),
-
   borrowed_items: Joi.array()
     .items(
       Joi.object({
@@ -142,13 +135,9 @@ const updateLoanSchema = Joi.object({
     }),
 
   // TOP LEVEL warehouse & shelf (opsional saat update)
-  warehouse: Joi.string().custom(objectIdValidator).messages({
+  warehouse_to: Joi.string().custom(objectIdValidator).messages({
     'any.invalid': 'ID gudang tidak valid!'
   }),
-  shelf: Joi.string().custom(objectIdValidator).messages({
-    'any.invalid': 'ID lemari tidak valid!'
-  }),
-
   borrowed_items: Joi.array().items(
     Joi.object({
       inventory: Joi.string().custom(objectIdValidator).messages({

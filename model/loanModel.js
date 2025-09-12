@@ -26,14 +26,9 @@ const loanSchema = new mongoose.Schema(
       required: true,
       enum: ['Owan H.', 'Teguh F.', 'Korlap']
     },
-    warehouse: {
+    warehouse_to: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Warehouse',
-      required: true
-    },
-    shelf: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Shelf',
       required: true
     },
     borrowed_items: [

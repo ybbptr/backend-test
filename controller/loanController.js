@@ -23,6 +23,7 @@ const addLoan = asyncHandler(async (req, res) => {
     phone,
     inventory_manager,
     borrowed_items,
+    warehouse_to, // 🔥 top-level
     approval
   } = req.body || {};
 
@@ -35,6 +36,7 @@ const addLoan = asyncHandler(async (req, res) => {
     !position ||
     !inventory_manager ||
     !phone ||
+    !warehouse_to ||
     !Array.isArray(borrowed_items) ||
     borrowed_items.length === 0
   ) {
@@ -52,10 +54,6 @@ const addLoan = asyncHandler(async (req, res) => {
     for (const it of borrowed_items) {
       const { inventory: inventoryId, quantity, project } = it;
 
-      if (!inventoryId || !quantity || !project) {
-        throwError('Data barang yang dipinjam tidak lengkap', 400);
-      }
-
       const inv = await Inventory.findById(inventoryId)
         .populate('product', 'product_code brand')
         .populate('warehouse', 'warehouse_name')
@@ -63,6 +61,7 @@ const addLoan = asyncHandler(async (req, res) => {
         .session(session);
 
       if (!inv) throwError('Inventory tidak ditemukan', 404);
+
       if (normalizedApproval === 'Disetujui') {
         if (inv.on_hand < quantity) {
           throwError(
@@ -77,7 +76,6 @@ const addLoan = asyncHandler(async (req, res) => {
           );
         }
 
-        // update stok
         inv.on_hand -= quantity;
         inv.on_loan += quantity;
         inv.last_out_at = new Date();
@@ -108,6 +106,7 @@ const addLoan = asyncHandler(async (req, res) => {
           position,
           inventory_manager,
           phone,
+          warehouse_to, // 🔥 simpan di top-level Loan
           borrowed_items: processedItems,
           approval: normalizedApproval,
           circulation_status:
@@ -117,7 +116,6 @@ const addLoan = asyncHandler(async (req, res) => {
       { session }
     );
 
-    // Buat circulation jika disetujui
     if (normalizedApproval === 'Disetujui') {
       const borrowedItemsCirculation = processedItems.map((it) => ({
         inventory: it.inventory,
@@ -129,6 +127,7 @@ const addLoan = asyncHandler(async (req, res) => {
         condition: it.condition_at_borrow,
         warehouse_from: it.warehouse_from,
         shelf_from: it.shelf_from,
+        warehouse_to, // 🔥 ikut di circulation
         item_status: 'Dipinjam'
       }));
 
@@ -187,7 +186,10 @@ const getLoans = asyncHandler(async (req, res) => {
   }
 
   const loans = await Loan.find(filter)
-    .populate([{ path: 'borrower', select: 'name' }])
+    .populate([
+      { path: 'borrower', select: 'name' },
+      { path: 'warehouse_to', select: 'warehouse_name warehouse_code' }
+    ])
     .skip(skip)
     .limit(limit)
     .sort(sortOption)
@@ -208,6 +210,7 @@ const getLoans = asyncHandler(async (req, res) => {
 const getLoan = asyncHandler(async (req, res) => {
   const loan_item = await Loan.findById(req.params.id).populate([
     { path: 'borrower', select: 'name' },
+    { path: 'warehouse_to', select: 'warehouse_name warehouse_code' },
     { path: 'borrowed_items.product', select: 'brand product_code' },
     { path: 'borrowed_items.project', select: 'project_name' },
     { path: 'borrowed_items.inventory', populate: ['warehouse', 'shelf'] }
@@ -254,21 +257,19 @@ const updateLoan = asyncHandler(async (req, res) => {
   session.startTransaction();
 
   try {
-    const { approval, borrowed_items, ...otherFields } = req.body;
+    const { approval, borrowed_items, warehouse_to, ...otherFields } = req.body;
 
     const loan_item = await Loan.findById(req.params.id)
       .populate('borrowed_items.inventory')
       .session(session);
     if (!loan_item) throwError('Pengajuan tidak terdaftar!', 404);
 
-    // Restriksi role
     if (req.user?.role === 'karyawan' && approval !== undefined) {
       throwError('Karyawan tidak diperbolehkan mengubah status', 403);
     }
 
     let processedItems = loan_item.borrowed_items;
 
-    /* ===== Rebuild borrowed_items kalau dikirim dari FE ===== */
     if (borrowed_items) {
       processedItems = [];
 
@@ -295,9 +296,7 @@ const updateLoan = asyncHandler(async (req, res) => {
       }
     }
 
-    /* ===== Kondisi Approval ===== */
-
-    // 1. Belum Disetujui → Disetujui
+    // Handle approval transitions (same as before, but circulation includes warehouse_to)
     if (loan_item.approval !== 'Disetujui' && approval === 'Disetujui') {
       loan_item.circulation_status = 'Aktif';
 
@@ -319,7 +318,6 @@ const updateLoan = asyncHandler(async (req, res) => {
         await inv.save({ session });
       }
 
-      // Buat circulation
       await loanCirculationModel.create(
         [
           {
@@ -338,6 +336,7 @@ const updateLoan = asyncHandler(async (req, res) => {
               condition: it.condition_at_borrow,
               warehouse_from: it.warehouse_from,
               shelf_from: it.shelf_from,
+              warehouse_to,
               item_status: 'Dipinjam'
             }))
           }
@@ -346,7 +345,6 @@ const updateLoan = asyncHandler(async (req, res) => {
       );
     }
 
-    // 2. Disetujui → Ditolak/Diproses
     if (loan_item.approval === 'Disetujui' && approval !== 'Disetujui') {
       loan_item.circulation_status = 'Pending';
 
@@ -364,7 +362,6 @@ const updateLoan = asyncHandler(async (req, res) => {
         .session(session);
     }
 
-    // 3. Sama-sama Disetujui → cek selisih jumlah
     if (loan_item.approval === 'Disetujui' && approval === 'Disetujui') {
       loan_item.circulation_status = 'Aktif';
 
@@ -392,7 +389,6 @@ const updateLoan = asyncHandler(async (req, res) => {
         await inv.save({ session });
       }
 
-      // Update circulation
       await loanCirculationModel.findOneAndUpdate(
         { loan_number: loan_item.loan_number },
         {
@@ -406,6 +402,7 @@ const updateLoan = asyncHandler(async (req, res) => {
             condition: it.condition_at_borrow,
             warehouse_from: it.warehouse_from,
             shelf_from: it.shelf_from,
+            warehouse_to, // 🔥 ikut masuk
             item_status: 'Dipinjam'
           }))
         },
@@ -413,10 +410,10 @@ const updateLoan = asyncHandler(async (req, res) => {
       );
     }
 
-    /* ===== Update field utama ===== */
     Object.assign(loan_item, otherFields);
     if (approval !== undefined) loan_item.approval = approval;
     if (borrowed_items) loan_item.borrowed_items = processedItems;
+    if (warehouse_to) loan_item.warehouse_to = warehouse_to; // 🔥 simpan perubahan
 
     await loan_item.save({ session });
 
