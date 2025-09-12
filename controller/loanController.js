@@ -443,39 +443,6 @@ const getAllProduct = asyncHandler(async (req, res) => {
   res.json({ success: true, data });
 });
 
-const getAvailableInventoriesByProduct = asyncHandler(async (req, res) => {
-  const { productId } = req.params;
-
-  if (!mongoose.Types.ObjectId.isValid(productId)) {
-    throwError('ID produk tidak valid', 400);
-  }
-
-  const inventories = await Inventory.find({
-    product: productId,
-    on_hand: { $gt: 0 }
-  })
-    .populate('product', 'product_code brand type category product_image')
-    .populate('warehouse', 'warehouse_name warehouse_code')
-    .populate('shelf', 'shelf_name shelf_code')
-    .lean();
-
-  res.json({
-    success: true,
-    data: inventories.map((inv) => ({
-      inventory_id: inv._id,
-      product_id: inv.product._id,
-      product_code: inv.product.product_code,
-      brand: inv.product.brand,
-      warehouse_id: inv.warehouse._id,
-      warehouse_name: inv.warehouse.warehouse_name,
-      shelf_id: inv.shelf._id,
-      shelf_name: inv.shelf.shelf_name,
-      condition: inv.condition,
-      stock: inv.on_hand
-    }))
-  });
-});
-
 const getAllWarehouse = asyncHandler(async (req, res) => {
   const warehouse = await Warehouse.find().select('warehouse_name');
 
@@ -496,32 +463,6 @@ const getShelves = asyncHandler(async (req, res) => {
 
   res.json(shelves);
 });
-
-// const getAvailableInventoriesByProduct = asyncHandler(async (req, res) => {
-//   const { id } = req.params;
-//   if (!mongoose.Types.ObjectId.isValid(id)) {
-//     throwError('ID produk tidak valid', 400);
-//   }
-
-//   const inventories = await Inventory.find({
-//     product: id,
-//     on_hand: { $gt: 0 }
-//   })
-//     .populate('warehouse', 'warehouse_name')
-//     .populate('shelf', 'shelf_name')
-//     .lean();
-
-//   res.json({
-//     success: true,
-//     data: inventories.map((inv) => ({
-//       inventory_id: inv._id,
-//       warehouse: inv.warehouse.warehouse_name,
-//       shelf: inv.shelf.shelf_name,
-//       condition: inv.condition,
-//       stock: inv.on_hand
-//     }))
-//   });
-// });
 
 const getWarehousesByProduct = asyncHandler(async (req, res) => {
   const { productId } = req.params;
@@ -559,6 +500,7 @@ const getWarehousesByProduct = asyncHandler(async (req, res) => {
 
 const getShelvesByProductAndWarehouse = asyncHandler(async (req, res) => {
   const { productId, warehouseId } = req.params;
+
   if (
     !mongoose.Types.ObjectId.isValid(productId) ||
     !mongoose.Types.ObjectId.isValid(warehouseId)
@@ -569,6 +511,7 @@ const getShelvesByProductAndWarehouse = asyncHandler(async (req, res) => {
   const inventories = await Inventory.find({
     product: productId,
     warehouse: warehouseId,
+    condition: 'Baik',
     on_hand: { $gt: 0 }
   })
     .populate('shelf', 'shelf_name shelf_code')
@@ -577,6 +520,7 @@ const getShelvesByProductAndWarehouse = asyncHandler(async (req, res) => {
   res.json({
     success: true,
     data: inventories.map((inv) => ({
+      inventory_id: inv._id,
       shelf_id: inv.shelf._id,
       shelf_name: inv.shelf.shelf_name,
       shelf_code: inv.shelf.shelf_code,
@@ -702,6 +646,5 @@ module.exports = {
   getLoansByEmployee,
   getAllProject,
   getWarehousesByProduct,
-  getShelvesByProductAndWarehouse,
-  getAvailableInventoriesByProduct
+  getShelvesByProductAndWarehouse
 };
