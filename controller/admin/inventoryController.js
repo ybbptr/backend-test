@@ -347,34 +347,32 @@ const getWarehousesWithStock = asyncHandler(async (req, res) => {
 });
 
 const getTotalByWarehouse = asyncHandler(async (req, res) => {
-  const data = await Inventory.aggregate([
-    {
-      $group: {
-        _id: '$warehouse',
-        total_on_hand: { $sum: '$on_hand' },
-        total_on_loan: { $sum: '$on_loan' },
-        products: { $addToSet: '$product' } // kumpulin produk unik
-      }
-    },
+  const data = await Warehouse.aggregate([
     {
       $lookup: {
-        from: 'warehouses',
+        from: 'inventories',
         localField: '_id',
-        foreignField: '_id',
-        as: 'warehouse'
+        foreignField: 'warehouse',
+        as: 'inventories'
       }
     },
-    { $unwind: '$warehouse' },
+    {
+      $addFields: {
+        total_on_hand: { $sum: '$inventories.on_hand' },
+        total_on_loan: { $sum: '$inventories.on_loan' },
+        total_products: { $size: { $setUnion: ['$inventories.product', []] } }
+      }
+    },
     {
       $project: {
         _id: 0,
-        warehouse_id: '$warehouse._id',
-        warehouse_name: '$warehouse.warehouse_name',
-        warehouse_code: '$warehouse.warehouse_code',
-        warehouse_image: '$warehouse.warehouse_image',
+        warehouse_id: '$_id',
+        warehouse_name: 1,
+        warehouse_code: 1,
+        warehouse_image: 1,
         total_on_hand: 1,
         total_on_loan: 1,
-        total_products: { $size: '$products' } // hitung panjang array produk
+        total_products: 1
       }
     }
   ]);
@@ -382,9 +380,9 @@ const getTotalByWarehouse = asyncHandler(async (req, res) => {
   // Hitung summary global
   const summary = data.reduce(
     (acc, w) => {
-      acc.total_on_hand += w.total_on_hand;
-      acc.total_on_loan += w.total_on_loan;
-      acc.total_products += w.total_products;
+      acc.total_on_hand += w.total_on_hand || 0;
+      acc.total_on_loan += w.total_on_loan || 0;
+      acc.total_products += w.total_products || 0;
       return acc;
     },
     { total_on_hand: 0, total_on_loan: 0, total_products: 0 }
@@ -410,42 +408,31 @@ const getTotalByShelf = asyncHandler(async (req, res) => {
 
   const matchStage = {};
   if (warehouse && mongoose.Types.ObjectId.isValid(warehouse)) {
-    matchStage['shelf.warehouse'] = new mongoose.Types.ObjectId(warehouse);
+    matchStage.warehouse = new mongoose.Types.ObjectId(warehouse);
   }
 
-  const data = await Inventory.aggregate([
-    {
-      $group: {
-        _id: '$shelf',
-        total_on_hand: { $sum: '$on_hand' },
-        total_on_loan: { $sum: '$on_loan' },
-        products: { $addToSet: '$product' }
-      }
-    },
+  const data = await Shelf.aggregate([
+    ...(warehouse ? [{ $match: matchStage }] : []),
+
     {
       $lookup: {
-        from: 'shelves',
+        from: 'inventories',
         localField: '_id',
-        foreignField: '_id',
-        as: 'shelf'
+        foreignField: 'shelf',
+        as: 'inventories'
       }
     },
-    { $unwind: '$shelf' },
-
-    ...(warehouse
-      ? [
-          {
-            $match: {
-              'shelf.warehouse': new mongoose.Types.ObjectId(warehouse)
-            }
-          }
-        ]
-      : []),
-
+    {
+      $addFields: {
+        total_on_hand: { $sum: '$inventories.on_hand' },
+        total_on_loan: { $sum: '$inventories.on_loan' },
+        total_products: { $size: { $setUnion: ['$inventories.product', []] } }
+      }
+    },
     {
       $lookup: {
         from: 'warehouses',
-        localField: 'shelf.warehouse',
+        localField: 'warehouse',
         foreignField: '_id',
         as: 'warehouse'
       }
@@ -454,14 +441,15 @@ const getTotalByShelf = asyncHandler(async (req, res) => {
     {
       $project: {
         _id: 0,
-        shelf_id: '$shelf._id',
-        shelf_name: '$shelf.shelf_name',
-        shelf_code: '$shelf.shelf_code',
+        shelf_id: '$_id',
+        shelf_name: 1,
+        shelf_code: 1,
         warehouse_id: '$warehouse._id',
         warehouse_name: '$warehouse.warehouse_name',
+        warehouse_code: '$warehouse.warehouse_code',
         total_on_hand: 1,
         total_on_loan: 1,
-        total_products: { $size: '$products' }
+        total_products: 1
       }
     }
   ]);
@@ -469,9 +457,9 @@ const getTotalByShelf = asyncHandler(async (req, res) => {
   // Summary global
   const summary = data.reduce(
     (acc, s) => {
-      acc.total_on_hand += s.total_on_hand;
-      acc.total_on_loan += s.total_on_loan;
-      acc.total_products += s.total_products;
+      acc.total_on_hand += s.total_on_hand || 0;
+      acc.total_on_loan += s.total_on_loan || 0;
+      acc.total_products += s.total_products || 0;
       return acc;
     },
     { total_on_hand: 0, total_on_loan: 0, total_products: 0 }
