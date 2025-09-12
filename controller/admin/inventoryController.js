@@ -406,6 +406,13 @@ const getTotalByWarehouse = asyncHandler(async (req, res) => {
 });
 
 const getTotalByShelf = asyncHandler(async (req, res) => {
+  const { warehouse } = req.query;
+
+  const matchStage = {};
+  if (warehouse && mongoose.Types.ObjectId.isValid(warehouse)) {
+    matchStage['shelf.warehouse'] = new mongoose.Types.ObjectId(warehouse);
+  }
+
   const data = await Inventory.aggregate([
     {
       $group: {
@@ -424,6 +431,17 @@ const getTotalByShelf = asyncHandler(async (req, res) => {
       }
     },
     { $unwind: '$shelf' },
+
+    ...(warehouse
+      ? [
+          {
+            $match: {
+              'shelf.warehouse': new mongoose.Types.ObjectId(warehouse)
+            }
+          }
+        ]
+      : []),
+
     {
       $lookup: {
         from: 'warehouses',
