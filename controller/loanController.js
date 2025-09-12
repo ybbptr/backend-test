@@ -465,10 +465,13 @@ const getShelves = asyncHandler(async (req, res) => {
 });
 
 const getAvailableInventoriesByProduct = asyncHandler(async (req, res) => {
-  const { productId } = req.params;
+  const { id } = req.params;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throwError('ID produk tidak valid', 400);
+  }
 
   const inventories = await Inventory.find({
-    product: productId,
+    product: id,
     on_hand: { $gt: 0 }
   })
     .populate('warehouse', 'warehouse_name')
