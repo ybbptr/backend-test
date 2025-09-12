@@ -9,12 +9,14 @@ const productCirculationSchema = new mongoose.Schema(
     },
     product_code: { type: String, required: true },
     product_name: { type: String, required: true },
+
     product_image: {
       key: { type: String },
       contentType: { type: String },
       size: { type: Number },
       uploadedAt: { type: Date, default: Date.now }
     },
+
     warehouse_from: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Warehouse',
@@ -35,6 +37,12 @@ const productCirculationSchema = new mongoose.Schema(
       ref: 'Shelf',
       required: true
     },
+    moved_by: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Employee',
+      required: true
+    },
+    moved_by_name: { type: String, required: true }, // snapshot nama karyawan
     return_loan_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'ReturnLoan',
@@ -44,4 +52,4 @@ const productCirculationSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-module.exports = mongoose.model('productCirculation', productCirculationSchema);
+module.exports = mongoose.model('ProductCirculation', productCirculationSchema);

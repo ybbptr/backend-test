@@ -147,10 +147,14 @@ const createReturnLoan = asyncHandler(async (req, res) => {
               product_code: inv.product.product_code,
               product_name: inv.product.brand,
               product_image: inv.product.product_image,
+
               warehouse_from: circItem.warehouse_from,
               shelf_from: circItem.shelf_from,
               warehouse_to: ret.warehouse_return,
               shelf_to: ret.shelf_return,
+
+              moved_by: loan.borrower,
+              moved_by_name: borrower?.name,
               return_loan_id: returnLoan._id
             }
           ],
