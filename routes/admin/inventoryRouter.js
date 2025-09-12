@@ -17,7 +17,8 @@ const {
   getWarehousesWithStock,
   getProductList,
   getTotalByShelf,
-  getTotalByWarehouse
+  getTotalByWarehouse,
+  dropdownWarehouseWithStock
 } = require('../../controller/admin/inventoryController');
 
 const multer = require('multer');
@@ -70,6 +71,7 @@ Router.get('/warehouse', getWarehousesWithStock);
 
 // Ambil lemari berdasarkan gudang
 Router.get('/warehouses/:id/shelves', getShelvesByWarehouse);
+Router.get('/:id/warehouses-with-stock', dropdownWarehouseWithStock);
 
 // Ambil detail inventory by ID
 Router.get('/:id', getInventoryById);

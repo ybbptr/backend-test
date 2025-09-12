@@ -1,6 +1,11 @@
 const mongoose = require('mongoose');
 
 const returnedItemSchema = new mongoose.Schema({
+  inventory: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Inventory',
+    required: true
+  },
   product: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Product',
@@ -9,6 +14,7 @@ const returnedItemSchema = new mongoose.Schema({
   product_code: { type: String, required: true },
   brand: { type: String, required: true },
   quantity: { type: Number, required: true },
+
   warehouse_return: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Warehouse',
@@ -19,6 +25,7 @@ const returnedItemSchema = new mongoose.Schema({
     ref: 'Shelf',
     default: null
   },
+
   condition_new: {
     type: String,
     enum: ['Baik', 'Rusak', 'Maintenance', 'Hilang']
@@ -45,8 +52,8 @@ const returnLoanSchema = new mongoose.Schema(
       required: true
     },
     position: { type: String, required: true },
-    report_date: { type: Date, default: Date.now }, // tanggal laporan
-    return_date: { type: Date, default: Date.now }, // tanggal pengembalian
+    report_date: { type: Date, default: Date.now },
+    return_date: { type: Date, default: Date.now },
     inventory_manager: {
       type: String,
       enum: ['Owan H.', 'Teguh F.', 'Korlap']

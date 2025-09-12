@@ -370,13 +370,41 @@ const getTotalByWarehouse = asyncHandler(async (req, res) => {
         warehouse_id: '$warehouse._id',
         warehouse_name: '$warehouse.warehouse_name',
         warehouse_code: '$warehouse.warehouse_code',
+        warehouse_image: '$warehouse.image',
         total_on_hand: 1,
         total_on_loan: 1
       }
     }
   ]);
 
-  res.status(200).json({ success: true, data });
+  // generate signed URL + hitung summary
+  let grand_on_hand = 0;
+  let grand_on_loan = 0;
+
+  const withUrls = await Promise.all(
+    data.map(async (w) => {
+      let image_url = null;
+      if (w.warehouse_image?.key) {
+        image_url = await getFileUrl(w.warehouse_image.key);
+      }
+      grand_on_hand += w.total_on_hand;
+      grand_on_loan += w.total_on_loan;
+      return {
+        ...w,
+        warehouse_image_url: image_url
+      };
+    })
+  );
+
+  res.status(200).json({
+    success: true,
+    summary: {
+      total_on_hand: grand_on_hand,
+      total_on_loan: grand_on_loan,
+      total_all: grand_on_hand + grand_on_loan
+    },
+    data: withUrls
+  });
 });
 
 const getTotalByShelf = asyncHandler(async (req, res) => {
@@ -420,6 +448,78 @@ const getTotalByShelf = asyncHandler(async (req, res) => {
     }
   ]);
 
+  // hitung summary global
+  const summary = data.reduce(
+    (acc, s) => {
+      acc.total_on_hand += s.total_on_hand;
+      acc.total_on_loan += s.total_on_loan;
+      return acc;
+    },
+    { total_on_hand: 0, total_on_loan: 0 }
+  );
+
+  summary.total_all = summary.total_on_hand + summary.total_on_loan;
+
+  res.status(200).json({ success: true, summary, data });
+});
+
+const dropdownWarehouseWithStock = asyncHandler(async (req, res) => {
+  const { id } = req.params; // productId
+
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throwError('ID produk tidak valid', 400);
+  }
+
+  // ambil semua gudang beserta shelves
+  const warehouses = await Warehouse.find()
+    .populate('shelves', 'shelf_name shelf_code')
+    .select('warehouse_name warehouse_code shelves')
+    .lean();
+
+  // ambil inventory khusus product ini
+  const inventories = await Inventory.find({ product: id })
+    .select('warehouse shelf on_hand on_loan condition')
+    .lean();
+
+  // bikin map stok per gudang+shelf
+  const stockMap = {};
+  inventories.forEach((inv) => {
+    const key = `${inv.warehouse}_${inv.shelf}_${inv.condition}`;
+    stockMap[key] = {
+      on_hand: inv.on_hand,
+      on_loan: inv.on_loan,
+      condition: inv.condition
+    };
+  });
+
+  // gabungin data
+  const data = warehouses.map((w) => ({
+    warehouse_id: w._id,
+    warehouse_name: w.warehouse_name,
+    warehouse_code: w.warehouse_code,
+    shelves: w.shelves.map((s) => {
+      // stok di lemari ini
+      const stokPerCondition = Object.values(stockMap)
+        .filter(
+          (st, idx) =>
+            inventories[idx].warehouse.toString() === w._id.toString() &&
+            inventories[idx].shelf.toString() === s._id.toString()
+        )
+        .map((st) => ({
+          condition: st.condition,
+          on_hand: st.on_hand,
+          on_loan: st.on_loan
+        }));
+
+      return {
+        shelf_id: s._id,
+        shelf_name: s.shelf_name,
+        shelf_code: s.shelf_code,
+        stock: stokPerCondition
+      };
+    })
+  }));
+
   res.status(200).json({ success: true, data });
 });
 
@@ -436,6 +536,7 @@ module.exports = {
   removeInventory,
   getProductList,
   getWarehousesWithStock,
+  dropdownWarehouseWithStock,
   // Dashboard
   getTotalByWarehouse,
   getTotalByShelf
