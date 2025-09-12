@@ -464,26 +464,89 @@ const getShelves = asyncHandler(async (req, res) => {
   res.json(shelves);
 });
 
-const getAvailableInventoriesByProduct = asyncHandler(async (req, res) => {
-  const { id } = req.params;
-  if (!mongoose.Types.ObjectId.isValid(id)) {
+// const getAvailableInventoriesByProduct = asyncHandler(async (req, res) => {
+//   const { id } = req.params;
+//   if (!mongoose.Types.ObjectId.isValid(id)) {
+//     throwError('ID produk tidak valid', 400);
+//   }
+
+//   const inventories = await Inventory.find({
+//     product: id,
+//     on_hand: { $gt: 0 }
+//   })
+//     .populate('warehouse', 'warehouse_name')
+//     .populate('shelf', 'shelf_name')
+//     .lean();
+
+//   res.json({
+//     success: true,
+//     data: inventories.map((inv) => ({
+//       inventory_id: inv._id,
+//       warehouse: inv.warehouse.warehouse_name,
+//       shelf: inv.shelf.shelf_name,
+//       condition: inv.condition,
+//       stock: inv.on_hand
+//     }))
+//   });
+// });
+
+const getWarehousesByProduct = asyncHandler(async (req, res) => {
+  const { productId } = req.params;
+  if (!mongoose.Types.ObjectId.isValid(productId)) {
     throwError('ID produk tidak valid', 400);
   }
 
   const inventories = await Inventory.find({
-    product: id,
+    product: productId,
     on_hand: { $gt: 0 }
   })
-    .populate('warehouse', 'warehouse_name')
-    .populate('shelf', 'shelf_name')
+    .populate('warehouse', 'warehouse_name warehouse_code')
+    .lean();
+
+  // group by warehouse
+  const grouped = {};
+  inventories.forEach((inv) => {
+    const wId = inv.warehouse._id.toString();
+    if (!grouped[wId]) {
+      grouped[wId] = {
+        warehouse_id: inv.warehouse._id,
+        warehouse_name: inv.warehouse.warehouse_name,
+        warehouse_code: inv.warehouse.warehouse_code,
+        total_stock: 0
+      };
+    }
+    grouped[wId].total_stock += inv.on_hand;
+  });
+
+  res.json({
+    success: true,
+    data: Object.values(grouped)
+  });
+});
+
+const getShelvesByProductAndWarehouse = asyncHandler(async (req, res) => {
+  const { productId, warehouseId } = req.params;
+  if (
+    !mongoose.Types.ObjectId.isValid(productId) ||
+    !mongoose.Types.ObjectId.isValid(warehouseId)
+  ) {
+    throwError('ID tidak valid', 400);
+  }
+
+  const inventories = await Inventory.find({
+    product: productId,
+    warehouse: warehouseId,
+    on_hand: { $gt: 0 }
+  })
+    .populate('shelf', 'shelf_name shelf_code')
     .lean();
 
   res.json({
     success: true,
     data: inventories.map((inv) => ({
-      inventory_id: inv._id,
-      warehouse: inv.warehouse.warehouse_name,
-      shelf: inv.shelf.shelf_name,
+      shelf_id: inv.shelf._id,
+      shelf_name: inv.shelf.shelf_name,
+      shelf_code: inv.shelf.shelf_code,
       condition: inv.condition,
       stock: inv.on_hand
     }))
@@ -605,5 +668,6 @@ module.exports = {
   getEmployee,
   getLoansByEmployee,
   getAllProject,
-  getAvailableInventoriesByProduct
+  getWarehousesByProduct,
+  getShelvesByProductAndWarehouse
 };
