@@ -595,13 +595,14 @@ const moveInventory = asyncHandler(async (req, res) => {
           product: inv.product._id,
           product_code: inv.product.product_code,
           product_name: inv.product.brand,
-          product_image: inv.product.product_image,
+          quantity,
+          condition: new_condition,
           warehouse_from: inv.warehouse._id,
           shelf_from: inv.shelf?._id || null,
           warehouse_to,
           shelf_to,
-          moved_by: req.user.id,
-          moved_by_name: user?.name || 'Admin'
+          moved_by_id: req.user.id,
+          moved_by_name: user.name
         }
       ],
       { session }
