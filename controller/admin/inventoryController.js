@@ -652,14 +652,8 @@ const updateStock = asyncHandler(async (req, res) => {
     inv.on_hand = newStock;
     await inv.save({ session });
 
-    let changedByName = 'Unknown';
     const user = await User.findById(req.user.id).select('name').lean();
-    console.log(user);
-    if (!user) {
-      throwError('User tidak ditemukan', 404);
-    } else {
-      changedByName = user.name;
-    }
+    if (!user) throwError('User tidak ditemukan', 404);
 
     await StockChangeLog.create(
       [
@@ -670,7 +664,7 @@ const updateStock = asyncHandler(async (req, res) => {
           change,
           note,
           changed_by: req.user.id,
-          changed_by_name: changedByName
+          changed_by_name: user.name
         }
       ],
       { session }
@@ -693,14 +687,8 @@ const changeCondition = asyncHandler(async (req, res) => {
   const { inventoryId } = req.params;
   const { quantity, new_condition, warehouse_to, shelf_to } = req.body;
 
-  let changedByName = 'Unknown';
   const user = await User.findById(req.user.id).select('name').lean();
-  console.log(user);
-  if (!user) {
-    throwError('User tidak ditemukan', 404);
-  } else {
-    changedByName = user.name;
-  }
+  if (!user) throwError('User tidak ditemukan', 404);
 
   if (!quantity || quantity <= 0) {
     throwError('Jumlah barang yang diubah harus lebih dari 0', 400);
@@ -763,7 +751,7 @@ const changeCondition = asyncHandler(async (req, res) => {
       condition: inv.condition,
       warehouse: inv.warehouse._id,
       shelf: inv.shelf?._id,
-      changed_by_name: changedByName
+      changed_by_name: user.name
     });
     await logOut.save({ session });
 
@@ -775,7 +763,7 @@ const changeCondition = asyncHandler(async (req, res) => {
       condition: new_condition,
       warehouse: targetWarehouse,
       shelf: targetShelf,
-      changed_by_name: changedByName
+      changed_by_name: user.name
     });
     await logIn.save({ session });
 
@@ -794,8 +782,8 @@ const changeCondition = asyncHandler(async (req, res) => {
         shelf_from: inv.shelf?._id || null,
         warehouse_to,
         shelf_to,
-        moved_by_id: req.user._id,
-        moved_by_name: changedByName
+        moved_by_id: req.user.id,
+        moved_by_name: user.name
       });
       await circ.save({ session });
     }
