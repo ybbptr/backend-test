@@ -188,7 +188,16 @@ const getLoans = asyncHandler(async (req, res) => {
   const loans = await Loan.find(filter)
     .populate([
       { path: 'borrower', select: 'name' },
-      { path: 'warehouse_to', select: 'warehouse_name warehouse_code' }
+      { path: 'warehouse_to', select: 'warehouse_name warehouse_code' },
+      {
+        path: 'borrowed_items',
+        populate: [
+          { path: 'product', select: 'brand product_code' },
+          { path: 'project', select: 'project_name' },
+          { path: 'warehouse_from', select: 'warehouse_name warehouse_code' },
+          { path: 'shelf_from', select: 'shelf_name shelf_code' }
+        ]
+      }
     ])
     .skip(skip)
     .limit(limit)
@@ -211,9 +220,15 @@ const getLoan = asyncHandler(async (req, res) => {
   const loan_item = await Loan.findById(req.params.id).populate([
     { path: 'borrower', select: 'name' },
     { path: 'warehouse_to', select: 'warehouse_name warehouse_code' },
-    { path: 'borrowed_items.product', select: 'brand product_code' },
-    { path: 'borrowed_items.project', select: 'project_name' },
-    { path: 'borrowed_items.inventory', populate: ['warehouse', 'shelf'] }
+    {
+      path: 'borrowed_items',
+      populate: [
+        { path: 'product', select: 'brand product_code' },
+        { path: 'project', select: 'project_name' },
+        { path: 'warehouse_from', select: 'warehouse_name warehouse_code' },
+        { path: 'shelf_from', select: 'shelf_name shelf_code' }
+      ]
+    }
   ]);
 
   if (!loan_item) throwError('Pengajuan alat tidak terdaftar!', 404);
@@ -269,10 +284,8 @@ const updateLoan = asyncHandler(async (req, res) => {
     }
 
     let processedItems = loan_item.borrowed_items;
-
     if (borrowed_items) {
       processedItems = [];
-
       for (const it of borrowed_items) {
         const inv = await Inventory.findById(it.inventory)
           .populate('product', 'product_code brand')
@@ -296,7 +309,7 @@ const updateLoan = asyncHandler(async (req, res) => {
       }
     }
 
-    // Handle approval transitions (same as before, but circulation includes warehouse_to)
+    // 1. Belum Disetujui → Disetujui
     if (loan_item.approval !== 'Disetujui' && approval === 'Disetujui') {
       loan_item.circulation_status = 'Aktif';
 
@@ -345,6 +358,7 @@ const updateLoan = asyncHandler(async (req, res) => {
       );
     }
 
+    // 2. Disetujui → Ditolak/Diproses
     if (loan_item.approval === 'Disetujui' && approval !== 'Disetujui') {
       loan_item.circulation_status = 'Pending';
 
@@ -362,6 +376,7 @@ const updateLoan = asyncHandler(async (req, res) => {
         .session(session);
     }
 
+    // 3. Sama-sama Disetujui → update jumlah
     if (loan_item.approval === 'Disetujui' && approval === 'Disetujui') {
       loan_item.circulation_status = 'Aktif';
 
@@ -402,7 +417,7 @@ const updateLoan = asyncHandler(async (req, res) => {
             condition: it.condition_at_borrow,
             warehouse_from: it.warehouse_from,
             shelf_from: it.shelf_from,
-            warehouse_to, // 🔥 ikut masuk
+            warehouse_to,
             item_status: 'Dipinjam'
           }))
         },
@@ -413,7 +428,7 @@ const updateLoan = asyncHandler(async (req, res) => {
     Object.assign(loan_item, otherFields);
     if (approval !== undefined) loan_item.approval = approval;
     if (borrowed_items) loan_item.borrowed_items = processedItems;
-    if (warehouse_to) loan_item.warehouse_to = warehouse_to; // 🔥 simpan perubahan
+    if (warehouse_to) loan_item.warehouse_to = warehouse_to;
 
     await loan_item.save({ session });
 
@@ -559,21 +574,19 @@ const getLoansByEmployee = asyncHandler(async (req, res) => {
 
   const [totalItems, loans] = await Promise.all([
     Loan.countDocuments(filter),
-    Loan.find(filter)
-      .populate([
-        { path: 'borrower', select: 'name' },
-        { path: 'warehouse', select: 'warehouse_name' },
-        { path: 'shelf', select: 'shelf_name' },
-        {
-          path: 'borrowed_items.product',
-          select: 'brand product_code quantity condition'
-        },
-        { path: 'borrowed_items.project', select: 'project_name' }
-      ])
-      .skip(skip)
-      .limit(limit)
-      .sort(sortOption)
-      .lean()
+    Loan.find(filter).populate([
+      { path: 'borrower', select: 'name' },
+      { path: 'warehouse_to', select: 'warehouse_name' },
+      {
+        path: 'borrowed_items',
+        populate: [
+          { path: 'product', select: 'brand product_code' },
+          { path: 'project', select: 'project_name' },
+          { path: 'warehouse_from', select: 'warehouse_name' },
+          { path: 'shelf_from', select: 'shelf_name' }
+        ]
+      }
+    ])
   ]);
 
   res.status(200).json({

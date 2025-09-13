@@ -4,6 +4,7 @@ const path = require('path');
 const throwError = require('../utils/throwError');
 const Loan = require('../model/loanModel');
 const Product = require('../model/productModel');
+const Inventory = require('../model/inventoryModel');
 const Employee = require('../model/employeeModel');
 const Warehouse = require('../model/warehouseModel');
 const Shelf = require('../model/shelfModel');
@@ -56,7 +57,9 @@ const createReturnLoan = asyncHandler(async (req, res) => {
   session.startTransaction();
 
   try {
-    const loan = await Loan.findOne({ loan_number }).session(session);
+    const loan = await Loan.findOne({ loan_number })
+      .populate('borrower', 'name') // supaya ada nama peminjam
+      .session(session);
     if (!loan) throwError('Peminjaman tidak ditemukan!', 404);
 
     const circulation = await loanCirculationModel
@@ -81,6 +84,7 @@ const createReturnLoan = asyncHandler(async (req, res) => {
 
     for (let i = 0; i < returned_items.length; i++) {
       const ret = returned_items[i];
+
       const inv = await Inventory.findById(ret.inventory)
         .populate('product', 'product_code brand product_image')
         .session(session);
@@ -89,7 +93,7 @@ const createReturnLoan = asyncHandler(async (req, res) => {
       const circItem = circulation.borrowed_items.id(ret._id);
       if (!circItem) throwError('Item tidak ditemukan di sirkulasi', 404);
 
-      // Validasi jumlah
+      // ✅ Validasi jumlah
       const alreadyReturned = returnLoan.returned_items
         .filter((it) => it.inventory.toString() === ret.inventory.toString())
         .reduce((acc, it) => acc + it.quantity, 0);
@@ -102,7 +106,7 @@ const createReturnLoan = asyncHandler(async (req, res) => {
         );
       }
 
-      // Barang hilang
+      // ✅ Barang hilang
       if (ret.condition_new === 'Hilang') {
         inv.on_loan -= ret.quantity;
         await inv.save({ session });
@@ -111,7 +115,7 @@ const createReturnLoan = asyncHandler(async (req, res) => {
         circItem.condition = ret.condition_new;
         circItem.return_date_circulation = return_date || new Date();
       } else {
-        // Barang kembali fisik
+        // ✅ Barang kembali fisik
         inv.on_hand += ret.quantity;
         inv.on_loan -= ret.quantity;
         inv.condition = ret.condition_new || inv.condition;
@@ -119,7 +123,7 @@ const createReturnLoan = asyncHandler(async (req, res) => {
         inv.shelf = ret.shelf_return || inv.shelf;
         await inv.save({ session });
 
-        // upload bukti
+        // upload bukti kalau ada
         const file = req.files?.[`bukti_${i + 1}`]?.[0];
         if (file) {
           const ext = path.extname(file.originalname);
@@ -139,6 +143,7 @@ const createReturnLoan = asyncHandler(async (req, res) => {
         circItem.condition = ret.condition_new;
         circItem.return_date_circulation = return_date || new Date();
 
+        // ✅ Catat perpindahan barang ke ProductCirculation
         await productCirculationModel.create(
           [
             {
@@ -147,14 +152,12 @@ const createReturnLoan = asyncHandler(async (req, res) => {
               product_code: inv.product.product_code,
               product_name: inv.product.brand,
               product_image: inv.product.product_image,
-
               warehouse_from: circItem.warehouse_from,
               shelf_from: circItem.shelf_from,
               warehouse_to: ret.warehouse_return,
               shelf_to: ret.shelf_return,
-
-              moved_by: loan.borrower,
-              moved_by_name: borrower?.name,
+              moved_by: loan.borrower._id,
+              moved_by_name: loan.borrower.name,
               return_loan_id: returnLoan._id
             }
           ],
@@ -162,6 +165,7 @@ const createReturnLoan = asyncHandler(async (req, res) => {
         );
       }
 
+      // push item yang dikembalikan
       returnLoan.returned_items.push({
         ...ret,
         product: inv.product._id,
@@ -173,7 +177,7 @@ const createReturnLoan = asyncHandler(async (req, res) => {
     await returnLoan.save({ session });
     await circulation.save({ session });
 
-    // cek kalau semua item sudah kembali
+    // ✅ cek kalau semua item sudah kembali
     const allReturned = circulation.borrowed_items.every((it) =>
       ['Dikembalikan', 'Hilang'].includes(it.item_status)
     );
