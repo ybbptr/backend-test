@@ -595,7 +595,7 @@ const moveInventory = asyncHandler(async (req, res) => {
           product: inv.product._id,
           product_code: inv.product.product_code,
           product_name: inv.product.brand,
-          quantity,
+          quantity_move,
           condition: new_condition,
           warehouse_from: inv.warehouse._id,
           shelf_from: inv.shelf?._id || null,
