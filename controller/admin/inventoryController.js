@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const Product = require('../../model/productModel');
 const ProductCirculation = require('../../model/productCirculationModel');
 const Inventory = require('../../model/inventoryModel');
+const StockChangeLog = require('../../model/stockLogModel');
 const Warehouse = require('../../model/warehouseModel');
 const Shelf = require('../../model/shelfModel');
 const User = require('../../model/userModel');
