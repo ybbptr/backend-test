@@ -80,7 +80,7 @@ Router.get('/:id', getInventoryById);
 // Update stok inventory
 Router.put('/update/:id', updateInventory);
 
-Router.post('/move-inventory/:id', moveInventory);
+Router.post('/move-inventory/:inventoryId', moveInventory);
 
 // Hapus record inventory
 Router.delete('/remove/:id', removeInventory);

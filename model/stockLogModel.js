@@ -11,7 +11,7 @@ const stockChangeLogSchema = new mongoose.Schema(
     brand: { type: String, required: true },
 
     change: { type: Number, required: true }, // contoh: -7 atau +7
-    note: { type: String }, // alasan perubahan, bebas string
+    note: { type: String },
 
     changed_by: {
       type: mongoose.Schema.Types.ObjectId,

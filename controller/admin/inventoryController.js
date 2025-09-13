@@ -1,6 +1,7 @@
 const asyncHandler = require('express-async-handler');
 const mongoose = require('mongoose');
 const Product = require('../../model/productModel');
+const ProductCirculation = require('../../model/productCirculationModel');
 const Inventory = require('../../model/inventoryModel');
 const Warehouse = require('../../model/warehouseModel');
 const Shelf = require('../../model/shelfModel');
@@ -294,99 +295,6 @@ const removeInventory = asyncHandler(async (req, res) => {
     .json({ success: true, message: 'Inventory berhasil dihapus' });
 });
 
-const moveInventory = asyncHandler(async (req, res) => {
-  const { id } = req.params;
-  const { quantity_move, warehouse_to, shelf_to } = req.body;
-
-  if (!quantity_move || quantity_move <= 0) {
-    throwError('Jumlah barang yang dipindah harus lebih dari 0', 400);
-  }
-
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
-  try {
-    const inv = await Inventory.findById(id)
-      .populate('product')
-      .session(session);
-
-    if (!inv) throwError('Inventory asal tidak ditemukan', 404);
-
-    if (quantity_move > inv.on_hand) {
-      throwError(
-        `Stok tidak mencukupi. Maksimal bisa pindah ${inv.on_hand}`,
-        400
-      );
-    }
-
-    inv.on_hand -= quantity_move;
-    await inv.save({ session });
-
-    let target = await Inventory.findOne({
-      product: inv.product._id,
-      warehouse: warehouse_to,
-      shelf: shelf_to,
-      condition: inv.condition
-    }).session(session);
-
-    if (target) {
-      target.on_hand += quantity_move;
-      await target.save({ session });
-    } else {
-      target = await Inventory.create(
-        [
-          {
-            product: inv.product._id,
-            warehouse: warehouse_to,
-            shelf: shelf_to,
-            condition: inv.condition,
-            on_hand: quantity_move,
-            on_loan: 0
-          }
-        ],
-        { session }
-      );
-    }
-
-    const user = await User.findById(req.user.id).select('name');
-    await ProductCirculation.create(
-      [
-        {
-          product: inv.product._id,
-          product_code: inv.product.product_code,
-          product_name: inv.product.brand,
-          product_image: inv.product.product_image,
-          warehouse_from: inv.warehouse._id,
-          shelf_from: inv.shelf?._id || null,
-          warehouse_to,
-          shelf_to,
-          moved_by: req.user.id,
-          moved_by_name: user?.name || 'Admin'
-        }
-      ],
-      { session }
-    );
-
-    await session.commitTransaction();
-    session.endSession();
-
-    res.status(200).json({
-      message: 'Barang berhasil dipindahkan',
-      from: { id: inv._id, remaining: inv.on_hand },
-      to: {
-        id: target._id,
-        warehouse: warehouse_to,
-        shelf: shelf_to,
-        added: quantity_move
-      }
-    });
-  } catch (err) {
-    await session.abortTransaction();
-    session.endSession();
-    throw err;
-  }
-});
-
 const getWarehouses = asyncHandler(async (req, res) => {
   const data = await Warehouse.find().select('warehouse_name');
   res.json({ success: true, data });
@@ -623,6 +531,155 @@ const dropdownWarehouseWithStock = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, data });
 });
 
+const moveInventory = asyncHandler(async (req, res) => {
+  const { inventoryId } = req.params;
+  const { quantity_move, warehouse_to, shelf_to } = req.body;
+
+  if (!quantity_move || quantity_move <= 0) {
+    throwError('Jumlah barang yang dipindah harus lebih dari 0', 400);
+  }
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const inv = await Inventory.findById(inventoryId)
+      .populate('product')
+      .session(session);
+
+    if (!inv) throwError('Inventory asal tidak ditemukan', 404);
+
+    if (quantity_move > inv.on_hand) {
+      throwError(
+        `Stok tidak mencukupi. Maksimal bisa pindah ${inv.on_hand}`,
+        400
+      );
+    }
+
+    inv.on_hand -= quantity_move;
+    await inv.save({ session });
+
+    let target = await Inventory.findOne({
+      product: inv.product._id,
+      warehouse: warehouse_to,
+      shelf: shelf_to,
+      condition: inv.condition
+    }).session(session);
+
+    if (target) {
+      target.on_hand += quantity_move;
+      await target.save({ session });
+    } else {
+      target = await Inventory.create(
+        [
+          {
+            product: inv.product._id,
+            warehouse: warehouse_to,
+            shelf: shelf_to,
+            condition: inv.condition,
+            on_hand: quantity_move,
+            on_loan: 0
+          }
+        ],
+        { session }
+      );
+    }
+
+    const user = await User.findById(req.user.id).select('name');
+    await ProductCirculation.create(
+      [
+        {
+          product: inv.product._id,
+          product_code: inv.product.product_code,
+          product_name: inv.product.brand,
+          product_image: inv.product.product_image,
+          warehouse_from: inv.warehouse._id,
+          shelf_from: inv.shelf?._id || null,
+          warehouse_to,
+          shelf_to,
+          moved_by: req.user.id,
+          moved_by_name: user?.name || 'Admin'
+        }
+      ],
+      { session }
+    );
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(200).json({
+      message: 'Barang berhasil dipindahkan',
+      from: { id: inv._id, remaining: inv.on_hand },
+      to: {
+        id: target._id,
+        warehouse: warehouse_to,
+        shelf: shelf_to,
+        added: quantity_move
+      }
+    });
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    throw err;
+  }
+});
+
+const updateStock = asyncHandler(async (req, res) => {
+  const { inventoryId } = req.params;
+  const { change, note } = req.body;
+
+  if (!change || change === 0) {
+    throwError('Perubahan stok harus lebih dari 0 atau kurang dari 0', 400);
+  }
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const inv = await Inventory.findById(inventoryId)
+      .populate('product', 'product_code brand')
+      .session(session);
+    if (!inv) throwError('Inventory tidak ditemukan', 404);
+
+    const newStock = inv.on_hand + change;
+    if (newStock < 0) {
+      throwError('Stok tidak boleh kurang dari 0', 400);
+    }
+
+    inv.on_hand = newStock;
+    await inv.save({ session });
+
+    const user = await User.findById(req.user.id).select('name').lean();
+    if (!user) throwError('User tidak ditemukan', 404);
+
+    await StockChangeLog.create(
+      [
+        {
+          inventory: inv._id,
+          product_code: inv.product.product_code,
+          brand: inv.product.brand,
+          change,
+          note,
+          changed_by: req.user.id,
+          changed_by_name: user.name
+        }
+      ],
+      { session }
+    );
+
+    await session.commitTransaction();
+    res.status(200).json({
+      message: 'Stok berhasil diperbarui',
+      new_stock: inv.on_hand
+    });
+  } catch (err) {
+    await session.abortTransaction();
+    throw err;
+  } finally {
+    session.endSession();
+  }
+});
+
 module.exports = {
   // Tambah barang baru
   addNewProductInInventory,
@@ -641,5 +698,6 @@ module.exports = {
   getTotalByWarehouse,
   getTotalByShelf,
   // Utility
-  moveInventory
+  moveInventory,
+  updateStock
 };
