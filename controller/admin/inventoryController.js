@@ -652,8 +652,13 @@ const updateStock = asyncHandler(async (req, res) => {
     inv.on_hand = newStock;
     await inv.save({ session });
 
+    let changedByName = 'Unknown';
     const user = await User.findById(req.user.id).select('name').lean();
-    if (!user) throwError('User tidak ditemukan', 404);
+    if (!user) {
+      throwError('User tidak ditemukan', 404);
+    } else {
+      changedByName = user.name;
+    }
 
     await StockChangeLog.create(
       [
@@ -664,7 +669,7 @@ const updateStock = asyncHandler(async (req, res) => {
           change,
           note,
           changed_by: req.user.id,
-          changed_by_name: user.name
+          changed_by_name: changedByName
         }
       ],
       { session }
@@ -698,7 +703,6 @@ const changeCondition = asyncHandler(async (req, res) => {
   session.startTransaction();
 
   try {
-    // ✅ Cari inventory asal
     const inv = await Inventory.findById(inventoryId)
       .populate('product')
       .populate('warehouse')
@@ -710,18 +714,15 @@ const changeCondition = asyncHandler(async (req, res) => {
       throwError(`Jumlah melebihi stok tersedia (${inv.on_hand})`, 400);
     }
 
-    // Kurangi stok asal
     inv.on_hand -= quantity;
     await inv.save({ session });
     if (inv.on_hand <= 0 && inv.on_loan <= 0) {
       await Inventory.deleteOne({ _id: inv._id }, { session });
     }
 
-    // Tentukan lokasi tujuan (jika tidak dipindahkan, lokasi sama dengan asal)
     const targetWarehouse = warehouse_to || inv.warehouse._id;
     const targetShelf = shelf_to || inv.shelf?._id;
 
-    // Cari / buat inventory baru untuk kondisi baru
     let target = await Inventory.findOne({
       product: inv.product._id,
       warehouse: targetWarehouse,
@@ -733,76 +734,63 @@ const changeCondition = asyncHandler(async (req, res) => {
       target.on_hand += quantity;
       await target.save({ session });
     } else {
-      target = await Inventory.create(
-        [
-          {
-            product: inv.product._id,
-            warehouse: targetWarehouse,
-            shelf: targetShelf,
-            condition: new_condition,
-            on_hand: quantity,
-            on_loan: 0
-          }
-        ],
-        { session }
-      );
+      target = new Inventory({
+        product: inv.product._id,
+        warehouse: targetWarehouse,
+        shelf: targetShelf,
+        condition: new_condition,
+        on_hand: quantity,
+        on_loan: 0
+      });
+      await target.save({ session });
     }
 
-    // ✅ Log Perubahan Stok
-    await StockChangeLog.create(
-      [
-        {
-          product: inv.product._id,
-          product_code: inv.product.product_code,
-          brand: inv.product.brand,
-          quantity: -quantity, // stok berkurang dari kondisi lama
-          condition: inv.condition,
-          warehouse: inv.warehouse._id,
-          shelf: inv.shelf?._id,
-          changed_by_name: req.user.name
-        },
-        {
-          product: target.product,
-          product_code: inv.product.product_code,
-          brand: inv.product.brand,
-          quantity: +quantity, // stok bertambah ke kondisi baru
-          condition: new_condition,
-          warehouse: targetWarehouse,
-          shelf: targetShelf,
-          changed_by_name: req.user.name
-        }
-      ],
-      { session }
-    );
+    const logOut = new StockChangeLog({
+      product: inv.product._id,
+      product_code: inv.product.product_code,
+      brand: inv.product.brand,
+      quantity: -quantity,
+      condition: inv.condition,
+      warehouse: inv.warehouse._id,
+      shelf: inv.shelf?._id,
+      changed_by_name: req.user.name
+    });
+    await logOut.save({ session });
 
-    // ✅ Kalau pindah lokasi → tambahin log ProductCirculation
+    const logIn = new StockChangeLog({
+      product: target.product,
+      product_code: inv.product.product_code,
+      brand: inv.product.brand,
+      quantity: quantity,
+      condition: new_condition,
+      warehouse: targetWarehouse,
+      shelf: targetShelf,
+      changed_by_name: req.user.name
+    });
+    await logIn.save({ session });
+
+    // 🔹 Kalau pindah lokasi, catat ke ProductCirculation
     if (
       warehouse_to &&
       warehouse_to.toString() !== inv.warehouse._id.toString()
     ) {
-      await ProductCirculation.create(
-        [
-          {
-            product: inv.product._id,
-            product_code: inv.product.product_code,
-            product_name: inv.product.brand,
-            quantity,
-            condition: new_condition,
-            warehouse_from: inv.warehouse._id,
-            shelf_from: inv.shelf?._id || null,
-            warehouse_to: warehouse_to,
-            shelf_to: shelf_to,
-            moved_by_id: req.user._id,
-            moved_by_name: req.user.name
-          }
-        ],
-        { session }
-      );
+      const circ = new ProductCirculation({
+        product: inv.product._id,
+        product_code: inv.product.product_code,
+        product_name: inv.product.brand,
+        quantity,
+        condition: new_condition,
+        warehouse_from: inv.warehouse._id,
+        shelf_from: inv.shelf?._id || null,
+        warehouse_to,
+        shelf_to,
+        moved_by_id: req.user._id,
+        moved_by_name: req.user.name
+      });
+      await circ.save({ session });
     }
 
     await session.commitTransaction();
-    session.endSession();
-
     res.status(200).json({
       message: 'Kondisi barang berhasil diubah',
       from: {
@@ -820,8 +808,9 @@ const changeCondition = asyncHandler(async (req, res) => {
     });
   } catch (err) {
     await session.abortTransaction();
-    session.endSession();
     throw err;
+  } finally {
+    session.endSession();
   }
 });
 
