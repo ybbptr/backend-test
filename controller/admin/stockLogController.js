@@ -1,6 +1,6 @@
 const asyncHandler = require('express-async-handler');
 const throwError = require('../../utils/throwError');
-const StockChangeLog = require('../../model/stockChangeLogModel');
+const StockChangeLog = require('../../model/stockLogModel');
 
 // GET all logs
 const getStockChangeLogs = asyncHandler(async (req, res) => {
