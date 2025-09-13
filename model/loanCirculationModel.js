@@ -16,6 +16,11 @@ const loanCirculationSchema = new mongoose.Schema(
 
     borrowed_items: [
       {
+        inventory: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Inventory',
+          required: true
+        },
         product: {
           type: mongoose.Schema.Types.ObjectId,
           ref: 'Product',

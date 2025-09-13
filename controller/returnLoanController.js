@@ -423,6 +423,7 @@ const getReturnForm = asyncHandler(async (req, res) => {
     inventory_manager: loan.inventory_manager,
     items: circulation.borrowed_items.map((it) => ({
       _id: it._id,
+      invenvory: it.inventory,
       product: it.product,
       product_code: it.product_code,
       brand: it.brand,

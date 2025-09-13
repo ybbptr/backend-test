@@ -17,6 +17,9 @@ const objectId = (label) =>
     });
 
 const validateReturnedItem = Joi.object({
+  inventory: objectId('ID inventory').required().messages({
+    'any.required': 'ID inventory wajib diisi'
+  }),
   product: objectId('ID barang').required().messages({
     'any.required': 'ID barang wajib diisi'
   }),
