@@ -4,16 +4,67 @@ const ProductCirculation = require('../../model/productCirculationModel');
 
 // ✅ GET all product circulations
 const getProductCirculations = asyncHandler(async (req, res) => {
-  const circulations = await ProductCirculation.find()
-    .populate('warehouse_from', 'warehouse_name warehouse_code')
-    .populate('warehouse_to', 'warehouse_name warehouse_code')
-    .populate('shelf_from', 'shelf_name shelf_code')
-    .populate('shelf_to', 'shelf_name shelf_code')
-    .populate('product', 'product_name product_code')
-    .populate('moved_by_id', 'name role') // bisa Employee atau User
-    .lean();
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
 
-  res.status(200).json({ success: true, data: circulations });
+  const {
+    product_code,
+    warehouse_from,
+    warehouse_to,
+    moved_by_name,
+    search,
+    sort
+  } = req.query;
+
+  const filter = {};
+
+  if (product_code)
+    filter.product_code = { $regex: product_code, $options: 'i' };
+  if (warehouse_from) filter.warehouse_from = warehouse_from;
+  if (warehouse_to) filter.warehouse_to = warehouse_to;
+  if (moved_by_name)
+    filter.moved_by_name = { $regex: moved_by_name, $options: 'i' };
+
+  if (search) {
+    filter.$or = [
+      { product_code: { $regex: search, $options: 'i' } },
+      { product_name: { $regex: search, $options: 'i' } },
+      { moved_by_name: { $regex: search, $options: 'i' } }
+    ];
+  }
+
+  // default sort by newest
+  let sortOption = { createdAt: -1 };
+  if (sort) {
+    const [field, order] = sort.split(':');
+    sortOption = { [field]: order === 'asc' ? 1 : -1 };
+  }
+
+  const [totalItems, circulations] = await Promise.all([
+    ProductCirculation.countDocuments(filter),
+    ProductCirculation.find(filter)
+      .populate('warehouse_from', 'warehouse_name warehouse_code')
+      .populate('warehouse_to', 'warehouse_name warehouse_code')
+      .populate('shelf_from', 'shelf_name shelf_code')
+      .populate('shelf_to', 'shelf_name shelf_code')
+      .populate('product', 'product_name product_code')
+      .populate('moved_by_id', 'name role')
+      .skip(skip)
+      .limit(limit)
+      .sort(sortOption)
+      .lean()
+  ]);
+
+  res.status(200).json({
+    success: true,
+    page,
+    limit,
+    totalItems,
+    totalPages: Math.ceil(totalItems / limit),
+    sort: sortOption,
+    data: circulations
+  });
 });
 
 // ✅ GET detail product circulation by ID
