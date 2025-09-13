@@ -658,11 +658,11 @@ const updateStock = asyncHandler(async (req, res) => {
     await StockChangeLog.create(
       [
         {
-          inventory: inv._id,
           product_code: inv.product.product_code,
           brand: inv.product.brand,
           change,
           note,
+          inventory: inv._id,
           changed_by: req.user.id,
           changed_by_name: user.name
         }
@@ -744,25 +744,23 @@ const changeCondition = asyncHandler(async (req, res) => {
     }
 
     const logOut = new StockChangeLog({
-      product: inv.product._id,
+      inventory: inv._id,
       product_code: inv.product.product_code,
       brand: inv.product.brand,
-      quantity: -quantity,
-      condition: inv.condition,
-      warehouse: inv.warehouse._id,
-      shelf: inv.shelf?._id,
+      change: -quantity, // pakai field "change"
+      note: `Ubah kondisi dari ${inv.condition} → ${new_condition}`,
+      changed_by: req.user.id,
       changed_by_name: user.name
     });
     await logOut.save({ session });
 
     const logIn = new StockChangeLog({
-      product: target.product,
+      inventory: target._id,
       product_code: inv.product.product_code,
       brand: inv.product.brand,
-      quantity: quantity,
-      condition: new_condition,
-      warehouse: targetWarehouse,
-      shelf: targetShelf,
+      change: +quantity,
+      note: `Ubah kondisi dari ${inv.condition} → ${new_condition}`,
+      changed_by: req.user.id,
       changed_by_name: user.name
     });
     await logIn.save({ session });
