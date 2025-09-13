@@ -469,6 +469,7 @@ const getWarehousesByProduct = asyncHandler(async (req, res) => {
 
   const inventories = await Inventory.find({
     product: productId,
+    condition: 'Baik',
     on_hand: { $gt: 0 }
   })
     .populate('warehouse', 'warehouse_name warehouse_code')

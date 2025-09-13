@@ -293,6 +293,82 @@ const removeInventory = asyncHandler(async (req, res) => {
     .json({ success: true, message: 'Inventory berhasil dihapus' });
 });
 
+const moveInventory = asyncHandler(async (req, res) => {
+  const { inventoryId } = req.params;
+  const { quantity_move, warehouse_to, shelf_to } = req.body;
+
+  if (!quantity_move || quantity_move <= 0) {
+    throwError('Jumlah barang yang dipindah harus lebih dari 0', 400);
+  }
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const inv = await Inventory.findById(inventoryId)
+      .populate('product')
+      .session(session);
+
+    if (!inv) throwError('Inventory asal tidak ditemukan', 404);
+
+    if (quantity_move > inv.on_hand) {
+      throwError(
+        `Stok tidak mencukupi. Maksimal bisa pindah ${inv.on_hand}`,
+        400
+      );
+    }
+
+    // Update stok asal
+    inv.on_hand -= quantity_move;
+    await inv.save({ session });
+
+    // Cari apakah sudah ada stok di lokasi tujuan (dengan kondisi sama)
+    let target = await Inventory.findOne({
+      product: inv.product._id,
+      warehouse: warehouse_to,
+      shelf: shelf_to,
+      condition: inv.condition
+    }).session(session);
+
+    if (target) {
+      target.on_hand += quantity_move;
+      await target.save({ session });
+    } else {
+      target = await Inventory.create(
+        [
+          {
+            product: inv.product._id,
+            warehouse: warehouse_to,
+            shelf: shelf_to,
+            condition: inv.condition,
+            on_hand: quantity_move,
+            on_loan: 0
+          }
+        ],
+        { session }
+      );
+    }
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(200).json({
+      message: 'Barang berhasil dipindahkan',
+      from: { id: inv._id, remaining: inv.on_hand },
+      to: {
+        id: target._id,
+        warehouse: warehouse_to,
+        shelf: shelf_to,
+        added: quantity_move
+      }
+    });
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    throw err;
+  }
+});
+
 const getWarehouses = asyncHandler(async (req, res) => {
   const data = await Warehouse.find().select('warehouse_name');
   res.json({ success: true, data });

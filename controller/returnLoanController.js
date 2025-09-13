@@ -410,12 +410,10 @@ const getReturnForm = asyncHandler(async (req, res) => {
 
   const circulation = await loanCirculationModel
     .findOne({ loan_number })
-    .populate('borrowed_items.project', 'project_name')
     .select('borrowed_items')
     .lean();
 
   if (!circulation) throwError('Sirkulasi tidak ditemukan!', 404);
-
   res.status(200).json({
     loan_number: loan.loan_number,
     borrower: loan.borrower,
@@ -423,7 +421,7 @@ const getReturnForm = asyncHandler(async (req, res) => {
     inventory_manager: loan.inventory_manager,
     items: circulation.borrowed_items.map((it) => ({
       _id: it._id,
-      invenvory: it.inventory,
+      inventory: it.inventory,
       product: it.product,
       product_code: it.product_code,
       brand: it.brand,
