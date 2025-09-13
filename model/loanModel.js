@@ -48,7 +48,7 @@ const loanSchema = new mongoose.Schema(
         quantity: { type: Number, required: true },
         project: {
           type: mongoose.Schema.Types.ObjectId,
-          ref: 'Project',
+          ref: 'RAP',
           required: true
         },
         condition_at_borrow: { type: String, required: true },

@@ -170,7 +170,8 @@ const createReturnLoan = asyncHandler(async (req, res) => {
         ...ret,
         product: inv.product._id,
         product_code: inv.product.product_code,
-        brand: inv.product.brand
+        brand: inv.product.brand,
+        project: ret.project
       });
     }
 
@@ -298,38 +299,82 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
       const circItem = circulation.borrowed_items.id(ret._id);
       if (!circItem) throwError('Item tidak ditemukan di sirkulasi', 404);
 
+      // 🔹 Validasi jumlah (tidak boleh lebih dari yang dipinjam)
+      if (ret.quantity > circItem.quantity) {
+        throwError(
+          `Jumlah pengembalian (${ret.quantity}) melebihi jumlah dipinjam (${circItem.quantity})`,
+          400
+        );
+      }
+
+      // 🔹 Update field returnLoan
       oldItem.quantity = ret.quantity;
       if (ret.condition_new) oldItem.condition_new = ret.condition_new;
       if (ret.warehouse_return) oldItem.warehouse_return = ret.warehouse_return;
       if (ret.shelf_return) oldItem.shelf_return = ret.shelf_return;
+      if (ret.project) oldItem.project = ret.project;
 
-      // update file jika ada
+      // 🔹 Update circulation
+      if (ret.condition_new) circItem.condition = ret.condition_new;
+
       const file = req.files?.[`bukti_${i + 1}`]?.[0];
       if (ret.condition_new === 'Hilang') {
+        // Barang hilang → hapus bukti jika ada
         if (oldItem.proof_image?.key) await deleteFile(oldItem.proof_image.key);
         oldItem.proof_image = null;
+
         circItem.item_status = 'Hilang';
-      } else if (file) {
-        if (oldItem.proof_image?.key) await deleteFile(oldItem.proof_image.key);
-        const ext = path.extname(file.originalname);
-        const key = `bukti_pengembalian_barang/${
-          returnLoan.loan_number
-        }/bukti_${i + 1}_${formatDate()}${ext}`;
-        await uploadBuffer(key, file.buffer);
-        oldItem.proof_image = {
-          key,
-          contentType: file.mimetype,
-          size: file.size,
-          uploadedAt: new Date()
-        };
+        circItem.return_date_circulation =
+          req.body.return_date || returnLoan.return_date || new Date();
+      } else {
+        // Barang kembali fisik
+        if (file) {
+          if (oldItem.proof_image?.key)
+            await deleteFile(oldItem.proof_image.key);
+
+          const ext = path.extname(file.originalname);
+          const key = `bukti_pengembalian_barang/${
+            returnLoan.loan_number
+          }/bukti_${i + 1}_${formatDate()}${ext}`;
+          await uploadBuffer(key, file.buffer);
+
+          oldItem.proof_image = {
+            key,
+            contentType: file.mimetype,
+            size: file.size,
+            uploadedAt: new Date()
+          };
+        }
+
         circItem.item_status = 'Dikembalikan';
+        circItem.return_date_circulation =
+          req.body.return_date || returnLoan.return_date || new Date();
+
+        await productCirculationModel.findOneAndUpdate(
+          { inventory: oldItem.inventory, return_loan_id: returnLoan._id },
+          {
+            $set: {
+              warehouse_to: ret.warehouse_return,
+              shelf_to: ret.shelf_return
+            }
+          },
+          { session }
+        );
       }
     }
 
     await returnLoan.save({ session });
     await circulation.save({ session });
-    await session.commitTransaction();
 
+    const allReturned = circulation.borrowed_items.every((it) =>
+      ['Dikembalikan', 'Hilang'].includes(it.item_status)
+    );
+    if (allReturned) {
+      loan.circulation_status = 'Selesai';
+      await loan.save({ session });
+    }
+
+    await session.commitTransaction();
     res.status(200).json(returnLoan);
   } catch (err) {
     await session.abortTransaction();

@@ -32,7 +32,7 @@ const returnedItemSchema = new mongoose.Schema({
   },
   project: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Project',
+    ref: 'RAP',
     default: null
   },
   proof_image: {
