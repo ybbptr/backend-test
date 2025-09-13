@@ -19,7 +19,9 @@ const {
   getTotalByShelf,
   getTotalByWarehouse,
   dropdownWarehouseWithStock,
-  moveInventory
+  moveInventory,
+  changeCondition,
+  updateStock
 } = require('../../controller/admin/inventoryController');
 
 const multer = require('multer');
@@ -70,6 +72,10 @@ Router.get('/all-warehouse', getWarehouses);
 // Ambil semua gudang beserta shelves + total stok
 Router.get('/warehouse', getWarehousesWithStock);
 
+Router.post('/move-inventory/:inventoryId', moveInventory);
+Router.post('/change-condition/:inventoryId', changeCondition);
+Router.post('/adjust-stock/:inventoryId', updateStock);
+
 // Ambil lemari berdasarkan gudang
 Router.get('/warehouses/:id/shelves', getShelvesByWarehouse);
 Router.get('/:id/warehouses-with-stock', dropdownWarehouseWithStock);
@@ -79,8 +85,6 @@ Router.get('/:id', getInventoryById);
 
 // Update stok inventory
 Router.put('/update/:id', updateInventory);
-
-Router.post('/move-inventory/:inventoryId', moveInventory);
 
 // Hapus record inventory
 Router.delete('/remove/:id', removeInventory);

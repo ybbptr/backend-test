@@ -1,54 +1,50 @@
-const mongoose = require('mongoose');
+const asyncHandler = require('express-async-handler');
+const throwError = require('../../utils/throwError');
+const ProductCirculation = require('../../model/productCirculationModel');
 
-const productCirculationSchema = new mongoose.Schema(
-  {
-    product: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Product',
-      required: true
-    },
-    product_code: { type: String, required: true },
-    product_name: { type: String, required: true },
-    product_image: {
-      key: { type: String },
-      contentType: { type: String },
-      size: { type: Number },
-      uploadedAt: { type: Date, default: Date.now }
-    },
+// ✅ GET all product circulations
+const getProductCirculations = asyncHandler(async (req, res) => {
+  const circulations = await ProductCirculation.find()
+    .populate('warehouse_from', 'warehouse_name warehouse_code')
+    .populate('warehouse_to', 'warehouse_name warehouse_code')
+    .populate('shelf_from', 'shelf_name shelf_code')
+    .populate('shelf_to', 'shelf_name shelf_code')
+    .populate('product', 'product_name product_code')
+    .populate('moved_by_id', 'name') // bisa Employee atau User
+    .lean();
 
-    warehouse_from: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Warehouse',
-      required: true
-    },
-    shelf_from: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Shelf',
-      default: null
-    },
-    warehouse_to: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Warehouse',
-      required: true
-    },
-    shelf_to: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Shelf',
-      required: true
-    },
-    moved_by: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Employee',
-      required: true
-    },
-    moved_by_name: { type: String, required: true },
-    return_loan_id: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'ReturnLoan',
-      default: null
-    }
-  },
-  { timestamps: true }
-);
+  res.status(200).json({ success: true, data: circulations });
+});
 
-module.exports = mongoose.model('ProductCirculation', productCirculationSchema);
+// ✅ GET detail product circulation by ID
+const getProductCirculation = asyncHandler(async (req, res) => {
+  const circulation = await ProductCirculation.findById(req.params.id)
+    .populate('warehouse_from', 'warehouse_name warehouse_code')
+    .populate('warehouse_to', 'warehouse_name warehouse_code')
+    .populate('shelf_from', 'shelf_name shelf_code')
+    .populate('shelf_to', 'shelf_name shelf_code')
+    .populate('product', 'product_name product_code')
+    .populate('moved_by_id', 'name')
+    .lean();
+
+  if (!circulation) throwError('Sirkulasi tidak ditemukan!', 404);
+
+  res.status(200).json({ success: true, data: circulation });
+});
+
+// ✅ DELETE product circulation
+const removeProductCirculation = asyncHandler(async (req, res) => {
+  const circulation = await ProductCirculation.findById(req.params.id);
+  if (!circulation) throwError('Sirkulasi tidak ditemukan!', 404);
+
+  await circulation.deleteOne();
+  res
+    .status(200)
+    .json({ success: true, message: 'Sirkulasi berhasil dihapus.' });
+});
+
+module.exports = {
+  getProductCirculations,
+  getProductCirculation,
+  removeProductCirculation
+};

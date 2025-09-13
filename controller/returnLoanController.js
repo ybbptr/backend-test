@@ -82,6 +82,8 @@ const createReturnLoan = asyncHandler(async (req, res) => {
       { session }
     );
 
+    const circulationLogs = [];
+
     for (let i = 0; i < returned_items.length; i++) {
       const ret = returned_items[i];
       const inv = await Inventory.findById(ret.inventory)
@@ -108,42 +110,24 @@ const createReturnLoan = asyncHandler(async (req, res) => {
       if (ret.condition_new === 'Hilang') {
         inv.on_loan -= ret.quantity;
         await inv.save({ session });
-
+        if (inv.on_hand <= 0 && inv.on_loan <= 0) {
+          await Inventory.deleteOne({ _id: inv._id }, { session });
+        }
         circItem.item_status = 'Hilang';
         circItem.condition = ret.condition_new;
         circItem.return_date_circulation = return_date || new Date();
       } else {
-        // merge jika stok sudah ada di lokasi yg sama
-        let targetInv = await Inventory.findOne({
-          product: inv.product._id,
-          warehouse: ret.warehouse_return,
-          shelf: ret.shelf_return,
-          condition: ret.condition_new || inv.condition
-        }).session(session);
-
-        if (targetInv) {
-          targetInv.on_hand += ret.quantity;
-          targetInv.on_loan = Math.max(0, targetInv.on_loan - ret.quantity);
-          await targetInv.save({ session });
-        } else {
-          targetInv = await Inventory.create(
-            [
-              {
-                product: inv.product._id,
-                warehouse: ret.warehouse_return,
-                shelf: ret.shelf_return,
-                condition: ret.condition_new || inv.condition,
-                on_hand: ret.quantity,
-                on_loan: 0
-              }
-            ],
-            { session }
-          );
-        }
-
+        // update stok fisik
+        inv.on_hand += ret.quantity;
         inv.on_loan -= ret.quantity;
+        inv.condition = ret.condition_new || inv.condition;
+        inv.warehouse = ret.warehouse_return || inv.warehouse;
+        inv.shelf = ret.shelf_return || inv.shelf;
         await inv.save({ session });
-
+        if (inv.on_hand <= 0 && inv.on_loan <= 0) {
+          await Inventory.deleteOne({ _id: inv._id }, { session });
+        }
+        // upload bukti
         const file = req.files?.[`bukti_${i + 1}`]?.[0];
         if (file) {
           const ext = path.extname(file.originalname);
@@ -163,25 +147,21 @@ const createReturnLoan = asyncHandler(async (req, res) => {
         circItem.condition = ret.condition_new;
         circItem.return_date_circulation = return_date || new Date();
 
-        await productCirculationModel.create(
-          [
-            {
-              inventory: inv._id,
-              product: inv.product._id,
-              product_code: inv.product.product_code,
-              product_name: inv.product.brand,
-              product_image: inv.product.product_image,
-              warehouse_from: circItem.warehouse_from,
-              shelf_from: circItem.shelf_from,
-              warehouse_to: ret.warehouse_return,
-              shelf_to: ret.shelf_return,
-              moved_by: loan.borrower._id,
-              moved_by_name: loan.borrower.name,
-              return_loan_id: returnLoan._id
-            }
-          ],
-          { session }
-        );
+        // siapkan log perpindahan
+        circulationLogs.push({
+          product: inv.product._id,
+          product_code: inv.product.product_code,
+          product_name: inv.product.brand,
+          quantity: ret.quantity,
+          condition: ret.condition_new,
+          warehouse_from: circItem.warehouse_from,
+          shelf_from: circItem.shelf_from,
+          warehouse_to: ret.warehouse_return,
+          shelf_to: ret.shelf_return,
+          moved_by_id: loan.borrower._id,
+          moved_by_name: loan.borrower.name,
+          return_loan_id: returnLoan._id
+        });
       }
 
       returnLoan.returned_items.push({
@@ -193,14 +173,18 @@ const createReturnLoan = asyncHandler(async (req, res) => {
       });
     }
 
+    if (circulationLogs.length > 0) {
+      await productCirculationModel.insertMany(circulationLogs, { session });
+    }
+
     await returnLoan.save({ session });
     await circulation.save({ session });
 
-    if (
-      circulation.borrowed_items.every((it) =>
-        ['Dikembalikan', 'Hilang'].includes(it.item_status)
-      )
-    ) {
+    // cek status peminjaman
+    const allReturned = circulation.borrowed_items.every((it) =>
+      ['Dikembalikan', 'Hilang'].includes(it.item_status)
+    );
+    if (allReturned) {
       loan.circulation_status = 'Selesai';
       await loan.save({ session });
     }
@@ -304,6 +288,8 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
       .session(session);
     if (!circulation) throwError('Sirkulasi tidak ditemukan', 404);
 
+    const circulationLogs = [];
+
     for (let i = 0; i < returned_items.length; i++) {
       const ret = returned_items[i];
       const oldItem = returnLoan.returned_items.id(ret._id);
@@ -315,18 +301,10 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
       const circItem = circulation.borrowed_items.id(ret._id);
       if (!circItem) throwError('Item tidak ditemukan di sirkulasi', 404);
 
-      if (ret.quantity > circItem.quantity) {
-        throwError(
-          `Jumlah pengembalian (${ret.quantity}) melebihi jumlah dipinjam (${circItem.quantity})`,
-          400
-        );
-      }
-
       oldItem.quantity = ret.quantity;
       if (ret.condition_new) oldItem.condition_new = ret.condition_new;
       if (ret.warehouse_return) oldItem.warehouse_return = ret.warehouse_return;
       if (ret.shelf_return) oldItem.shelf_return = ret.shelf_return;
-      if (ret.project) oldItem.project = ret.project;
 
       if (ret.condition_new) circItem.condition = ret.condition_new;
 
@@ -334,7 +312,6 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
       if (ret.condition_new === 'Hilang') {
         if (oldItem.proof_image?.key) await deleteFile(oldItem.proof_image.key);
         oldItem.proof_image = null;
-
         circItem.item_status = 'Hilang';
         circItem.return_date_circulation =
           req.body.return_date || returnLoan.return_date || new Date();
@@ -359,54 +336,34 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
         circItem.return_date_circulation =
           req.body.return_date || returnLoan.return_date || new Date();
 
-        // merge inventory di lokasi tujuan
-        let targetInv = await Inventory.findOne({
-          product: inv.product,
-          warehouse: ret.warehouse_return,
-          shelf: ret.shelf_return,
-          condition: ret.condition_new || inv.condition
-        }).session(session);
-
-        if (targetInv) {
-          targetInv.on_hand += ret.quantity;
-          await targetInv.save({ session });
-        } else {
-          targetInv = await Inventory.create(
-            [
-              {
-                product: inv.product,
-                warehouse: ret.warehouse_return,
-                shelf: ret.shelf_return,
-                condition: ret.condition_new || inv.condition,
-                on_hand: ret.quantity,
-                on_loan: 0
-              }
-            ],
-            { session }
-          );
-        }
-
-        await productCirculationModel.findOneAndUpdate(
-          { inventory: oldItem.inventory, return_loan_id: returnLoan._id },
-          {
-            $set: {
-              warehouse_to: ret.warehouse_return,
-              shelf_to: ret.shelf_return
-            }
-          },
-          { session }
-        );
+        circulationLogs.push({
+          product: oldItem.product,
+          product_code: oldItem.product_code,
+          product_name: oldItem.brand,
+          quantity: ret.quantity,
+          condition: ret.condition_new,
+          warehouse_from: circItem.warehouse_from,
+          shelf_from: circItem.shelf_from,
+          warehouse_to: ret.warehouse_return,
+          shelf_to: ret.shelf_return,
+          moved_by_id: loan.borrower,
+          moved_by_name: loan.borrower?.name,
+          return_loan_id: returnLoan._id
+        });
       }
+    }
+
+    if (circulationLogs.length > 0) {
+      await productCirculationModel.insertMany(circulationLogs, { session });
     }
 
     await returnLoan.save({ session });
     await circulation.save({ session });
 
-    if (
-      circulation.borrowed_items.every((it) =>
-        ['Dikembalikan', 'Hilang'].includes(it.item_status)
-      )
-    ) {
+    const allReturned = circulation.borrowed_items.every((it) =>
+      ['Dikembalikan', 'Hilang'].includes(it.item_status)
+    );
+    if (allReturned) {
       loan.circulation_status = 'Selesai';
       await loan.save({ session });
     }
