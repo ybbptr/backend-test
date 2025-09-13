@@ -654,6 +654,7 @@ const updateStock = asyncHandler(async (req, res) => {
 
     let changedByName = 'Unknown';
     const user = await User.findById(req.user.id).select('name').lean();
+    console.log(user);
     if (!user) {
       throwError('User tidak ditemukan', 404);
     } else {
@@ -691,6 +692,15 @@ const updateStock = asyncHandler(async (req, res) => {
 const changeCondition = asyncHandler(async (req, res) => {
   const { inventoryId } = req.params;
   const { quantity, new_condition, warehouse_to, shelf_to } = req.body;
+
+  let changedByName = 'Unknown';
+  const user = await User.findById(req.user.id).select('name').lean();
+  console.log(user);
+  if (!user) {
+    throwError('User tidak ditemukan', 404);
+  } else {
+    changedByName = user.name;
+  }
 
   if (!quantity || quantity <= 0) {
     throwError('Jumlah barang yang diubah harus lebih dari 0', 400);
@@ -753,7 +763,7 @@ const changeCondition = asyncHandler(async (req, res) => {
       condition: inv.condition,
       warehouse: inv.warehouse._id,
       shelf: inv.shelf?._id,
-      changed_by_name: req.user.name
+      changed_by_name: changedByName
     });
     await logOut.save({ session });
 
@@ -765,7 +775,7 @@ const changeCondition = asyncHandler(async (req, res) => {
       condition: new_condition,
       warehouse: targetWarehouse,
       shelf: targetShelf,
-      changed_by_name: req.user.name
+      changed_by_name: changedByName
     });
     await logIn.save({ session });
 
@@ -785,7 +795,7 @@ const changeCondition = asyncHandler(async (req, res) => {
         warehouse_to,
         shelf_to,
         moved_by_id: req.user._id,
-        moved_by_name: req.user.name
+        moved_by_name: changedByName
       });
       await circ.save({ session });
     }
