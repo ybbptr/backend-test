@@ -414,6 +414,7 @@ const getReturnForm = asyncHandler(async (req, res) => {
 
   const circulation = await loanCirculationModel
     .findOne({ loan_number })
+    .populate('borrowed_items.project', 'project_name')
     .select('borrowed_items')
     .lean();
 
@@ -431,7 +432,8 @@ const getReturnForm = asyncHandler(async (req, res) => {
       brand: it.brand,
       quantity: it.quantity,
       item_status: it.item_status,
-      project: it.project
+      project: it.project._id,
+      project_name: it.project?.project_name
     }))
   });
 });

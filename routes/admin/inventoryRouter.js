@@ -18,7 +18,8 @@ const {
   getProductList,
   getTotalByShelf,
   getTotalByWarehouse,
-  dropdownWarehouseWithStock
+  dropdownWarehouseWithStock,
+  moveInventory
 } = require('../../controller/admin/inventoryController');
 
 const multer = require('multer');
@@ -78,6 +79,8 @@ Router.get('/:id', getInventoryById);
 
 // Update stok inventory
 Router.put('/update/:id', updateInventory);
+
+Router.post('/move-inventory/:id', moveInventory);
 
 // Hapus record inventory
 Router.delete('/remove/:id', removeInventory);

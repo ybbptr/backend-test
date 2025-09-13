@@ -9,7 +9,6 @@ const productCirculationSchema = new mongoose.Schema(
     },
     product_code: { type: String, required: true },
     product_name: { type: String, required: true },
-
     product_image: {
       key: { type: String },
       contentType: { type: String },
@@ -25,7 +24,7 @@ const productCirculationSchema = new mongoose.Schema(
     shelf_from: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Shelf',
-      required: true
+      default: null
     },
     warehouse_to: {
       type: mongoose.Schema.Types.ObjectId,
@@ -42,7 +41,7 @@ const productCirculationSchema = new mongoose.Schema(
       ref: 'Employee',
       required: true
     },
-    moved_by_name: { type: String, required: true }, // snapshot nama karyawan
+    moved_by_name: { type: String, required: true },
     return_loan_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'ReturnLoan',

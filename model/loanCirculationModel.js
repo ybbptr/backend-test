@@ -29,7 +29,7 @@ const loanCirculationSchema = new mongoose.Schema(
         product_code: String,
         brand: String,
         quantity: Number,
-        project: { type: mongoose.Schema.Types.ObjectId, ref: 'Project' },
+        project: { type: mongoose.Schema.Types.ObjectId, ref: 'RAP' },
         condition: String,
         product_image: {
           key: String,

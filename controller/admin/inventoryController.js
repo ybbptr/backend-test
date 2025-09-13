@@ -4,6 +4,7 @@ const Product = require('../../model/productModel');
 const Inventory = require('../../model/inventoryModel');
 const Warehouse = require('../../model/warehouseModel');
 const Shelf = require('../../model/shelfModel');
+const User = require('../../model/userModel');
 const { uploadBuffer, getFileUrl } = require('../../utils/wasabi');
 const path = require('path');
 const formatDate = require('../../utils/formatDate');
@@ -294,7 +295,7 @@ const removeInventory = asyncHandler(async (req, res) => {
 });
 
 const moveInventory = asyncHandler(async (req, res) => {
-  const { inventoryId } = req.params;
+  const { id } = req.params;
   const { quantity_move, warehouse_to, shelf_to } = req.body;
 
   if (!quantity_move || quantity_move <= 0) {
@@ -305,7 +306,7 @@ const moveInventory = asyncHandler(async (req, res) => {
   session.startTransaction();
 
   try {
-    const inv = await Inventory.findById(inventoryId)
+    const inv = await Inventory.findById(id)
       .populate('product')
       .session(session);
 
@@ -318,11 +319,9 @@ const moveInventory = asyncHandler(async (req, res) => {
       );
     }
 
-    // Update stok asal
     inv.on_hand -= quantity_move;
     await inv.save({ session });
 
-    // Cari apakah sudah ada stok di lokasi tujuan (dengan kondisi sama)
     let target = await Inventory.findOne({
       product: inv.product._id,
       warehouse: warehouse_to,
@@ -348,6 +347,25 @@ const moveInventory = asyncHandler(async (req, res) => {
         { session }
       );
     }
+
+    const user = await User.findById(req.user.id).select('name');
+    await ProductCirculation.create(
+      [
+        {
+          product: inv.product._id,
+          product_code: inv.product.product_code,
+          product_name: inv.product.brand,
+          product_image: inv.product.product_image,
+          warehouse_from: inv.warehouse._id,
+          shelf_from: inv.shelf?._id || null,
+          warehouse_to,
+          shelf_to,
+          moved_by: req.user.id,
+          moved_by_name: user?.name || 'Admin'
+        }
+      ],
+      { session }
+    );
 
     await session.commitTransaction();
     session.endSession();
@@ -621,5 +639,7 @@ module.exports = {
   dropdownWarehouseWithStock,
   // Dashboard
   getTotalByWarehouse,
-  getTotalByShelf
+  getTotalByShelf,
+  // Utility
+  moveInventory
 };

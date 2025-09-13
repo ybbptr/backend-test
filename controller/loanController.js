@@ -23,7 +23,7 @@ const addLoan = asyncHandler(async (req, res) => {
     phone,
     inventory_manager,
     borrowed_items,
-    warehouse_to, // 🔥 top-level
+    warehouse_to,
     approval
   } = req.body || {};
 
