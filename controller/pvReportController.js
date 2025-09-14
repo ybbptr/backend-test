@@ -58,7 +58,6 @@ const createPVReport = asyncHandler(async (req, res) => {
   const {
     pv_number,
     voucher_number,
-    project,
     report_date,
     status,
     approved_by,
@@ -66,28 +65,34 @@ const createPVReport = asyncHandler(async (req, res) => {
   } = req.body || {};
   const items = parseItems(req.body.items);
 
-  if (!pv_number || !voucher_number || !project || items.length === 0) {
+  if (!pv_number || !voucher_number || items.length === 0) {
     throwError('Field wajib belum lengkap', 400);
   }
 
-  const employee = await Employee.findOne({ user: req.user.id }).select('_id');
-  if (!employee) throwError('Karyawan tidak ditemukan', 404);
+  // cari ExpenseRequest terkait
+  const expenseReq = await ExpenseRequest.findOne({
+    payment_voucher: pv_number,
+    voucher_number
+  }).select('name project expense_type');
+  if (!expenseReq) throwError('Pengajuan biaya tidak ditemukan', 404);
 
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
+    // validasi admin setujui
     if (req.user.role === 'admin' && status === 'Disetujui' && !approved_by) {
       throwError('approved_by wajib diisi jika status Disetujui', 400);
     }
 
+    // buat PV Report
     const [pvReport] = await PVReport.create(
       [
         {
           pv_number,
           voucher_number,
-          project,
-          created_by: employee._id,
+          project: expenseReq.project,
+          created_by: expenseReq.name, // 🔥 auto dari pengajuan
           report_date: report_date || new Date(),
           status: req.user.role === 'admin' ? status || 'Diproses' : 'Diproses',
           approved_by: req.user.role === 'admin' ? approved_by || null : null,
@@ -98,6 +103,7 @@ const createPVReport = asyncHandler(async (req, res) => {
       { session }
     );
 
+    // upload nota per item
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
       const file = req.files?.[`nota_${i + 1}`]?.[0];
@@ -122,6 +128,7 @@ const createPVReport = asyncHandler(async (req, res) => {
 
     await pvReport.save({ session });
 
+    // 🔥 Sync ke ExpenseLog
     await ExpenseLog.findOneAndUpdate(
       { voucher_number },
       {
@@ -222,9 +229,11 @@ const updatePVReport = asyncHandler(async (req, res) => {
       if (updates.status && updates.status !== prevStatus) {
         if (updates.status === 'Disetujui') {
           if (!updates.approved_by) throwError('approved_by wajib diisi', 400);
+
           pvReport.approved_by = updates.approved_by;
           pvReport.recipient = updates.recipient || pvReport.recipient;
 
+          // update RAP aktual
           for (const item of pvReport.items) {
             const group = mapExpenseType(item.expense_type);
             if (group && item.category) {
@@ -236,7 +245,6 @@ const updatePVReport = asyncHandler(async (req, res) => {
             }
           }
 
-          // 🔥 Update ExpenseLog -> mark completed
           await ExpenseLog.findOneAndUpdate(
             { voucher_number: pvReport.voucher_number },
             {
@@ -272,7 +280,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
           }
           pvReport.approved_by = null;
 
-          // 🔥 Rollback ExpenseLog (hapus completed_at)
+          // rollback log
           await ExpenseLog.findOneAndUpdate(
             { voucher_number: pvReport.voucher_number },
             { $unset: { completed_at: '' } },
@@ -283,6 +291,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
         pvReport.status = updates.status;
       }
     } else {
+      // Karyawan update
       if (updates.items && Array.isArray(updates.items)) {
         pvReport.items = updates.items;
       }
@@ -291,7 +300,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
       pvReport.status = 'Diproses';
       pvReport.approved_by = null;
 
-      // 🔥 Update ExpenseLog juga
+      // 🔥 Sync ke ExpenseLog juga
       await ExpenseLog.findOneAndUpdate(
         { voucher_number: pvReport.voucher_number },
         {
