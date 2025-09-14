@@ -17,7 +17,7 @@ const loanSchema = new mongoose.Schema(
     pickup_date: { type: Date, required: true },
     circulation_status: {
       type: String,
-      enum: ['Aktif', 'Selesai', 'Pending'],
+      enum: ['Aktif', 'Selesai', 'Pending', 'Ditolak'],
       default: 'Pending'
     },
     // return_date: { type: Date, required: true },

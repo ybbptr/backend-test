@@ -3,9 +3,9 @@ const asyncHandler = require('express-async-handler');
 const throwError = require('../utils/throwError');
 const generateVoucherNumber = require('../utils/generateVoucher');
 const ExpenseRequest = require('../model/expenseRequestModel');
+const ExpenseLog = require('../model/expenseLogModel');
 const Employee = require('../model/employeeModel');
 const RAP = require('../model/rapModel');
-const expenseRequestModel = require('../model/expenseRequestModel');
 
 function mapPaymentPrefix(voucherPrefix) {
   switch (voucherPrefix) {
@@ -42,136 +42,165 @@ function mapExpenseType(expenseType) {
 }
 
 const addExpenseRequest = asyncHandler(async (req, res) => {
-  const {
-    name,
-    project,
-    voucher_prefix,
-    expense_type,
-    submission_date,
-    method,
-    bank_account_number,
-    bank,
-    bank_branch,
-    bank_account_holder,
-    description,
-    details = [],
-    approved_by,
-    paid_by,
-    status: reqStatus // ambil dari body kalau admin
-  } = req.body || {};
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  console.log('Role:', req.user.role, 'Status:', req.body.status);
-  if (
-    !name ||
-    !project ||
-    !voucher_prefix ||
-    !expense_type ||
-    !method ||
-    !details.length
-  ) {
-    throwError('Field wajib tidak boleh kosong', 400);
-  }
+  try {
+    const {
+      name,
+      project,
+      voucher_prefix,
+      expense_type,
+      submission_date,
+      method,
+      bank_account_number,
+      bank,
+      bank_branch,
+      bank_account_holder,
+      description,
+      details = [],
+      approved_by,
+      paid_by,
+      status: reqStatus
+    } = req.body || {};
 
-  // hitung amount per detail
-  const normalizedDetails = details.map((item) => {
-    const qty = Number(item.quantity) || 0;
-    const unitPrice = Number(item.unit_price) || 0;
-    return {
-      ...item,
-      category:
-        typeof item.category === 'object' ? item.category.value : item.category, // normalize category
-      amount: qty * unitPrice
-    };
-  });
+    if (
+      !name ||
+      !project ||
+      !voucher_prefix ||
+      !expense_type ||
+      !method ||
+      !details.length
+    ) {
+      throwError('Field wajib tidak boleh kosong', 400);
+    }
 
-  const total_amount = normalizedDetails.reduce(
-    (acc, curr) => acc + curr.amount,
-    0
-  );
+    // normalize details
+    const normalizedDetails = details.map((item) => {
+      const qty = Number(item.quantity) || 0;
+      const unitPrice = Number(item.unit_price) || 0;
+      return {
+        ...item,
+        category:
+          typeof item.category === 'object'
+            ? item.category.value
+            : item.category,
+        amount: qty * unitPrice
+      };
+    });
+    const total_amount = normalizedDetails.reduce(
+      (acc, curr) => acc + curr.amount,
+      0
+    );
 
-  // generate nomor voucher (PDxxx)
-  const voucher_number = await generateVoucherNumber(voucher_prefix);
+    // generate nomor voucher
+    const voucher_number = await generateVoucherNumber(voucher_prefix);
 
-  // tentukan status berdasarkan role
-  let status;
-  if (req.user?.role === 'karyawan') {
-    status = 'Diproses';
-  } else if (req.user?.role === 'admin') {
-    status = reqStatus || 'Diproses';
-    console.log('Masuk ke role admin');
-  } else {
-    status = 'Diproses';
-    console.log('Disini');
-  }
+    // status & request_status
+    let status, request_status;
+    if (req.user?.role === 'karyawan') {
+      status = 'Diproses';
+      request_status = 'Pending';
+    } else if (req.user?.role === 'admin') {
+      status = reqStatus || 'Diproses';
+      if (status === 'Disetujui') request_status = 'Aktif';
+      else if (status === 'Ditolak') request_status = 'Ditolak';
+      else request_status = 'Pending';
+    } else {
+      status = 'Diproses';
+      request_status = 'Pending';
+    }
 
-  // default
-  let payment_voucher = null;
-  let approvedBy = null;
-  let paidBy = null;
+    let payment_voucher = null;
+    let approvedBy = null;
+    let paidBy = null;
 
-  // kalau admin langsung setujui
-  if (status === 'Disetujui' && req.user?.role === 'admin') {
-    const paymentPrefix = mapPaymentPrefix(voucher_prefix);
-    if (!paymentPrefix) throwError('Prefix voucher tidak valid', 400);
-    payment_voucher = await generateVoucherNumber(paymentPrefix);
+    if (status === 'Disetujui' && req.user?.role === 'admin') {
+      const paymentPrefix = mapPaymentPrefix(voucher_prefix);
+      if (!paymentPrefix) throwError('Prefix voucher tidak valid', 400);
+      payment_voucher = await generateVoucherNumber(paymentPrefix);
 
-    // isi approved_by & paid_by dari body
-    if (approved_by) {
-      if (!mongoose.Types.ObjectId.isValid(approved_by)) {
-        throwError('ID approved_by tidak valid', 400);
+      if (!approved_by || !mongoose.Types.ObjectId.isValid(approved_by)) {
+        throwError('Approved_by wajib diisi & valid', 400);
       }
       approvedBy = approved_by;
-    } else {
-      throwError('Approved_by wajib diisi saat status Disetujui', 400);
-    }
 
-    if (paid_by) {
-      if (!mongoose.Types.ObjectId.isValid(paid_by)) {
-        throwError('ID paid_by tidak valid', 400);
+      if (!paid_by || !mongoose.Types.ObjectId.isValid(paid_by)) {
+        throwError('Paid_by wajib diisi & valid', 400);
       }
       paidBy = paid_by;
-    } else {
-      throwError('Paid_by wajib diisi saat status Disetujui', 400);
-    }
 
-    // update RAP.jumlah
-    for (const item of normalizedDetails) {
-      const group = mapExpenseType(expense_type);
-      if (group && item.category) {
-        await RAP.updateOne(
-          { _id: project },
-          { $inc: { [`${group}.${item.category}.jumlah`]: item.amount } }
-        );
+      // update RAP jumlah
+      for (const item of normalizedDetails) {
+        const group = mapExpenseType(expense_type);
+        if (group && item.category) {
+          await RAP.updateOne(
+            { _id: project },
+            { $inc: { [`${group}.${item.category}.jumlah`]: item.amount } },
+            { session }
+          );
+        }
       }
     }
+
+    // 1. Simpan ExpenseRequest
+    const [expenseRequest] = await ExpenseRequest.create(
+      [
+        {
+          name,
+          project,
+          voucher_prefix,
+          voucher_number,
+          payment_voucher,
+          expense_type,
+          submission_date,
+          method,
+          bank_account_number:
+            method === 'Transfer' ? bank_account_number : null,
+          bank: method === 'Transfer' ? bank : null,
+          bank_branch: method === 'Transfer' ? bank_branch : null,
+          bank_account_holder:
+            method === 'Transfer' ? bank_account_holder : null,
+          description,
+          details: normalizedDetails,
+          total_amount,
+          status,
+          request_status,
+          approved_by: approvedBy,
+          paid_by: paidBy
+        }
+      ],
+      { session }
+    );
+
+    // 2. Simpan ExpenseLog
+    await ExpenseLog.create(
+      [
+        {
+          voucher_number: expenseRequest.voucher_number,
+          payment_voucher: expenseRequest.payment_voucher || null,
+          requester: expenseRequest.name,
+          project: expenseRequest.project,
+          expense_type: expenseRequest.expense_type,
+          details: expenseRequest.details,
+          request_date: expenseRequest.submission_date
+        }
+      ],
+      { session }
+    );
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(201).json({
+      message: 'Pengajuan biaya berhasil dibuat',
+      data: expenseRequest
+    });
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    throw err;
   }
-
-  // create document
-  const expenseRequest = await ExpenseRequest.create({
-    name,
-    project,
-    voucher_prefix,
-    voucher_number,
-    payment_voucher,
-    expense_type,
-    submission_date,
-    method,
-    bank_account_number: method === 'Transfer' ? bank_account_number : null,
-    bank: method === 'Transfer' ? bank : null,
-    bank_branch: method === 'Transfer' ? bank_branch : null,
-    bank_account_holder: method === 'Transfer' ? bank_account_holder : null,
-    description,
-    details: normalizedDetails,
-    total_amount,
-    status,
-    approved_by: approvedBy,
-    paid_by: paidBy
-  });
-
-  res.status(201).json({
-    message: 'Pengajuan biaya berhasil dibuat',
-    data: expenseRequest
-  });
 });
 
 const getExpenseRequests = asyncHandler(async (req, res) => {
@@ -225,209 +254,284 @@ const getExpenseRequest = asyncHandler(async (req, res) => {
 });
 
 const updateExpenseRequest = asyncHandler(async (req, res) => {
-  const expenseRequest = await ExpenseRequest.findById(req.params.id);
-  if (!expenseRequest) throwError('Pengajuan biaya tidak ditemukan', 404);
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  const prevStatus = expenseRequest.status;
-  const userRole = req.user?.role;
-  const updates = req.body;
+  try {
+    const expenseRequest = await ExpenseRequest.findById(req.params.id).session(
+      session
+    );
+    if (!expenseRequest) throwError('Pengajuan biaya tidak ditemukan', 404);
 
-  // ==== ADMIN ====
-  if (userRole === 'Admin') {
-    // 1. Voucher prefix berubah → generate nomor baru
-    if (
-      updates.voucher_prefix &&
-      updates.voucher_prefix !== expenseRequest.voucher_prefix
-    ) {
-      expenseRequest.voucher_prefix = updates.voucher_prefix;
-      expenseRequest.voucher_number = await generateVoucherNumber(
-        updates.voucher_prefix
-      );
-    }
+    const prevStatus = expenseRequest.status;
+    const userRole = req.user?.role;
+    const updates = req.body;
 
-    // 2. Expense type berubah → reset details
-    if (
-      updates.expense_type &&
-      updates.expense_type !== expenseRequest.expense_type
-    ) {
-      expenseRequest.expense_type = updates.expense_type;
-      expenseRequest.details = [];
-      expenseRequest.total_amount = 0;
-
-      expenseRequest.status = 'Diproses';
-      expenseRequest.payment_voucher = null;
-      expenseRequest.approved_by = null;
-      expenseRequest.paid_by = null;
-
-      if (!updates.details || !Array.isArray(updates.details)) {
-        throwError('Jenis biaya diubah, harap isi ulang detail keperluan', 400);
+    /* =================== ADMIN =================== */
+    if (userRole === 'admin') {
+      // Voucher prefix berubah
+      if (
+        updates.voucher_prefix &&
+        updates.voucher_prefix !== expenseRequest.voucher_prefix
+      ) {
+        expenseRequest.voucher_prefix = updates.voucher_prefix;
+        expenseRequest.voucher_number = await generateVoucherNumber(
+          updates.voucher_prefix
+        );
       }
-    }
 
-    // 3. Kalau ada details → hitung ulang total
-    if (updates.details && Array.isArray(updates.details)) {
-      expenseRequest.details = updates.details.map((item) => {
-        const qty = Number(item.quantity) || 0;
-        const unitPrice = Number(item.unit_price) || 0;
-        return {
-          ...item,
-          category:
-            typeof item.category === 'object'
-              ? item.category.value
-              : item.category,
-          amount: qty * unitPrice
-        };
-      });
-
-      expenseRequest.total_amount = expenseRequest.details.reduce(
-        (acc, curr) => acc + curr.amount,
-        0
-      );
-    }
-
-    // 4. Update field dasar
-    if (updates.description !== undefined)
-      expenseRequest.description = updates.description;
-    if (updates.method !== undefined) expenseRequest.method = updates.method;
-
-    // 5. Handle method bank
-    if (updates.method === 'Tunai') {
-      expenseRequest.bank_account_number = null;
-      expenseRequest.bank = null;
-      expenseRequest.bank_branch = null;
-      expenseRequest.bank_account_holder = null;
-    } else if (updates.method === 'Transfer') {
-      expenseRequest.bank_account_number =
-        updates.bank_account_number ?? expenseRequest.bank_account_number;
-      expenseRequest.bank = updates.bank ?? expenseRequest.bank;
-      expenseRequest.bank_branch =
-        updates.bank_branch ?? expenseRequest.bank_branch;
-      expenseRequest.bank_account_holder =
-        updates.bank_account_holder ?? expenseRequest.bank_account_holder;
-    }
-
-    // 6. Cek perubahan status
-    const newStatus = updates.status;
-    if (newStatus && prevStatus !== newStatus) {
-      if (newStatus === 'Disetujui') {
-        if (!updates.approved_by)
-          throwError('approved_by wajib diisi saat menyetujui', 400);
-        if (!mongoose.Types.ObjectId.isValid(updates.approved_by))
-          throwError('ID approved_by tidak valid', 400);
-
-        expenseRequest.approved_by = updates.approved_by;
-
-        if (updates.paid_by) {
-          if (!mongoose.Types.ObjectId.isValid(updates.paid_by))
-            throwError('ID paid_by tidak valid', 400);
-          expenseRequest.paid_by = updates.paid_by;
+      // Expense type berubah
+      if (
+        updates.expense_type &&
+        updates.expense_type !== expenseRequest.expense_type
+      ) {
+        expenseRequest.expense_type = updates.expense_type;
+        expenseRequest.details = [];
+        expenseRequest.total_amount = 0;
+        expenseRequest.status = 'Diproses';
+        expenseRequest.request_status = 'Pending';
+        expenseRequest.payment_voucher = null;
+        expenseRequest.approved_by = null;
+        expenseRequest.paid_by = null;
+        if (!updates.details || !Array.isArray(updates.details)) {
+          throwError(
+            'Jenis biaya diubah, harap isi ulang detail keperluan',
+            400
+          );
         }
+      }
 
-        const paymentPrefix = mapPaymentPrefix(expenseRequest.voucher_prefix);
-        if (!paymentPrefix) throwError('Prefix voucher tidak valid', 400);
-        expenseRequest.payment_voucher = await generateVoucherNumber(
-          paymentPrefix
+      // Recalculate details
+      if (updates.details && Array.isArray(updates.details)) {
+        expenseRequest.details = updates.details.map((item) => {
+          const qty = Number(item.quantity) || 0;
+          const unitPrice = Number(item.unit_price) || 0;
+          return {
+            ...item,
+            category:
+              typeof item.category === 'object'
+                ? item.category.value
+                : item.category,
+            amount: qty * unitPrice
+          };
+        });
+        expenseRequest.total_amount = expenseRequest.details.reduce(
+          (acc, curr) => acc + curr.amount,
+          0
         );
 
-        // Tambah dana ke RAP.jumlah
-        for (const item of expenseRequest.details) {
-          const group = mapExpenseType(expenseRequest.expense_type);
-          if (group && item.category) {
-            await RAP.updateOne(
-              { _id: expenseRequest.project },
-              { $inc: { [`${group}.${item.category}.jumlah`]: item.amount } }
-            );
-          }
-        }
+        // Sync ke ExpenseLog kalau sudah ada
+        await ExpenseLog.updateOne(
+          { payment_voucher: expenseRequest.payment_voucher },
+          { $set: { details: expenseRequest.details } },
+          { session }
+        );
       }
 
-      if (prevStatus === 'Disetujui' && newStatus !== 'Disetujui') {
+      // Update basic fields
+      if (updates.description !== undefined)
+        expenseRequest.description = updates.description;
+      if (updates.method !== undefined) expenseRequest.method = updates.method;
+
+      if (updates.method === 'Tunai') {
+        expenseRequest.bank_account_number = null;
+        expenseRequest.bank = null;
+        expenseRequest.bank_branch = null;
+        expenseRequest.bank_account_holder = null;
+      } else if (updates.method === 'Transfer') {
+        expenseRequest.bank_account_number =
+          updates.bank_account_number ?? expenseRequest.bank_account_number;
+        expenseRequest.bank = updates.bank ?? expenseRequest.bank;
+        expenseRequest.bank_branch =
+          updates.bank_branch ?? expenseRequest.bank_branch;
+        expenseRequest.bank_account_holder =
+          updates.bank_account_holder ?? expenseRequest.bank_account_holder;
+      }
+
+      // Handle status baru
+      const newStatus = updates.status;
+      if (newStatus && prevStatus !== newStatus) {
+        if (newStatus === 'Disetujui') {
+          if (!updates.approved_by)
+            throwError('approved_by wajib diisi saat menyetujui', 400);
+          if (!mongoose.Types.ObjectId.isValid(updates.approved_by))
+            throwError('ID approved_by tidak valid', 400);
+
+          expenseRequest.approved_by = updates.approved_by;
+
+          if (updates.paid_by) {
+            if (!mongoose.Types.ObjectId.isValid(updates.paid_by))
+              throwError('ID paid_by tidak valid', 400);
+            expenseRequest.paid_by = updates.paid_by;
+          }
+
+          const paymentPrefix = mapPaymentPrefix(expenseRequest.voucher_prefix);
+          if (!paymentPrefix) throwError('Prefix voucher tidak valid', 400);
+          expenseRequest.payment_voucher = await generateVoucherNumber(
+            paymentPrefix
+          );
+
+          // Update RAP jumlah
+          for (const item of expenseRequest.details) {
+            const group = mapExpenseType(expenseRequest.expense_type);
+            if (group && item.category) {
+              await RAP.updateOne(
+                { _id: expenseRequest.project },
+                { $inc: { [`${group}.${item.category}.jumlah`]: item.amount } },
+                { session }
+              );
+            }
+          }
+
+          expenseRequest.request_status = 'Aktif';
+
+          // === Create / Update ExpenseLog ===
+          await ExpenseLog.findOneAndUpdate(
+            { payment_voucher: expenseRequest.payment_voucher },
+            {
+              voucher_number: expenseRequest.voucher_number,
+              payment_voucher: expenseRequest.payment_voucher,
+              requester: expenseRequest.name,
+              project: expenseRequest.project,
+              expense_type: expenseRequest.expense_type,
+              details: expenseRequest.details,
+              request_date: expenseRequest.submission_date
+            },
+            { upsert: true, new: true, session }
+          );
+        }
+
+        if (newStatus === 'Ditolak') {
+          expenseRequest.payment_voucher = null;
+          expenseRequest.approved_by = null;
+          expenseRequest.paid_by = null;
+          expenseRequest.request_status = 'Ditolak';
+
+          // === Hapus ExpenseLog kalau ada ===
+          await ExpenseLog.deleteOne(
+            { voucher_number: expenseRequest.voucher_number },
+            { session }
+          );
+        }
+
+        if (prevStatus === 'Disetujui' && newStatus !== 'Disetujui') {
+          // Rollback RAP jumlah
+          for (const item of expenseRequest.details) {
+            const group = mapExpenseType(expenseRequest.expense_type);
+            if (group && item.category) {
+              await RAP.updateOne(
+                { _id: expenseRequest.project },
+                {
+                  $inc: { [`${group}.${item.category}.jumlah`]: -item.amount }
+                },
+                { session }
+              );
+            }
+          }
+
+          expenseRequest.payment_voucher = null;
+          expenseRequest.approved_by = null;
+          expenseRequest.paid_by = null;
+
+          if (newStatus === 'Diproses') {
+            expenseRequest.request_status = 'Pending';
+          }
+
+          // === Clear ExpenseLog ===
+          await ExpenseLog.deleteOne(
+            { voucher_number: expenseRequest.voucher_number },
+            { session }
+          );
+        }
+
+        expenseRequest.status = newStatus;
+      }
+    } else {
+      /* =================== KARYAWAN =================== */
+      const { status, approved_by, paid_by, ...allowedUpdates } = updates;
+
+      if (allowedUpdates.description !== undefined)
+        expenseRequest.description = allowedUpdates.description;
+      if (allowedUpdates.method !== undefined)
+        expenseRequest.method = allowedUpdates.method;
+
+      if (allowedUpdates.details && Array.isArray(allowedUpdates.details)) {
+        expenseRequest.details = allowedUpdates.details.map((item) => {
+          const qty = Number(item.quantity) || 0;
+          const unitPrice = Number(item.unit_price) || 0;
+          return {
+            ...item,
+            category:
+              typeof item.category === 'object'
+                ? item.category.value
+                : item.category,
+            amount: qty * unitPrice
+          };
+        });
+        expenseRequest.total_amount = expenseRequest.details.reduce(
+          (acc, curr) => acc + curr.amount,
+          0
+        );
+
+        // Sync ExpenseLog kalau masih pending
+        await ExpenseLog.updateOne(
+          { voucher_number: expenseRequest.voucher_number },
+          { $set: { details: expenseRequest.details } },
+          { session }
+        );
+      }
+
+      if (allowedUpdates.method === 'Tunai') {
+        expenseRequest.bank_account_number = null;
+        expenseRequest.bank = null;
+        expenseRequest.bank_branch = null;
+        expenseRequest.bank_account_holder = null;
+      } else if (allowedUpdates.method === 'Transfer') {
+        expenseRequest.bank_account_number =
+          allowedUpdates.bank_account_number ??
+          expenseRequest.bank_account_number;
+        expenseRequest.bank = allowedUpdates.bank ?? expenseRequest.bank;
+        expenseRequest.bank_branch =
+          allowedUpdates.bank_branch ?? expenseRequest.bank_branch;
+        expenseRequest.bank_account_holder =
+          allowedUpdates.bank_account_holder ??
+          expenseRequest.bank_account_holder;
+      }
+
+      if (
+        allowedUpdates.details ||
+        allowedUpdates.total_amount ||
+        allowedUpdates.description ||
+        allowedUpdates.method ||
+        allowedUpdates.expense_type
+      ) {
+        expenseRequest.status = 'Diproses';
+        expenseRequest.request_status = 'Pending';
         expenseRequest.payment_voucher = null;
         expenseRequest.approved_by = null;
         expenseRequest.paid_by = null;
 
-        for (const item of expenseRequest.details) {
-          const group = mapExpenseType(expenseRequest.expense_type);
-          if (group && item.category) {
-            await RAP.updateOne(
-              { _id: expenseRequest.project },
-              { $inc: { [`${group}.${item.category}.jumlah`]: -item.amount } }
-            );
-          }
-        }
+        // Reset ExpenseLog kalau ada
+        await ExpenseLog.deleteOne(
+          { voucher_number: expenseRequest.voucher_number },
+          { session }
+        );
       }
-
-      expenseRequest.status = newStatus;
     }
+
+    await expenseRequest.save({ session });
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(200).json({
+      message: 'Pengajuan biaya berhasil diperbarui',
+      data: expenseRequest
+    });
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    throw err;
   }
-
-  // ==== KARYAWAN ====
-  else {
-    const { status, approved_by, paid_by, ...allowedUpdates } = updates;
-
-    // update field aman
-    if (allowedUpdates.description !== undefined)
-      expenseRequest.description = allowedUpdates.description;
-    if (allowedUpdates.method !== undefined)
-      expenseRequest.method = allowedUpdates.method;
-
-    if (allowedUpdates.details && Array.isArray(allowedUpdates.details)) {
-      expenseRequest.details = allowedUpdates.details.map((item) => {
-        const qty = Number(item.quantity) || 0;
-        const unitPrice = Number(item.unit_price) || 0;
-        return {
-          ...item,
-          category:
-            typeof item.category === 'object'
-              ? item.category.value
-              : item.category,
-          amount: qty * unitPrice
-        };
-      });
-      expenseRequest.total_amount = expenseRequest.details.reduce(
-        (acc, curr) => acc + curr.amount,
-        0
-      );
-    }
-
-    if (allowedUpdates.method === 'Tunai') {
-      expenseRequest.bank_account_number = null;
-      expenseRequest.bank = null;
-      expenseRequest.bank_branch = null;
-      expenseRequest.bank_account_holder = null;
-    } else if (allowedUpdates.method === 'Transfer') {
-      expenseRequest.bank_account_number =
-        allowedUpdates.bank_account_number ??
-        expenseRequest.bank_account_number;
-      expenseRequest.bank = allowedUpdates.bank ?? expenseRequest.bank;
-      expenseRequest.bank_branch =
-        allowedUpdates.bank_branch ?? expenseRequest.bank_branch;
-      expenseRequest.bank_account_holder =
-        allowedUpdates.bank_account_holder ??
-        expenseRequest.bank_account_holder;
-    }
-
-    // reset status kalau ada perubahan
-    if (
-      allowedUpdates.details ||
-      allowedUpdates.total_amount ||
-      allowedUpdates.description ||
-      allowedUpdates.method ||
-      allowedUpdates.expense_type
-    ) {
-      expenseRequest.status = 'Diproses';
-      expenseRequest.payment_voucher = null;
-      expenseRequest.approved_by = null;
-      expenseRequest.paid_by = null;
-    }
-  }
-
-  await expenseRequest.save();
-
-  res.status(200).json({
-    message: 'Pengajuan biaya berhasil diperbarui',
-    data: expenseRequest
-  });
 });
 
 const deleteExpenseRequest = asyncHandler(async (req, res) => {

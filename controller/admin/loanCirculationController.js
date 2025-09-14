@@ -20,7 +20,7 @@ async function attachImageUrls(circulation) {
             imageUrl = item.product_image;
           } else if (item.product_image.key) {
             // generate presigned URL dari Wasabi
-            imageUrl = await getFileUrl(item.product_image.key, 60 * 5); // 5 menit
+            imageUrl = await getFileUrl(item.product_image.key); // 5 menit
           }
         }
 

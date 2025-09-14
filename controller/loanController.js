@@ -95,6 +95,11 @@ const addLoan = asyncHandler(async (req, res) => {
       });
     }
 
+    // Tentukan circulation_status berdasarkan approval
+    let circulation_status = 'Pending';
+    if (normalizedApproval === 'Disetujui') circulation_status = 'Aktif';
+    if (normalizedApproval === 'Ditolak') circulation_status = 'Ditolak';
+
     const loan = await Loan.create(
       [
         {
@@ -106,11 +111,10 @@ const addLoan = asyncHandler(async (req, res) => {
           position,
           inventory_manager,
           phone,
-          warehouse_to, // 🔥 simpan di top-level Loan
+          warehouse_to,
           borrowed_items: processedItems,
           approval: normalizedApproval,
-          circulation_status:
-            normalizedApproval === 'Disetujui' ? 'Aktif' : 'Pending'
+          circulation_status
         }
       ],
       { session }
@@ -127,7 +131,7 @@ const addLoan = asyncHandler(async (req, res) => {
         condition: it.condition_at_borrow,
         warehouse_from: it.warehouse_from,
         shelf_from: it.shelf_from,
-        warehouse_to, // 🔥 ikut di circulation
+        warehouse_to,
         item_status: 'Dipinjam'
       }));
 
@@ -360,8 +364,6 @@ const updateLoan = asyncHandler(async (req, res) => {
 
     // 2. Disetujui → Ditolak/Diproses
     if (loan_item.approval === 'Disetujui' && approval !== 'Disetujui') {
-      loan_item.circulation_status = 'Pending';
-
       for (const it of loan_item.borrowed_items) {
         const inv = await Inventory.findById(it.inventory).session(session);
         if (!inv) continue;
@@ -374,6 +376,9 @@ const updateLoan = asyncHandler(async (req, res) => {
       await loanCirculationModel
         .deleteOne({ loan_number: loan_item.loan_number })
         .session(session);
+
+      loan_item.circulation_status =
+        approval === 'Ditolak' ? 'Ditolak' : 'Pending';
     }
 
     // 3. Sama-sama Disetujui → update jumlah
@@ -425,8 +430,12 @@ const updateLoan = asyncHandler(async (req, res) => {
       );
     }
 
+    // apply updates
     Object.assign(loan_item, otherFields);
-    if (approval !== undefined) loan_item.approval = approval;
+    if (approval !== undefined) {
+      loan_item.approval = approval;
+      if (approval === 'Ditolak') loan_item.circulation_status = 'Ditolak';
+    }
     if (borrowed_items) loan_item.borrowed_items = processedItems;
     if (warehouse_to) loan_item.warehouse_to = warehouse_to;
 

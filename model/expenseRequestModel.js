@@ -70,6 +70,11 @@ const expenseRequestSchema = new mongoose.Schema(
       ref: 'Employee',
       default: null
     },
+    request_status: {
+      type: String,
+      enum: ['Aktif', 'Selesai', 'Pending', 'Ditolak'],
+      default: 'Pending'
+    },
     payment_voucher: { type: String, default: null }
   },
   { timestamps: true }
