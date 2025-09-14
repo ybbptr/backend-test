@@ -173,17 +173,21 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
       { session }
     );
 
-    // 2. Simpan ExpenseLog
     await ExpenseLog.create(
       [
         {
-          voucher_number: expenseRequest.voucher_number,
-          payment_voucher: expenseRequest.payment_voucher || null,
-          requester: expenseRequest.name,
-          project: expenseRequest.project,
-          expense_type: expenseRequest.expense_type,
-          details: expenseRequest.details,
-          request_date: expenseRequest.submission_date
+          voucher_number,
+          payment_voucher,
+          requester: name,
+          project,
+          expense_type,
+          details: normalizedDetails.map((it) => ({
+            purpose: it.purpose,
+            category: it.category,
+            quantity: it.quantity,
+            unit_price: it.unit_price,
+            amount: it.amount
+          }))
         }
       ],
       { session }
@@ -385,19 +389,24 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
 
           expenseRequest.request_status = 'Aktif';
 
-          // === Create / Update ExpenseLog ===
           await ExpenseLog.findOneAndUpdate(
-            { payment_voucher: expenseRequest.payment_voucher },
+            { voucher_number: expenseRequest.voucher_number },
             {
-              voucher_number: expenseRequest.voucher_number,
-              payment_voucher: expenseRequest.payment_voucher,
-              requester: expenseRequest.name,
-              project: expenseRequest.project,
-              expense_type: expenseRequest.expense_type,
-              details: expenseRequest.details,
-              request_date: expenseRequest.submission_date
+              $set: {
+                payment_voucher: expenseRequest.payment_voucher,
+                requester: expenseRequest.name,
+                project: expenseRequest.project,
+                expense_type: expenseRequest.expense_type,
+                details: expenseRequest.details.map((it) => ({
+                  purpose: it.purpose,
+                  category: it.category,
+                  quantity: it.quantity,
+                  unit_price: it.unit_price,
+                  amount: it.amount
+                }))
+              }
             },
-            { upsert: true, new: true, session }
+            { session, upsert: true }
           );
         }
 
