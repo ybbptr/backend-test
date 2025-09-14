@@ -136,7 +136,6 @@ const createPVReport = asyncHandler(async (req, res) => {
     throwError('Field wajib belum lengkap', 400);
   }
 
-  // 🔍 validasi per item
   for (const it of items) {
     if (it.aktual < 0) {
       throwError(
@@ -156,7 +155,7 @@ const createPVReport = asyncHandler(async (req, res) => {
   const expenseReq = await ExpenseRequest.findOne({
     payment_voucher: pv_number,
     voucher_number
-  }).select('name project expense_type request_status');
+  }).select('name project expense_type request_status details');
   if (!expenseReq) throwError('Pengajuan biaya tidak ditemukan', 404);
 
   const session = await mongoose.startSession();
@@ -174,7 +173,7 @@ const createPVReport = asyncHandler(async (req, res) => {
           pv_number,
           voucher_number,
           project: expenseReq.project,
-          created_by: expenseReq.name, // 🔥 auto dari pengajuan
+          created_by: expenseReq.name,
           report_date: report_date || new Date(),
           status: req.user.role === 'admin' ? status || 'Diproses' : 'Diproses',
           approved_by: req.user.role === 'admin' ? approved_by || null : null,
@@ -193,7 +192,7 @@ const createPVReport = asyncHandler(async (req, res) => {
 
       if (file) {
         const ext = path.extname(file.originalname);
-        const key = `pv_report/${pv_number}/nota_${
+        const key = `Pertanggungjawaban Dana/${pv_number}/nota_${
           i + 1
         }_${formatDate()}${ext}`;
         await uploadBuffer(key, file.buffer);
@@ -205,19 +204,19 @@ const createPVReport = asyncHandler(async (req, res) => {
         };
       }
 
-      pvReport.items.push({ ...it, nota: notaObj });
+      pvReport.items.push({
+        ...it,
+        expense_type: expenseReq.expense_type,
+        nota: notaObj
+      });
     }
 
     await pvReport.save({ session });
 
-    // 🔥 kalau admin langsung setujui
     if (req.user.role === 'admin' && status === 'Disetujui') {
       for (const item of pvReport.items) {
-        const group = mapExpenseType(expenseReq.expense_type);
-        const categoryField = mapCategory(
-          expenseReq.expense_type,
-          item.category
-        );
+        const group = mapExpenseType(item.expense_type);
+        const categoryField = mapCategory(item.expense_type, item.category);
 
         if (group && categoryField) {
           await RAP.updateOne(
@@ -336,12 +335,6 @@ const updatePVReport = asyncHandler(async (req, res) => {
     const pvReport = await PVReport.findById(id).session(session);
     if (!pvReport) throwError('PV Report tidak ditemukan', 404);
 
-    const expenseReq = await ExpenseRequest.findOne({
-      payment_voucher: pvReport.pv_number,
-      voucher_number: pvReport.voucher_number
-    }).select('expense_type');
-    if (!expenseReq) throwError('Expense Request terkait tidak ditemukan', 404);
-
     const prevStatus = pvReport.status;
     const userRole = req.user?.role;
 
@@ -372,11 +365,8 @@ const updatePVReport = asyncHandler(async (req, res) => {
 
           // update RAP aktual
           for (const item of pvReport.items) {
-            const group = mapExpenseType(expenseReq.expense_type);
-            const categoryField = mapCategory(
-              expenseReq.expense_type,
-              item.category
-            );
+            const group = mapExpenseType(item.expense_type);
+            const categoryField = mapCategory(item.expense_type, item.category);
             if (group && categoryField) {
               await RAP.updateOne(
                 { _id: pvReport.project },
@@ -420,11 +410,8 @@ const updatePVReport = asyncHandler(async (req, res) => {
         if (prevStatus === 'Disetujui' && updates.status !== 'Disetujui') {
           // rollback RAP aktual
           for (const item of pvReport.items) {
-            const group = mapExpenseType(expenseReq.expense_type);
-            const categoryField = mapCategory(
-              expenseReq.expense_type,
-              item.category
-            );
+            const group = mapExpenseType(item.expense_type);
+            const categoryField = mapCategory(item.expense_type, item.category);
             if (group && categoryField) {
               await RAP.updateOne(
                 { _id: pvReport.project },
@@ -479,7 +466,10 @@ const updatePVReport = asyncHandler(async (req, res) => {
           }
         }
 
-        pvReport.items = updates.items;
+        pvReport.items = updates.items.map((it) => ({
+          ...it,
+          expense_type: it.expense_type || pvReport.expense_type // jaga2 biar tetep ada
+        }));
       }
 
       if (updates.report_date) pvReport.report_date = updates.report_date;

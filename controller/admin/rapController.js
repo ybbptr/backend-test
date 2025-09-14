@@ -7,85 +7,129 @@ const path = require('path');
 const formatDate = require('../../utils/formatDate');
 
 const addRAP = asyncHandler(async (req, res) => {
-  const {
-    project_name,
-    nilai_pekerjaan,
-    nomor_kontrak,
-    nilai_pekerjaan_addendum,
-    nomor_kontrak_addendum,
-    nilai_fix_pekerjaan,
-    name,
-    client,
-    date_start,
-    date_end,
-    location,
-    address,
-    npwp,
-    phone,
-    persiapan_pekerjaan,
-    operasional_lapangan,
-    operasional_tenaga_ahli,
-    sewa_alat,
-    operasional_lab,
-    pajak,
-    biaya_lain_lain
-  } = req.body || {};
+  const session = await RAP.startSession();
+  session.startTransaction();
 
-  if (
-    !project_name ||
-    !nilai_pekerjaan ||
-    !nomor_kontrak ||
-    !name ||
-    !date_start ||
-    !location ||
-    !address ||
-    !npwp ||
-    !phone
-  )
-    throwError('Field ini wajib diisi!', 400);
+  try {
+    const {
+      project_name,
+      nilai_pekerjaan,
+      nomor_kontrak,
+      nilai_pekerjaan_addendum,
+      nomor_kontrak_addendum,
+      nilai_fix_pekerjaan,
+      name,
+      client,
+      date_start,
+      date_end,
+      location,
+      address,
+      npwp,
+      phone,
+      persiapan_pekerjaan,
+      operasional_lapangan,
+      operasional_tenaga_ahli,
+      sewa_alat,
+      operasional_lab,
+      pajak,
+      biaya_lain_lain
+    } = req.body || {};
 
-  let kontrakFileMeta = null;
-  if (req.file) {
-    const file = req.file;
-    const ext = path.extname(file.originalname);
-    const key = `rap/${project_name}/kontrak_${formatDate()}${ext}`;
+    if (
+      !project_name ||
+      !nilai_pekerjaan ||
+      !nomor_kontrak ||
+      !name ||
+      !date_start ||
+      !location ||
+      !address ||
+      !npwp ||
+      !phone
+    )
+      throwError('Field ini wajib diisi!', 400);
 
-    await uploadBuffer(key, file.buffer);
+    let kontrakFileMeta = null;
+    if (req.file) {
+      const file = req.file;
+      const ext = path.extname(file.originalname);
+      const key = `rap/${project_name}/kontrak_${formatDate()}${ext}`;
 
-    kontrakFileMeta = {
-      key,
-      contentType: file.mimetype,
-      size: file.size,
-      uploadedAt: new Date()
-    };
+      await uploadBuffer(key, file.buffer);
+
+      kontrakFileMeta = {
+        key,
+        contentType: file.mimetype,
+        size: file.size,
+        uploadedAt: new Date()
+      };
+    }
+
+    // === CREATE RAP ===
+    const rap = await RAP.create(
+      [
+        {
+          project_name,
+          nilai_pekerjaan,
+          nomor_kontrak,
+          nilai_pekerjaan_addendum,
+          nomor_kontrak_addendum,
+          nilai_fix_pekerjaan,
+          location,
+          name,
+          client,
+          date_start,
+          date_end,
+          address,
+          npwp,
+          phone,
+          persiapan_pekerjaan,
+          operasional_lapangan,
+          operasional_tenaga_ahli,
+          sewa_alat,
+          operasional_lab,
+          pajak,
+          biaya_lain_lain,
+          kontrak_file: kontrakFileMeta
+        }
+      ],
+      { session }
+    );
+
+    // === AUTO CREATE PROFIT REPORT ===
+    await ProfitReport.create(
+      [
+        {
+          project_name,
+          nilai_pekerjaan,
+          nomor_kontrak,
+          nilai_pekerjaan_addendum,
+          nomor_kontrak_addendum,
+          nilai_fix_pekerjaan,
+          kontrak_file: kontrakFileMeta,
+          client_name: name,
+          address: address,
+          npwp: npwp,
+          persiapan_pekerjaan: {},
+          operasional_lapangan: {},
+          operasional_tenaga_ahli: {},
+          sewa_alat: {},
+          operasional_lab: {},
+          pajak: {},
+          biaya_lain_lain: {}
+        }
+      ],
+      { session }
+    );
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(201).json({ rap: rap[0] });
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    throw error;
   }
-
-  const rap = await RAP.create({
-    project_name,
-    nilai_pekerjaan,
-    nomor_kontrak,
-    nilai_pekerjaan_addendum,
-    nomor_kontrak_addendum,
-    nilai_fix_pekerjaan,
-    location,
-    name,
-    client,
-    date_start,
-    date_end,
-    address,
-    npwp,
-    phone,
-    persiapan_pekerjaan,
-    operasional_lapangan,
-    operasional_tenaga_ahli,
-    sewa_alat,
-    operasional_lab,
-    pajak,
-    biaya_lain_lain,
-    kontrak_file: kontrakFileMeta
-  });
-
-  res.status(201).json({ rap });
 });
 
 const getAllRAP = asyncHandler(async (req, res) => {
@@ -147,89 +191,146 @@ const getRAP = asyncHandler(async (req, res) => {
 });
 
 const updateRAP = asyncHandler(async (req, res) => {
-  const {
-    project_name,
-    nilai_pekerjaan,
-    nomor_kontrak,
-    nilai_pekerjaan_addendum,
-    nomor_kontrak_addendum,
-    nilai_fix_pekerjaan,
-    name,
-    client,
-    date_start,
-    date_end,
-    location,
-    address,
-    npwp,
-    phone,
-    persiapan_pekerjaan,
-    operasional_lapangan,
-    operasional_tenaga_ahli,
-    sewa_alat,
-    operasional_lab,
-    pajak,
-    biaya_lain_lain
-  } = req.body || {};
+  const session = await RAP.startSession();
+  session.startTransaction();
 
-  const rap = await RAP.findById(req.params.id);
-  if (!rap) throwError('RAP tidak ditemukan!', 404);
+  try {
+    const {
+      project_name,
+      nilai_pekerjaan,
+      nomor_kontrak,
+      nilai_pekerjaan_addendum,
+      nomor_kontrak_addendum,
+      nilai_fix_pekerjaan,
+      name,
+      client,
+      date_start,
+      date_end,
+      location,
+      address,
+      npwp,
+      phone,
+      persiapan_pekerjaan,
+      operasional_lapangan,
+      operasional_tenaga_ahli,
+      sewa_alat,
+      operasional_lab,
+      pajak,
+      biaya_lain_lain
+    } = req.body || {};
 
-  if (req.file) {
-    const file = req.file;
-    const ext = path.extname(file.originalname);
-    const key = `rap/${rap.project_name}/kontrak_${formatDate()}${ext}`;
+    const rap = await RAP.findById(req.params.id).session(session);
+    if (!rap) throwError('RAP tidak ditemukan!', 404);
 
-    if (rap.kontrak_file?.key) {
-      await deleteFile(rap.kontrak_file.key);
+    if (req.file) {
+      const file = req.file;
+      const ext = path.extname(file.originalname);
+      const key = `rap/${rap.project_name}/kontrak_${formatDate()}${ext}`;
+
+      if (rap.kontrak_file?.key) {
+        await deleteFile(rap.kontrak_file.key);
+      }
+
+      await uploadBuffer(key, file.buffer);
+
+      rap.kontrak_file = {
+        key,
+        contentType: file.mimetype,
+        size: file.size,
+        uploadedAt: new Date()
+      };
     }
 
-    await uploadBuffer(key, file.buffer);
+    // === UPDATE RAP FIELDS ===
+    rap.project_name = project_name ?? rap.project_name;
+    rap.address = address ?? rap.address;
+    rap.name = name ?? rap.name;
+    rap.phone = phone ?? rap.phone;
+    rap.npwp = npwp ?? rap.npwp;
+    rap.client = client ?? rap.client;
+    rap.location = location ?? rap.location;
+    rap.date_start = date_start ?? rap.date_start;
+    rap.date_end = date_end ?? rap.date_end;
+    rap.nilai_pekerjaan = nilai_pekerjaan ?? rap.nilai_pekerjaan;
+    rap.nomor_kontrak = nomor_kontrak ?? rap.nomor_kontrak;
+    rap.nilai_pekerjaan_addendum =
+      nilai_pekerjaan_addendum ?? rap.nilai_pekerjaan_addendum;
+    rap.nomor_kontrak_addendum =
+      nomor_kontrak_addendum ?? rap.nomor_kontrak_addendum;
+    rap.nilai_fix_pekerjaan = nilai_fix_pekerjaan ?? rap.nilai_fix_pekerjaan;
 
-    rap.kontrak_file = {
-      key,
-      contentType: file.mimetype,
-      size: file.size,
-      uploadedAt: new Date()
-    };
+    rap.persiapan_pekerjaan = persiapan_pekerjaan ?? rap.persiapan_pekerjaan;
+    rap.operasional_lapangan = operasional_lapangan ?? rap.operasional_lapangan;
+    rap.operasional_tenaga_ahli =
+      operasional_tenaga_ahli ?? rap.operasional_tenaga_ahli;
+    rap.sewa_alat = sewa_alat ?? rap.sewa_alat;
+    rap.operasional_lab = operasional_lab ?? rap.operasional_lab;
+    rap.pajak = pajak ?? rap.pajak;
+    rap.biaya_lain_lain = biaya_lain_lain ?? rap.biaya_lain_lain;
+
+    await rap.save({ session });
+
+    // === SYNC PROFIT REPORT HEADER ===
+    await ProfitReport.findOneAndUpdate(
+      { nomor_kontrak: rap.nomor_kontrak },
+      {
+        project_name: rap.project_name,
+        kontrak_file: rap.kontrak_file,
+        nilai_pekerjaan: rap.nilai_pekerjaan,
+        nilai_pekerjaan_addendum: rap.nilai_pekerjaan_addendum,
+        nilai_fix_pekerjaan: rap.nilai_fix_pekerjaan,
+        nomor_kontrak: rap.nomor_kontrak,
+        nomor_kontrak_addendum: rap.nomor_kontrak_addendum,
+        client_name: rap.name,
+        address: rap.address,
+        npwp: rap.npwp
+      },
+      { new: true, session }
+    );
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(200).json({ rap });
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    throw error;
   }
-
-  rap.project_name = project_name ?? rap.project_name;
-  rap.address = address ?? rap.address;
-  rap.name = name ?? rap.name;
-  rap.phone = phone ?? rap.phone;
-  rap.npwp = npwp ?? rap.npwp;
-  rap.client = client ?? rap.client;
-  rap.location = location ?? rap.location;
-  rap.date_start = date_start ?? rap.date_start;
-  rap.date_end = date_end ?? rap.date_end;
-  rap.nilai_pekerjaan = nilai_pekerjaan ?? rap.nilai_pekerjaan;
-  rap.nomor_kontrak = nomor_kontrak ?? rap.nomor_kontrak;
-  rap.nilai_pekerjaan_addendum =
-    nilai_pekerjaan_addendum ?? rap.nilai_pekerjaan_addendum;
-  rap.nomor_kontrak_addendum =
-    nomor_kontrak_addendum ?? rap.nomor_kontrak_addendum;
-  rap.nilai_fix_pekerjaan = nilai_fix_pekerjaan ?? rap.nilai_fix_pekerjaan;
-
-  rap.persiapan_pekerjaan = persiapan_pekerjaan ?? rap.persiapan_pekerjaan;
-  rap.operasional_lapangan = operasional_lapangan ?? rap.operasional_lapangan;
-  rap.operasional_tenaga_ahli =
-    operasional_tenaga_ahli ?? rap.operasional_tenaga_ahli;
-  rap.sewa_alat = sewa_alat ?? rap.sewa_alat;
-  rap.operasional_lab = operasional_lab ?? rap.operasional_lab;
-  rap.pajak = pajak ?? rap.pajak;
-  rap.biaya_lain_lain = biaya_lain_lain ?? rap.biaya_lain_lain;
-
-  await rap.save();
-
-  res.status(200).json({ rap });
 });
 
 const removeRAP = asyncHandler(async (req, res) => {
-  const rap = await RAP.findById(req.params.id);
-  if (!rap) throwError('Data RAP tidak ditemukan!', 404);
+  const session = await RAP.startSession();
+  session.startTransaction();
 
-  await rap.deleteOne();
-  res.status(200).json({ message: 'Data berhasil dihapus.' });
+  try {
+    const rap = await RAP.findById(req.params.id).session(session);
+    if (!rap) throwError('Data RAP tidak ditemukan!', 404);
+
+    // Hapus RAP
+    await rap.deleteOne({ session });
+
+    // Hapus ProfitReport yang match (pakai nomor_kontrak atau project_name)
+    await ProfitReport.deleteOne(
+      {
+        $or: [
+          { nomor_kontrak: rap.nomor_kontrak },
+          { project_name: rap.project_name }
+        ]
+      },
+      { session }
+    );
+
+    await session.commitTransaction();
+    res
+      .status(200)
+      .json({ message: 'Data RAP & Profit Report berhasil dihapus.' });
+  } catch (err) {
+    await session.abortTransaction();
+    throw err;
+  } finally {
+    session.endSession();
+  }
 });
 
 const getAllClient = asyncHandler(async (req, res) => {
