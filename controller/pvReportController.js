@@ -5,6 +5,7 @@ const throwError = require('../utils/throwError');
 const PVReport = require('../model/pvReportModel');
 const Employee = require('../model/employeeModel');
 const ExpenseRequest = require('../model/expenseRequestModel');
+const ExpenseLog = require('../model/expenseLogModel');
 const RAP = require('../model/rapModel');
 const { uploadBuffer, deleteFile, getFileUrl } = require('../utils/wasabi');
 const formatDate = require('../utils/formatDate');
