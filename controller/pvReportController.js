@@ -55,6 +55,72 @@ function mapExpenseType(expenseType) {
   }
 }
 
+function mapCategory(expenseType, category) {
+  const mappings = {
+    'Persiapan Pekerjaan': {
+      'Biaya Survey Awal Lapangan': 'biaya_survey_awal_lapangan',
+      'Uang Saku Survey OSA': 'uang_saku_survey_osa',
+      'Biaya Perizinan / Koordinasi Lokasi':
+        'biaya_perizinan_koordinasi_lokasi',
+      'Akomodasi Surveyor': 'akomodasi_surveyor',
+      'Mobilisasi/Demobilisasi Alat': 'mobilisasi_demobilisasi_alat',
+      'Mobilisasi/Demobilisasi Tim': 'mobilisasi_demobilisasi_tim',
+      'Akomodasi Tim': 'akomodasi_tim',
+      'Penginapan / Mess': 'penginapan_mess',
+      'Biaya Kalibrasi Alat/Mesin': 'biaya_kalibrasi_alat_mesin',
+      'Biaya Accessories Alat/Mesin': 'biaya_accessories_alat_mesin',
+      'Biaya Asuransi Tim': 'biaya_asuransi_tim',
+      'Biaya APD': 'biaya_apd',
+      'Biaya ATK': 'biaya_atk'
+    },
+    'Operasional Lapangan': {
+      Gaji: 'gaji',
+      'Gaji Tenaga Lokal': 'gaji_tenaga_lokal',
+      'Uang Makan': 'uang_makan',
+      'Uang Wakar': 'uang_wakar',
+      'Akomodasi Transport': 'akomodasi_transport',
+      'Mobilisasi/Demobilisasi Titik': 'mobilisasi_demobilisasi_titik',
+      'Biaya RTK Tak Terduga': 'biaya_rtk_tak_terduga'
+    },
+    'Operasional Tenaga Ahli': {
+      Penginapan: 'penginapan',
+      'Transportasi / Akomodasi Lokal': 'transportasi_akomodasi_lokal',
+      'Transportasi / Akomodasi Site': 'transportasi_akomodasi_site',
+      'Uang Makan': 'uang_makan',
+      OSA: 'osa',
+      'Fee Tenaga Ahli': 'fee_tenaga_ahli'
+    },
+    'Sewa Alat': {
+      'Alat Sondir': 'alat_sondir',
+      'Alat Bor': 'alat_bor',
+      'Alat CPTU': 'alat_cptu',
+      'Alat Topography': 'alat_topography',
+      'Alat Geolistrik': 'alat_geolistrik'
+    },
+    'Operasional Lab': {
+      'Ambil Sample': 'ambil_sample',
+      'Packaging Sample': 'packaging_sample',
+      'Kirim Sample': 'kirim_sample',
+      'Uji Lab Vendor Luar': 'uji_lab_vendor_luar',
+      'Biaya Perlengkapan Lab': 'biaya_perlengkapan_lab',
+      'Alat Uji Lab': 'alat_uji_lab'
+    },
+    Pajak: {
+      'Pajak Tenaga Ahli': 'pajak_tenaga_ahli',
+      'Pajak Sewa': 'pajak_sewa',
+      'Pajak PPh Final': 'pajak_pph_final',
+      'Pajak Lapangan': 'pajak_lapangan',
+      'Pajak PPN': 'pajak_ppn'
+    },
+    'Biaya Lain': {
+      SCF: 'scf',
+      'Admin Bank': 'admin_bank'
+    }
+  };
+
+  return mappings[expenseType]?.[category] || null;
+}
+
 const createPVReport = asyncHandler(async (req, res) => {
   const {
     pv_number,
@@ -74,14 +140,13 @@ const createPVReport = asyncHandler(async (req, res) => {
   const expenseReq = await ExpenseRequest.findOne({
     payment_voucher: pv_number,
     voucher_number
-  }).select('name project expense_type');
+  }).select('name project expense_type request_status');
   if (!expenseReq) throwError('Pengajuan biaya tidak ditemukan', 404);
 
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    // validasi admin setujui
     if (req.user.role === 'admin' && status === 'Disetujui' && !approved_by) {
       throwError('approved_by wajib diisi jika status Disetujui', 400);
     }
@@ -93,7 +158,7 @@ const createPVReport = asyncHandler(async (req, res) => {
           pv_number,
           voucher_number,
           project: expenseReq.project,
-          created_by: expenseReq.name, // 🔥 auto dari pengajuan
+          created_by: expenseReq.name, // auto dari pengajuan
           report_date: report_date || new Date(),
           status: req.user.role === 'admin' ? status || 'Diproses' : 'Diproses',
           approved_by: req.user.role === 'admin' ? approved_by || null : null,
@@ -129,24 +194,55 @@ const createPVReport = asyncHandler(async (req, res) => {
 
     await pvReport.save({ session });
 
-    // 🔥 Sync ke ExpenseLog
-    await ExpenseLog.findOneAndUpdate(
-      { voucher_number },
-      {
-        $set: {
-          details: pvReport.items.map((it) => ({
-            purpose: it.purpose,
-            category: it.category,
-            quantity: it.quantity,
-            unit_price: it.unit_price,
-            amount: it.amount,
-            aktual: it.aktual || 0,
-            nota: it.nota
-          }))
+    // 🔥 kalau admin langsung setujui → update RAP & ExpenseLog & ExpenseRequest
+    if (req.user.role === 'admin' && status === 'Disetujui') {
+      for (const item of pvReport.items) {
+        const group = mapExpenseType(expenseReq.expense_type);
+        const categoryField = mapCategory(
+          expenseReq.expense_type,
+          item.category
+        );
+        if (group && categoryField) {
+          await RAP.updateOne(
+            { _id: pvReport.project },
+            { $inc: { [`${group}.${categoryField}.aktual`]: item.aktual } },
+            { session }
+          );
         }
-      },
-      { session }
-    );
+      }
+
+      await ExpenseLog.findOneAndUpdate(
+        { voucher_number },
+        {
+          $set: {
+            details: pvReport.items.map((it) => ({
+              purpose: it.purpose,
+              category: it.category,
+              quantity: it.quantity,
+              unit_price: it.unit_price,
+              amount: it.amount,
+              aktual: it.aktual || 0,
+              nota: it.nota
+            })),
+            completed_at: new Date()
+          }
+        },
+        { session }
+      );
+
+      await ExpenseRequest.findOneAndUpdate(
+        { payment_voucher: pv_number, voucher_number },
+        { $set: { request_status: 'Selesai' } },
+        { session }
+      );
+    } else {
+      // default kalau karyawan buat → status Aktif
+      await ExpenseRequest.findOneAndUpdate(
+        { payment_voucher: pv_number, voucher_number },
+        { $set: { request_status: 'Aktif' } },
+        { session }
+      );
+    }
 
     await session.commitTransaction();
     res.status(201).json(pvReport);
@@ -223,6 +319,11 @@ const updatePVReport = asyncHandler(async (req, res) => {
     const pvReport = await PVReport.findById(id).session(session);
     if (!pvReport) throwError('PV Report tidak ditemukan', 404);
 
+    const expenseReq = await ExpenseRequest.findOne({
+      payment_voucher: pvReport.pv_number,
+      voucher_number: pvReport.voucher_number
+    }).select('expense_type');
+
     const prevStatus = pvReport.status;
     const userRole = req.user?.role;
 
@@ -236,11 +337,15 @@ const updatePVReport = asyncHandler(async (req, res) => {
 
           // update RAP aktual
           for (const item of pvReport.items) {
-            const group = mapExpenseType(item.expense_type);
-            if (group && item.category) {
+            const group = mapExpenseType(expenseReq.expense_type);
+            const categoryField = mapCategory(
+              expenseReq.expense_type,
+              item.category
+            );
+            if (group && categoryField) {
               await RAP.updateOne(
                 { _id: pvReport.project },
-                { $inc: { [`${group}.${item.category}.aktual`]: item.aktual } },
+                { $inc: { [`${group}.${categoryField}.aktual`]: item.aktual } },
                 { session }
               );
             }
@@ -264,27 +369,52 @@ const updatePVReport = asyncHandler(async (req, res) => {
             },
             { session }
           );
+
+          await ExpenseRequest.findOneAndUpdate(
+            {
+              payment_voucher: pvReport.pv_number,
+              voucher_number: pvReport.voucher_number
+            },
+            { $set: { request_status: 'Selesai' } },
+            { session }
+          );
         }
 
         if (prevStatus === 'Disetujui' && updates.status !== 'Disetujui') {
+          // rollback RAP aktual
           for (const item of pvReport.items) {
-            const group = mapExpenseType(item.expense_type);
-            if (group && item.category) {
+            const group = mapExpenseType(expenseReq.expense_type);
+            const categoryField = mapCategory(
+              expenseReq.expense_type,
+              item.category
+            );
+            if (group && categoryField) {
               await RAP.updateOne(
                 { _id: pvReport.project },
                 {
-                  $inc: { [`${group}.${item.category}.aktual`]: -item.aktual }
+                  $inc: { [`${group}.${categoryField}.aktual`]: -item.aktual }
                 },
                 { session }
               );
             }
           }
+
           pvReport.approved_by = null;
 
           // rollback log
           await ExpenseLog.findOneAndUpdate(
             { voucher_number: pvReport.voucher_number },
             { $unset: { completed_at: '' } },
+            { session }
+          );
+
+          // rollback request ke Pending
+          await ExpenseRequest.findOneAndUpdate(
+            {
+              payment_voucher: pvReport.pv_number,
+              voucher_number: pvReport.voucher_number
+            },
+            { $set: { request_status: 'Pending' } },
             { session }
           );
         }
@@ -301,7 +431,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
       pvReport.status = 'Diproses';
       pvReport.approved_by = null;
 
-      // 🔥 Sync ke ExpenseLog juga
+      // Sync ke ExpenseLog
       await ExpenseLog.findOneAndUpdate(
         { voucher_number: pvReport.voucher_number },
         {
