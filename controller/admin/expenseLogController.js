@@ -39,6 +39,7 @@ const getExpenseLogs = asyncHandler(async (req, res) => {
     .populate('project', 'project_name')
     .lean();
 
+  console.log(logs);
   const withUrls = await Promise.all(logs.map((l) => attachNotaUrls(l)));
 
   res.status(200).json(withUrls);
