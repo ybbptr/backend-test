@@ -86,11 +86,26 @@ const pvReportSchema = Joi.object({
         'Status harus salah satu dari: Diproses, Ditolak, atau Disetujui'
     }),
 
-  items: Joi.array().items(pvItemSchema).min(1).required().messages({
-    'array.base': 'Daftar item harus berupa array',
-    'array.min': 'Minimal 1 item harus diisi',
-    'any.required': 'Item wajib diisi'
-  })
+  items: Joi.alternatives()
+    .try(
+      Joi.array().items(pvItemSchema).min(1),
+      Joi.string().custom((value, helpers) => {
+        try {
+          const parsed = JSON.parse(value);
+          if (!Array.isArray(parsed)) throw new Error();
+          return parsed;
+        } catch (err) {
+          return helpers.error('any.invalid');
+        }
+      })
+    )
+    .required()
+    .messages({
+      'any.required': 'Daftar item wajib diisi',
+      'any.invalid': 'Format items harus berupa array JSON yang valid',
+      'array.base': 'Daftar item harus berupa array',
+      'array.min': 'Minimal 1 item harus diisi'
+    })
 });
 
 module.exports = { pvReportSchema };
