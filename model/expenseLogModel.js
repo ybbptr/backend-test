@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const expenseLogSchema = new mongoose.Schema(
   {
     voucher_number: { type: String, required: true, index: true }, // PDxxx
-    payment_voucher: { type: String, required: true }, // PVxxx
+    payment_voucher: { type: String, default: null }, // PVxxx
 
     requester: {
       type: mongoose.Schema.Types.ObjectId,
