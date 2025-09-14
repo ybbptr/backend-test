@@ -36,10 +36,9 @@ async function attachNotaUrls(log) {
 const getExpenseLogs = asyncHandler(async (req, res) => {
   const logs = await ExpenseLog.find()
     .populate('requester', 'name')
-    .populate('project', 'project_name')
+    .populate('project', 'project_name -_id')
     .lean();
 
-  console.log(logs);
   const withUrls = await Promise.all(logs.map((l) => attachNotaUrls(l)));
 
   res.status(200).json(withUrls);

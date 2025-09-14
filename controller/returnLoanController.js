@@ -169,7 +169,8 @@ const createReturnLoan = asyncHandler(async (req, res) => {
         product: inv.product._id,
         product_code: inv.product.product_code,
         brand: inv.product.brand,
-        project: ret.project
+        project: ret.project,
+        proof_image: ret.condition_new === 'Hilang' ? null : ret.proof_image
       });
     }
 

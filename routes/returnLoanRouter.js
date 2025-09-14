@@ -2,7 +2,8 @@ const express = require('express');
 const Router = express.Router();
 const validate = require('../middleware/validations/validate');
 const {
-  validateReturnLoan
+  validateReturnLoan,
+  validateUpdateReturnLoan
 } = require('../middleware/validations/validateReturnLoan');
 const {
   createReturnLoan,
@@ -42,7 +43,7 @@ Router.put(
   '/update/:id',
   uploadProofs,
   filterProofFiles,
-  validate(validateReturnLoan),
+  validate(validateUpdateReturnLoan),
   updateReturnLoan
 );
 
