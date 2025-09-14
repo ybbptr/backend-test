@@ -11,27 +11,27 @@ const objectIdValidator = (value, helpers) => {
 
 // schema untuk item
 const pvItemSchema = Joi.object({
-  purpose: Joi.string().required().messages({
+  purpose: Joi.string().messages({
     'any.required': 'Tujuan wajib diisi',
     'string.base': 'Tujuan harus berupa teks',
     'string.empty': 'Tujuan tidak boleh kosong'
   }),
-  category: Joi.string().required().messages({
+  category: Joi.string().messages({
     'any.required': 'Kategori wajib diisi',
     'string.base': 'Kategori harus berupa teks',
     'string.empty': 'Kategori tidak boleh kosong'
   }),
-  quantity: Joi.number().min(1).required().messages({
+  quantity: Joi.number().min(1).messages({
     'any.required': 'Jumlah wajib diisi',
     'number.base': 'Jumlah harus berupa angka',
     'number.min': 'Jumlah minimal 1'
   }),
-  unit_price: Joi.number().min(0).required().messages({
+  unit_price: Joi.number().min(0).messages({
     'any.required': 'Harga satuan wajib diisi',
     'number.base': 'Harga satuan harus berupa angka',
     'number.min': 'Harga satuan minimal 0'
   }),
-  amount: Joi.number().min(0).required().messages({
+  amount: Joi.number().min(0).messages({
     'any.required': 'Jumlah total wajib diisi',
     'number.base': 'Jumlah total harus berupa angka',
     'number.min': 'Jumlah total minimal 0'
@@ -62,14 +62,12 @@ const pvReportSchema = Joi.object({
     'any.required': 'Tanggal laporan wajib diisi',
     'date.base': 'Tanggal laporan tidak valid'
   }),
-  project: Joi.string().custom(objectIdValidator).required().messages({
-    'any.required': 'Proyek wajib diisi',
+  project: Joi.string().custom(objectIdValidator).messages({
     'any.invalid': 'ID proyek tidak valid',
     'string.empty': 'Proyek tidak boleh kosong'
   }),
 
-  created_by: Joi.string().custom(objectIdValidator).required().messages({
-    'any.required': 'Pembuat laporan wajib diisi',
+  created_by: Joi.string().custom(objectIdValidator).messages({
     'any.invalid': 'ID pembuat laporan tidak valid',
     'string.empty': 'Pembuat laporan tidak boleh kosong'
   }),
