@@ -1,7 +1,7 @@
 const asyncHandler = require('express-async-handler');
 const throwError = require('../../utils/throwError');
 const Client = require('../../model/clientModel');
-const Project = require('../../model/projectModel');
+const ProgressProject = require('../../model/progressProjectModel');
 const Product = require('../../model/productModel');
 const Vendor = require('../../model/vendorModel');
 const Employee = require('../../model/employeeModel');
@@ -17,7 +17,7 @@ const getAdminDashboard = asyncHandler(async (req, res) => {
   try {
     const [
       clientsCount,
-      projectsCount,
+      progressProjectsCount,
       productsCount,
       vendorsCount,
       employeesCount,
@@ -30,7 +30,7 @@ const getAdminDashboard = asyncHandler(async (req, res) => {
       staffCount
     ] = await Promise.all([
       Client.countDocuments(),
-      Project.countDocuments(),
+      ProgressProject.countDocuments(),
       Product.countDocuments(),
       Vendor.countDocuments(),
       Employee.countDocuments(),
@@ -45,7 +45,7 @@ const getAdminDashboard = asyncHandler(async (req, res) => {
 
     res.status(200).json({
       clients: clientsCount,
-      projects: projectsCount,
+      progress_project: progressProjectsCount,
       products: productsCount,
       vendors: vendorsCount,
       employees: employeesCount,

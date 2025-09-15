@@ -105,6 +105,30 @@ const rapSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+rapSchema.post('save', async function (doc, next) {
+  try {
+    const ProgressProject = mongoose.model('Progress');
+
+    const existing = await ProgressProject.findOne({ rap: doc._id });
+    if (!existing) {
+      await ProgressProject.create({
+        rap: doc._id,
+        client: doc.client,
+        project_name: doc.project_name,
+        location: doc.location,
+        date_start: doc.date_start,
+        date_end: doc.date_end,
+        project_value: doc.nilai_pekerjaan,
+        progress: {}
+      });
+    }
+
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
+
 rapSchema.index({ project_name: 'text' }); // biar bisa text search
 rapSchema.index({ client: 1 }); // filter by client
 rapSchema.index({ nomor_kontrak: 1 }, { unique: true }); // kontrak unik

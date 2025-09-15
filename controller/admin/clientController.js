@@ -1,7 +1,7 @@
 const asyncHandler = require('express-async-handler');
 const throwError = require('../../utils/throwError');
 const Client = require('../../model/clientModel');
-const Project = require('../../model/projectModel');
+const RAP = require('../../model/rapModel');
 const mongoose = require('mongoose');
 
 const addClient = asyncHandler(async (req, res) => {
@@ -56,7 +56,7 @@ const removeClient = asyncHandler(async (req, res) => {
     const client = await Client.findById(req.params.id).session(session);
     if (!client) throwError('Client tidak terdaftar!', 400);
 
-    await Project.updateMany(
+    await RAP.updateMany(
       { client: client._id },
       { $set: { client: null } },
       { session }

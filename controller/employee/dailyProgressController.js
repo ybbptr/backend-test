@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 const asyncHandler = require('express-async-handler');
 const throwError = require('../../utils/throwError');
 
-const Project = require('../../model/projectModel');
+const ProgressProject = require('../../model/progressProjectModel');
 const DailyProgress = require('../../model/dailyProgressModel');
 
 const toDateStr = (date) => {
@@ -56,7 +56,7 @@ const upsertDailyProgress = asyncHandler(async (req, res) => {
       throwError('PUT requires full payload: field "items" wajib ada', 400);
     }
 
-    const project = await Project.findById(projectId).session(session);
+    const project = await ProgressProject.findById(projectId).session(session);
     if (!project) throwError('Project tidak ditemukan', 404);
 
     const startStr = toDateStr(project.start_date);
@@ -192,13 +192,13 @@ const upsertDailyProgress = asyncHandler(async (req, res) => {
       { new: true, upsert: true, setDefaultsOnInsert: true, session }
     );
 
-    await Project.updateOne(
+    await ProgressProject.updateOne(
       { _id: projectId },
       { $inc: inc, $max: max },
       { session }
     );
 
-    const freshProject = await Project.findById(projectId)
+    const freshProject = await ProgressProject.findById(projectId)
       .select('start_date end_date progress')
       .lean()
       .session(session);
@@ -234,7 +234,7 @@ const getDailyProgress = asyncHandler(async (req, res) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(local_date))
     throwError('local_date harus format YYYY-MM-DD', 400);
 
-  const project = await Project.findById(projectId)
+  const project = await ProgressProject.findById(projectId)
     .select('start_date end_date progress')
     .lean();
   if (!project) throwError('Project tidak ditemukan', 404);
@@ -268,7 +268,7 @@ const removeDailyProgress = asyncHandler(async (req, res) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(local_date))
       throwError('local_date harus YYYY-MM-DD', 400);
 
-    const project = await Project.findById(projectId).session(session);
+    const project = await ProgressProject.findById(projectId).session(session);
     if (!project) throwError('Project tidak ditemukan', 404);
 
     const doc = await DailyProgress.findOne({
@@ -291,14 +291,16 @@ const removeDailyProgress = asyncHandler(async (req, res) => {
       );
     }
 
-    await DailyProgress.deleteOne({ _id: doc._id }).session(session);
+    await ProgressProject.deleteOne({ _id: doc._id }).session(session);
 
     const dec = {
       'progress.sondir.completed_points': -sum.sondir.points,
       'progress.bor.completed_points': -sum.bor.points,
       'progress.cptu.completed_points': -sum.cptu.points
     };
-    await Project.updateOne({ _id: projectId }, { $inc: dec }).session(session);
+    await ProgressProject.updateOne({ _id: projectId }, { $inc: dec }).session(
+      session
+    );
 
     const needRecalc = [];
     if (
@@ -338,9 +340,10 @@ const removeDailyProgress = asyncHandler(async (req, res) => {
           ? Number(found.maxDepth || 0)
           : 0;
       }
-      await Project.updateOne({ _id: projectId }, { $set: set }).session(
-        session
-      );
+      await ProgressProject.updateOne(
+        { _id: projectId },
+        { $set: set }
+      ).session(session);
     }
 
     await session.commitTransaction();
@@ -358,7 +361,7 @@ const getAllDailyProgress = asyncHandler(async (req, res) => {
   const { from, to, author, page = 1, limit = 20 } = req.query;
   const me = req.user?.id;
 
-  const project = await Project.findById(projectId).select('_id');
+  const project = await ProgressProject.findById(projectId).select('_id');
   if (!project) throwError('Project tidak ditemukan', 404);
 
   // filter
@@ -391,7 +394,7 @@ const getAllDailyProgress = asyncHandler(async (req, res) => {
 });
 
 const getProjects = asyncHandler(async (req, res) => {
-  const projects = await Project.find()
+  const projects = await ProgressProject.find()
     .select('project_name location start_date end_date progress client')
     .populate('client', 'name')
     .lean();
@@ -399,7 +402,7 @@ const getProjects = asyncHandler(async (req, res) => {
 });
 
 const getProject = asyncHandler(async (req, res) => {
-  const project = await Project.findById(req.params.id)
+  const project = await ProgressProject.findById(req.params.id)
     .select('project_name location start_date end_date progress client')
     .populate('client', 'name')
     .lean();

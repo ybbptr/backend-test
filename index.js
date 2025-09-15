@@ -58,6 +58,7 @@ app.use('/expense-request', require('./routes/expenseRequestRouter'));
 app.use('/loans', require('./routes/loanRouter'));
 app.use('/return-loan', require('./routes/returnLoanRouter'));
 app.use('/expense-report', require('./routes/pvReportRouter'));
+app.use('/progress-project', require('./routes/progressProjectRouter'));
 
 app.use('/admin/products', require('./routes/admin/productRouter'));
 app.use('/admin/employees', require('./routes/admin/employeeRouter'));
@@ -70,7 +71,6 @@ app.use('/admin/profit-report', require('./routes/admin/profitReportRouter'));
 app.use('/admin/expense-log', require('./routes/admin/expenseLogRouter'));
 app.use('/admin/project-cost', require('./routes/admin/rapRouter'));
 app.use('/admin/shelves', require('./routes/admin/shelfRouter'));
-app.use('/admin/projects', require('./routes/admin/projectRouter'));
 app.use('/admin/dashboard', require('./routes/admin/adminDashboardRouter'));
 app.use(
   '/admin/user-management',

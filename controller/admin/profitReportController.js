@@ -147,8 +147,8 @@ const getProfitReportDetail = asyncHandler(async (req, res) => {
         nomor_kontrak: report.nomor_kontrak,
         nomor_kontrak_addendum: report.nomor_kontrak_addendum,
         client_name: report.client_name,
-        client_address: report.client_address,
-        client_npwp: report.client_npwp
+        address: report.address,
+        npwp: report.npwp
       },
       summary: {
         rap_total,
