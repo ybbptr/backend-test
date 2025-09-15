@@ -1,6 +1,7 @@
 const RAP = require('../../model/rapModel');
 const asyncHandler = require('express-async-handler');
 const Client = require('../../model/clientModel');
+const ProfitReport = require('../../model/profitReportModel');
 const throwError = require('../../utils/throwError');
 const { uploadBuffer, getFileUrl, deleteFile } = require('../../utils/wasabi');
 const path = require('path');
