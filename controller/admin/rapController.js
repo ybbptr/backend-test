@@ -100,13 +100,13 @@ const addRAP = asyncHandler(async (req, res) => {
     await ProfitReport.create(
       [
         {
-          project_name,
-          nilai_pekerjaan,
-          nomor_kontrak,
-          nilai_pekerjaan_addendum,
-          nomor_kontrak_addendum,
-          nilai_fix_pekerjaan,
+          project_name: project_name,
           kontrak_file: kontrakFileMeta,
+          nilai_pekerjaan: nilai_pekerjaan,
+          nilai_pekerjaan_addendum: nilai_pekerjaan_addendum,
+          nilai_fix_pekerjaan: nilai_fix_pekerjaan,
+          nomor_kontrak: nomor_kontrak,
+          nomor_kontrak_addendum: nomor_kontrak_addendum,
           client_name: name,
           address: address,
           npwp: npwp,
