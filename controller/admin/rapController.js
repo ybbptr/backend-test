@@ -46,8 +46,9 @@ const addRAP = asyncHandler(async (req, res) => {
       !address ||
       !npwp ||
       !phone
-    )
-      throwError('Field ini wajib diisi!', 400);
+    ) {
+      throwError('Field wajib belum lengkap', 400);
+    }
 
     let kontrakFileMeta = null;
     if (req.file) {
@@ -65,16 +66,15 @@ const addRAP = asyncHandler(async (req, res) => {
       };
     }
 
-    // === CREATE RAP ===
-    const rap = await RAP.create(
+    const [rap] = await RAP.create(
       [
         {
           project_name,
           nilai_pekerjaan,
           nomor_kontrak,
-          nilai_pekerjaan_addendum,
-          nomor_kontrak_addendum,
-          nilai_fix_pekerjaan,
+          nilai_pekerjaan_addendum: nilai_pekerjaan_addendum || null,
+          nomor_kontrak_addendum: nomor_kontrak_addendum || null,
+          nilai_fix_pekerjaan: nilai_fix_pekerjaan || null,
           location,
           name,
           client,
@@ -96,20 +96,20 @@ const addRAP = asyncHandler(async (req, res) => {
       { session }
     );
 
-    // === AUTO CREATE PROFIT REPORT ===
     await ProfitReport.create(
       [
         {
-          project_name: project_name,
-          kontrak_file: kontrakFileMeta,
-          nilai_pekerjaan: nilai_pekerjaan,
-          nilai_pekerjaan_addendum: nilai_pekerjaan_addendum,
-          nilai_fix_pekerjaan: nilai_fix_pekerjaan,
-          nomor_kontrak: nomor_kontrak,
-          nomor_kontrak_addendum: nomor_kontrak_addendum,
-          client_name: name,
-          address: address,
-          npwp: npwp,
+          project_name: rap.project_name,
+          kontrak_file: rap.kontrak_file,
+          nilai_pekerjaan: rap.nilai_pekerjaan,
+          nilai_pekerjaan_addendum: rap.nilai_pekerjaan_addendum || null,
+          nilai_fix_pekerjaan: rap.nilai_fix_pekerjaan || rap.nilai_pekerjaan, // fallback ke nilai_pekerjaan
+          nomor_kontrak: rap.nomor_kontrak,
+          nomor_kontrak_addendum: rap.nomor_kontrak_addendum || null,
+          client_name: rap.name,
+          client_address: rap.address,
+          client_npwp: rap.npwp,
+          // detail awal kosong
           persiapan_pekerjaan: {},
           operasional_lapangan: {},
           operasional_tenaga_ahli: {},
@@ -123,13 +123,12 @@ const addRAP = asyncHandler(async (req, res) => {
     );
 
     await session.commitTransaction();
-    session.endSession();
-
-    res.status(201).json({ rap: rap[0] });
+    res.status(201).json({ rap });
   } catch (error) {
     await session.abortTransaction();
-    session.endSession();
     throw error;
+  } finally {
+    session.endSession();
   }
 });
 
@@ -223,6 +222,7 @@ const updateRAP = asyncHandler(async (req, res) => {
     const rap = await RAP.findById(req.params.id).session(session);
     if (!rap) throwError('RAP tidak ditemukan!', 404);
 
+    // === Update file kontrak kalau ada ===
     if (req.file) {
       const file = req.file;
       const ext = path.extname(file.originalname);
@@ -242,7 +242,7 @@ const updateRAP = asyncHandler(async (req, res) => {
       };
     }
 
-    // === UPDATE RAP FIELDS ===
+    // === UPDATE RAP fields ===
     rap.project_name = project_name ?? rap.project_name;
     rap.address = address ?? rap.address;
     rap.name = name ?? rap.name;
@@ -278,25 +278,24 @@ const updateRAP = asyncHandler(async (req, res) => {
         project_name: rap.project_name,
         kontrak_file: rap.kontrak_file,
         nilai_pekerjaan: rap.nilai_pekerjaan,
-        nilai_pekerjaan_addendum: rap.nilai_pekerjaan_addendum,
-        nilai_fix_pekerjaan: rap.nilai_fix_pekerjaan,
+        nilai_pekerjaan_addendum: rap.nilai_pekerjaan_addendum || null,
+        nilai_fix_pekerjaan: rap.nilai_fix_pekerjaan || rap.nilai_pekerjaan,
         nomor_kontrak: rap.nomor_kontrak,
-        nomor_kontrak_addendum: rap.nomor_kontrak_addendum,
+        nomor_kontrak_addendum: rap.nomor_kontrak_addendum || null,
         client_name: rap.name,
-        address: rap.address,
-        npwp: rap.npwp
+        client_address: rap.address,
+        client_npwp: rap.npwp
       },
       { new: true, session }
     );
 
     await session.commitTransaction();
-    session.endSession();
-
     res.status(200).json({ rap });
   } catch (error) {
     await session.abortTransaction();
-    session.endSession();
     throw error;
+  } finally {
+    session.endSession();
   }
 });
 
