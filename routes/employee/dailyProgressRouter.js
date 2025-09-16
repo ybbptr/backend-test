@@ -10,27 +10,13 @@ const {
   getAllDailyProgress
 } = require('../../controller/employee/dailyProgressController');
 
-const validateToken = require('../../middleware/validations/validateTokenHandler');
+router.get('/all-project', getProjects);
+router.get('/:id', getProject);
 
-router.get('/all-project', validateToken, getProjects);
-router.get('/:id', validateToken, getProject);
+router.get('/:projectId/daily-progress', getAllDailyProgress);
+router.put('/:projectId/daily-progress/:local_date', upsertDailyProgress);
+router.get('/:projectId/daily-progress/:local_date', getDailyProgress);
 
-router.get('/:projectId/daily-progress', validateToken, getAllDailyProgress);
-router.put(
-  '/:projectId/daily-progress/:local_date',
-  validateToken,
-  upsertDailyProgress
-);
-router.get(
-  '/:projectId/daily-progress/:local_date',
-  validateToken,
-  getDailyProgress
-);
-
-router.delete(
-  '/:projectId/daily-progress/:local_date',
-  validateToken,
-  removeDailyProgress
-);
+router.delete('/:projectId/daily-progress/:local_date', removeDailyProgress);
 
 module.exports = router;
