@@ -190,6 +190,19 @@ const getRAP = asyncHandler(async (req, res) => {
   });
 });
 
+function mapExpenseTypeReverse(group) {
+  const mapping = {
+    persiapan_pekerjaan: 'Persiapan',
+    operasional_lapangan: 'Operasional Lapangan',
+    operasional_tenaga_ahli: 'Operasional Tenaga Ahli',
+    sewa_alat: 'Sewa Alat',
+    operasional_lab: 'Operasional Lab',
+    pajak: 'Pajak',
+    biaya_lain_lain: 'Biaya Lain-lain'
+  };
+  return mapping[group] || null;
+}
+
 const updateRAP = asyncHandler(async (req, res) => {
   const session = await RAP.startSession();
   session.startTransaction();
@@ -310,7 +323,7 @@ const updateRAP = asyncHandler(async (req, res) => {
         await ExpenseRequest.updateMany(
           {
             project: rap._id,
-            expense_type: mapExpenseTypeReverse(group),
+            expense_type: mapExpenseTypeReverse(group), // fungsi kebalikan mapExpenseType
             'details.category': category
           },
           {
