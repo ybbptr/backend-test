@@ -85,7 +85,9 @@ const pvReportSchema = Joi.object({
       'any.only':
         'Status harus salah satu dari: Diproses, Ditolak, atau Disetujui'
     }),
-
+  note: Joi.string().allow('', null).messages({
+    'string.base': 'Catatan harus berupa teks'
+  }),
   items: Joi.alternatives()
     .try(
       Joi.array().items(pvItemSchema).min(1),

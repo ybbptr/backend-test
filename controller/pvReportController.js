@@ -128,7 +128,8 @@ const createPVReport = asyncHandler(async (req, res) => {
     report_date,
     status,
     approved_by,
-    recipient
+    recipient,
+    note
   } = req.body || {};
   const items = parseItems(req.body.items);
 
@@ -136,16 +137,11 @@ const createPVReport = asyncHandler(async (req, res) => {
     throwError('Field wajib belum lengkap', 400);
   }
 
+  // validasi aktual & flag overbudget
   for (const it of items) {
     if (it.aktual < 0) {
       throwError(
         `Aktual untuk "${it.purpose}" (kategori: ${it.category}) tidak boleh negatif`,
-        400
-      );
-    }
-    if (it.aktual > it.amount) {
-      throwError(
-        `Aktual untuk "${it.purpose}" (kategori: ${it.category}) tidak boleh melebihi jumlah (${it.amount})`,
         400
       );
     }
@@ -178,6 +174,7 @@ const createPVReport = asyncHandler(async (req, res) => {
           status: req.user.role === 'admin' ? status || 'Diproses' : 'Diproses',
           approved_by: req.user.role === 'admin' ? approved_by || null : null,
           recipient: req.user.role === 'admin' ? recipient || null : null,
+          note: req.user.role === 'admin' && status === 'Ditolak' ? note : null,
           items: []
         }
       ],
@@ -207,7 +204,8 @@ const createPVReport = asyncHandler(async (req, res) => {
       pvReport.items.push({
         ...it,
         expense_type: expenseReq.expense_type,
-        nota: notaObj
+        nota: notaObj,
+        overbudget: it.aktual > it.amount
       });
     }
 
@@ -215,13 +213,18 @@ const createPVReport = asyncHandler(async (req, res) => {
 
     if (req.user.role === 'admin' && status === 'Disetujui') {
       for (const item of pvReport.items) {
-        const group = mapExpenseType(item.expense_type);
-        const categoryField = mapCategory(item.expense_type, item.category);
+        if (item.aktual > item.amount) {
+          throwError(
+            `Aktual untuk "${item.purpose}" melebihi pengajuan (${item.amount})`,
+            400
+          );
+        }
 
-        if (group && categoryField) {
+        const group = mapExpenseType(item.expense_type);
+        if (group && item.category) {
           await RAP.updateOne(
             { _id: pvReport.project },
-            { $inc: { [`${group}.${categoryField}.aktual`]: item.aktual } },
+            { $inc: { [`${group}.${item.category}.aktual`]: item.aktual } },
             { session }
           );
         }
@@ -338,7 +341,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
     const prevStatus = pvReport.status;
     const userRole = req.user?.role;
 
-    // ========== ADMIN ==========
+    // ADMIN
     if (userRole === 'admin') {
       if (updates.status && updates.status !== prevStatus) {
         if (updates.status === 'Disetujui') {
@@ -347,36 +350,23 @@ const updatePVReport = asyncHandler(async (req, res) => {
           pvReport.approved_by = updates.approved_by;
           pvReport.recipient = updates.recipient || pvReport.recipient;
 
-          // 🔍 validasi aktual per item
           for (const item of pvReport.items) {
-            if (item.aktual < 0) {
-              throwError(
-                `Aktual untuk "${item.purpose}" tidak boleh negatif`,
-                400
-              );
-            }
             if (item.aktual > item.amount) {
               throwError(
-                `Aktual untuk "${item.purpose}" tidak boleh melebihi jumlah (${item.amount})`,
+                `Aktual untuk "${item.purpose}" melebihi pengajuan (${item.amount})`,
                 400
               );
             }
-          }
-
-          // update RAP aktual
-          for (const item of pvReport.items) {
             const group = mapExpenseType(item.expense_type);
-            const categoryField = mapCategory(item.expense_type, item.category);
-            if (group && categoryField) {
+            if (group && item.category) {
               await RAP.updateOne(
                 { _id: pvReport.project },
-                { $inc: { [`${group}.${categoryField}.aktual`]: item.aktual } },
+                { $inc: { [`${group}.${item.category}.aktual`]: item.aktual } },
                 { session }
               );
             }
           }
 
-          // update ExpenseLog
           await ExpenseLog.findOneAndUpdate(
             { voucher_number: pvReport.voucher_number },
             {
@@ -396,7 +386,6 @@ const updatePVReport = asyncHandler(async (req, res) => {
             { session }
           );
 
-          // mark ExpenseRequest selesai
           await ExpenseRequest.findOneAndUpdate(
             {
               payment_voucher: pvReport.pv_number,
@@ -407,32 +396,13 @@ const updatePVReport = asyncHandler(async (req, res) => {
           );
         }
 
-        if (prevStatus === 'Disetujui' && updates.status !== 'Disetujui') {
-          // rollback RAP aktual
-          for (const item of pvReport.items) {
-            const group = mapExpenseType(item.expense_type);
-            const categoryField = mapCategory(item.expense_type, item.category);
-            if (group && categoryField) {
-              await RAP.updateOne(
-                { _id: pvReport.project },
-                {
-                  $inc: { [`${group}.${categoryField}.aktual`]: -item.aktual }
-                },
-                { session }
-              );
-            }
+        if (updates.status === 'Ditolak') {
+          if (!updates.note) {
+            throwError('Catatan wajib diisi jika laporan ditolak', 400);
           }
-
+          pvReport.note = updates.note;
           pvReport.approved_by = null;
 
-          // rollback ExpenseLog
-          await ExpenseLog.findOneAndUpdate(
-            { voucher_number: pvReport.voucher_number },
-            { $unset: { completed_at: '' } },
-            { session }
-          );
-
-          // rollback ExpenseRequest ke Pending
           await ExpenseRequest.findOneAndUpdate(
             {
               payment_voucher: pvReport.pv_number,
@@ -443,32 +413,45 @@ const updatePVReport = asyncHandler(async (req, res) => {
           );
         }
 
+        if (prevStatus === 'Disetujui' && updates.status !== 'Disetujui') {
+          // rollback RAP aktual
+          for (const item of pvReport.items) {
+            const group = mapExpenseType(item.expense_type);
+            if (group && item.category) {
+              await RAP.updateOne(
+                { _id: pvReport.project },
+                {
+                  $inc: { [`${group}.${item.category}.aktual`]: -item.aktual }
+                },
+                { session }
+              );
+            }
+          }
+
+          await ExpenseLog.findOneAndUpdate(
+            { voucher_number: pvReport.voucher_number },
+            { $unset: { completed_at: '' } },
+            { session }
+          );
+        }
+
         pvReport.status = updates.status;
       }
     }
 
-    // ========== KARYAWAN ==========
+    // KARYAWAN
     else {
       if (updates.items && Array.isArray(updates.items)) {
-        // 🔍 validasi aktual per item
-        for (const item of updates.items) {
-          if (item.aktual < 0) {
-            throwError(
-              `Aktual untuk "${item.purpose}" tidak boleh negatif`,
-              400
-            );
-          }
-          if (item.aktual > item.amount) {
-            throwError(
-              `Aktual untuk "${item.purpose}" tidak boleh melebihi jumlah (${item.amount})`,
-              400
-            );
+        for (const it of updates.items) {
+          if (it.aktual < 0) {
+            throwError(`Aktual untuk "${it.purpose}" tidak boleh negatif`, 400);
           }
         }
 
         pvReport.items = updates.items.map((it) => ({
           ...it,
-          expense_type: it.expense_type || pvReport.expense_type // jaga2 biar tetep ada
+          expense_type: it.expense_type || pvReport.expense_type,
+          overbudget: it.aktual > it.amount
         }));
       }
 
@@ -476,8 +459,8 @@ const updatePVReport = asyncHandler(async (req, res) => {
 
       pvReport.status = 'Diproses';
       pvReport.approved_by = null;
+      pvReport.note = null;
 
-      // Sync ke ExpenseLog
       await ExpenseLog.findOneAndUpdate(
         { voucher_number: pvReport.voucher_number },
         {

@@ -1,10 +1,11 @@
-const { required } = require('joi');
 const mongoose = require('mongoose');
 
 const biayaSchema = new mongoose.Schema(
   {
-    jumlah: { type: Number, default: 0 },
-    aktual: { type: Number, default: 0 }
+    jumlah: { type: Number, default: 0 }, // budget/plafon awal
+    biaya_pengajuan: { type: Number, default: 0 }, // total biaya pengajuan (approve)
+    aktual: { type: Number, default: 0 }, // realisasi pertanggungjawaban
+    overBudget: { type: Boolean, default: false } // flag kalau pernah over budget
   },
   { _id: false }
 );
@@ -25,9 +26,10 @@ const rapSchema = new mongoose.Schema(
     nomor_kontrak: { type: String, required: true },
     location: { type: String, required: true },
 
-    nilai_pekerjaan_addendum: { type: Number },
-    nomor_kontrak_addendum: { type: String },
-    nilai_fix_pekerjaan: { type: Number },
+    nilai_pekerjaan_addendum: { type: Number, default: null },
+    nomor_kontrak_addendum: { type: String, default: null },
+    nilai_fix_pekerjaan: { type: Number, default: null },
+
     client: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Client',
@@ -37,6 +39,7 @@ const rapSchema = new mongoose.Schema(
     address: { type: String, required: true },
     npwp: { type: String, required: true },
     phone: { type: String, required: true },
+
     persiapan_pekerjaan: {
       biaya_survey_awal_lapangan: biayaSchema,
       uang_saku_survey_osa: biayaSchema,
@@ -105,6 +108,7 @@ const rapSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// === Hook otomatis bikin ProgressProject saat RAP dibuat ===
 rapSchema.post('save', async function (doc, next) {
   try {
     const ProgressProject = mongoose.model('Progress');
@@ -129,9 +133,9 @@ rapSchema.post('save', async function (doc, next) {
   }
 });
 
-rapSchema.index({ project_name: 'text' }); // biar bisa text search
-rapSchema.index({ client: 1 }); // filter by client
-rapSchema.index({ nomor_kontrak: 1 }, { unique: true }); // kontrak unik
-rapSchema.index({ createdAt: -1 }); // sorting terbaru
+rapSchema.index({ project_name: 'text' });
+rapSchema.index({ client: 1 });
+rapSchema.index({ nomor_kontrak: 1 }, { unique: true });
+rapSchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model('RAP', rapSchema);

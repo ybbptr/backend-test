@@ -11,11 +11,13 @@ const objectIdValidator = (value, helpers) => {
 const detailSchema = Joi.object({
   purpose: Joi.string().required().messages({
     'string.base': 'Keperluan harus berupa teks',
-    'any.required': 'Keperluan wajib diisi'
+    'any.required': 'Keperluan wajib diisi',
+    'string.empty': 'Keperluan tidak boleh kosong'
   }),
   category: Joi.string().required().messages({
     'string.base': 'Kategori harus berupa teks',
-    'any.required': 'Kategori wajib diisi'
+    'any.required': 'Kategori wajib diisi',
+    'string.empty': 'Kategori tidak boleh kosong'
   }),
   quantity: Joi.number().integer().min(1).required().messages({
     'number.base': 'Quantity harus berupa angka',
@@ -38,14 +40,8 @@ const createExpenseRequestSchema = Joi.object({
     'any.invalid': 'ID karyawan tidak valid!',
     'any.required': 'Karyawan wajib diisi'
   }),
-  paid_by: Joi.custom(objectIdValidator).messages({
-    'any.invalid': 'ID karyawan tidak valid!'
-  }),
-  approved_by: Joi.custom(objectIdValidator).messages({
-    'any.invalid': 'ID karyawan tidak valid!'
-  }),
   project: Joi.custom(objectIdValidator).required().messages({
-    'any.invalid': 'ID Proyek tidak valid!',
+    'any.invalid': 'ID proyek tidak valid!',
     'any.required': 'Proyek wajib diisi'
   }),
   voucher_prefix: Joi.string()
@@ -70,9 +66,8 @@ const createExpenseRequestSchema = Joi.object({
       'any.only': 'Jenis biaya tidak valid',
       'any.required': 'Jenis biaya wajib diisi'
     }),
-  submission_date: Joi.date().optional(),
   method: Joi.string().valid('Transfer', 'Tunai').required().messages({
-    'any.only': 'Metode pembayaran harus Transfer atau Tunai',
+    'any.only': 'Metode pembayaran hanya boleh Transfer atau Tunai',
     'any.required': 'Metode pembayaran wajib diisi'
   }),
   bank_account_number: Joi.string().when('method', {
@@ -103,45 +98,43 @@ const createExpenseRequestSchema = Joi.object({
     }),
     otherwise: Joi.optional().allow(null, '')
   }),
-  status: Joi.string().valid('Diproses', 'Disetujui', 'Ditolak').messages({
-    'any.only': 'Status tidak valid'
-  }),
+
+  status: Joi.string()
+    .valid('Diproses', 'Disetujui', 'Ditolak')
+    .messages({ 'any.only': 'Status tidak valid' }),
+  request_status: Joi.string()
+    .valid('Aktif', 'Selesai', 'Pending', 'Ditolak')
+    .messages({ 'any.only': 'Request status tidak valid' }),
+
   description: Joi.string().allow('', null),
-  details: Joi.array().items(detailSchema).min(1).required().messages({
-    'array.min': 'Minimal harus ada 1 detail keperluan'
+  note: Joi.string().allow('', null).messages({
+    'string.base': 'Note harus berupa teks'
   }),
+
+  details: Joi.array().items(detailSchema).min(1).required().messages({
+    'array.base': 'Detail harus berupa array',
+    'array.min': 'Minimal harus ada 1 detail keperluan',
+    'any.required': 'Detail wajib diisi'
+  }),
+
   total_amount: Joi.number().min(1).messages({
     'number.base': 'Total permohonan biaya harus berupa angka',
     'number.min': 'Total permohonan biaya minimal 1'
   })
 });
 
-const updateExpenseRequestSchema = createExpenseRequestSchema
-  .keys({
-    voucher_prefix: Joi.string().valid('PDLAP', 'PDOFC', 'PDPYR').optional(),
-    expense_type: Joi.string()
-      .valid(
-        'Persiapan Pekerjaan',
-        'Operasional Lapangan',
-        'Operasional Tenaga Ahli',
-        'Sewa Alat',
-        'Operasional Lab',
-        'Pajak',
-        'Biaya Lain'
-      )
-      .optional(),
-    status: Joi.string().valid('Diproses', 'Disetujui', 'Ditolak').optional(),
-    approved_by: Joi.custom(objectIdValidator).optional().messages({
-      'any.invalid': 'ID approved_by tidak valid'
-    }),
-    paid_by: Joi.custom(objectIdValidator).optional().messages({
-      'any.invalid': 'ID paid_by tidak valid'
-    })
-  })
-  .min(1)
-  .messages({
-    'object.min': 'Minimal harus ada 1 field yang diupdate'
-  });
+const updateExpenseRequestSchema = createExpenseRequestSchema.fork(
+  [
+    'name',
+    'project',
+    'voucher_prefix',
+    'expense_type',
+    'method',
+    'details',
+    'total_amount'
+  ],
+  (field) => field.optional()
+);
 
 module.exports = {
   createExpenseRequestSchema,

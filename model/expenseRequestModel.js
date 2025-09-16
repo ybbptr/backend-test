@@ -55,6 +55,7 @@ const expenseRequestSchema = new mongoose.Schema(
     description: { type: String, trim: true }, // deskripsi_keperluan
     details: { type: [detailSchema], default: [] }, // detail_keperluan
     total_amount: { type: Number, required: true }, // total_permohonan_biaya
+
     status: {
       type: String,
       enum: ['Diproses', 'Disetujui', 'Ditolak'],
@@ -75,7 +76,12 @@ const expenseRequestSchema = new mongoose.Schema(
       enum: ['Aktif', 'Selesai', 'Pending', 'Ditolak'],
       default: 'Pending'
     },
-    payment_voucher: { type: String, default: null }
+    payment_voucher: { type: String, default: null },
+    note: {
+      type: String,
+      trim: true,
+      default: null
+    }
   },
   { timestamps: true }
 );
