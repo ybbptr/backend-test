@@ -267,6 +267,7 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
     const updates = req.body;
 
     if (userRole === 'admin') {
+      /* ================== Voucher Prefix ================== */
       if (
         updates.voucher_prefix &&
         updates.voucher_prefix !== expenseRequest.voucher_prefix
@@ -277,6 +278,7 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
         );
       }
 
+      /* ================== Expense Type Change ================== */
       if (
         updates.expense_type &&
         updates.expense_type !== expenseRequest.expense_type
@@ -298,8 +300,9 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
         }
       }
 
+      /* ================== Update Details ================== */
       if (updates.details && Array.isArray(updates.details)) {
-        expenseRequest.details = updates.details.map((item) => {
+        const newDetails = updates.details.map((item) => {
           const qty = Number(item.quantity) || 0;
           const unitPrice = Number(item.unit_price) || 0;
           return {
@@ -309,21 +312,61 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
                 ? item.category.value
                 : item.category,
             amount: qty * unitPrice,
-            is_overbudget: false // default, dicek saat approve
+            is_overbudget: false
           };
         });
-        expenseRequest.total_amount = expenseRequest.details.reduce(
-          (acc, curr) => acc + curr.amount,
-          0
-        );
+        const newTotal = newDetails.reduce((acc, curr) => acc + curr.amount, 0);
+
+        // ⚠️ Jika status sudah Disetujui → rollback biaya lama dan apply baru ke RAP
+        if (expenseRequest.status === 'Disetujui') {
+          const rap = await RAP.findById(expenseRequest.project).session(
+            session
+          );
+          if (!rap) throwError('RAP tidak ditemukan', 404);
+
+          const group = mapExpenseType(expenseRequest.expense_type);
+
+          // rollback biaya lama
+          for (const old of expenseRequest.details) {
+            if (group && old.category) {
+              rap[group][old.category].biaya_pengajuan -= old.amount;
+              if (
+                rap[group][old.category].biaya_pengajuan <=
+                rap[group][old.category].jumlah
+              ) {
+                rap[group][old.category].is_overbudget = false;
+              }
+            }
+          }
+
+          // apply biaya baru
+          for (const item of newDetails) {
+            if (group && item.category) {
+              const biaya = rap[group][item.category];
+              biaya.biaya_pengajuan += item.amount;
+
+              if (biaya.biaya_pengajuan > biaya.jumlah) {
+                biaya.is_overbudget = true;
+                item.is_overbudget = true;
+              }
+            }
+          }
+
+          await rap.save({ session });
+        }
+
+        // update expense request
+        expenseRequest.details = newDetails;
+        expenseRequest.total_amount = newTotal;
 
         await ExpenseLog.updateOne(
-          { payment_voucher: expenseRequest.payment_voucher },
-          { $set: { details: expenseRequest.details } },
+          { voucher_number: expenseRequest.voucher_number },
+          { $set: { details: newDetails } },
           { session }
         );
       }
 
+      /* ================== Update Lain ================== */
       if (updates.description !== undefined)
         expenseRequest.description = updates.description;
       if (updates.method !== undefined) expenseRequest.method = updates.method;
@@ -344,6 +387,7 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
           updates.bank_account_holder ?? expenseRequest.bank_account_holder;
       }
 
+      /* ================== Status Change ================== */
       const newStatus = updates.status;
       if (newStatus && prevStatus !== newStatus) {
         if (newStatus === 'Disetujui') {
@@ -366,7 +410,7 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
             paymentPrefix
           );
 
-          // cek RAP dan flag overbudget per detail
+          // cek RAP dan flag overbudget (apply kalau baru disetujui)
           const rap = await RAP.findById(expenseRequest.project).session(
             session
           );
@@ -380,7 +424,7 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
 
               if (biaya.biaya_pengajuan > biaya.jumlah) {
                 biaya.is_overbudget = true;
-                item.is_overbudget = true; // tandai di detail
+                item.is_overbudget = true;
               }
             }
           }
@@ -456,6 +500,7 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
         expenseRequest.status = newStatus;
       }
     } else {
+      /* ================== Role selain Admin ================== */
       const { status, approved_by, paid_by, note, ...allowedUpdates } = updates;
 
       if (allowedUpdates.description !== undefined)

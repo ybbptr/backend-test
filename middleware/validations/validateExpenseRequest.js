@@ -44,11 +44,10 @@ const createExpenseRequestSchema = Joi.object({
     'any.invalid': 'ID proyek tidak valid!',
     'any.required': 'Proyek wajib diisi'
   }),
-  paid_by: Joi.custom(objectIdValidator).required().messages({
-    'any.invalid': 'ID karyawan tidak valid!',
-    'any.required': 'paid_by wajib diisi'
+  paid_by: Joi.custom(objectIdValidator).messages({
+    'any.invalid': 'ID karyawan tidak valid!'
   }),
-  approved_by: Joi.custom(objectIdValidator).required().messages({
+  approved_by: Joi.custom(objectIdValidator).messages({
     'any.invalid': 'ID karyawan tidak valid!',
     'any.required': 'approved_by wajib diisi'
   }),
