@@ -289,6 +289,45 @@ const updateRAP = asyncHandler(async (req, res) => {
       { new: true, session }
     );
 
+    /* === RECHECK OVERBUDGET FLAGS === */
+    const groups = [
+      'persiapan_pekerjaan',
+      'operasional_lapangan',
+      'operasional_tenaga_ahli',
+      'sewa_alat',
+      'operasional_lab',
+      'pajak',
+      'biaya_lain_lain'
+    ];
+
+    for (const group of groups) {
+      if (!rap[group]) continue;
+
+      for (const [category, biaya] of Object.entries(rap[group])) {
+        // update flag di RAP
+        biaya.is_overbudget = biaya.biaya_pengajuan > biaya.jumlah;
+
+        await ExpenseRequest.updateMany(
+          {
+            project: rap._id,
+            expense_type: mapExpenseTypeReverse(group),
+            'details.category': category
+          },
+          {
+            $set: {
+              'details.$[elem].is_overbudget': biaya.is_overbudget
+            }
+          },
+          {
+            arrayFilters: [{ 'elem.category': category }],
+            session
+          }
+        );
+      }
+    }
+
+    await rap.save({ session });
+
     await session.commitTransaction();
     res.status(200).json({ rap });
   } catch (error) {
