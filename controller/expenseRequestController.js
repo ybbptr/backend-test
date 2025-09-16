@@ -74,7 +74,8 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
           typeof item.category === 'object'
             ? item.category.value
             : item.category,
-        amount: qty * unitPrice
+        amount: qty * unitPrice,
+        is_overbudget: false // default
       };
     });
     const total_amount = normalizedDetails.reduce(
@@ -119,17 +120,22 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
       }
       paidBy = paid_by;
 
-      // update RAP (jumlah)
+      const rap = await RAP.findById(project).session(session);
+      if (!rap) throwError('RAP tidak ditemukan', 404);
+
       for (const item of normalizedDetails) {
         const group = mapExpenseType(expense_type);
         if (group && item.category) {
-          await RAP.updateOne(
-            { _id: project },
-            { $inc: { [`${group}.${item.category}.jumlah`]: item.amount } },
-            { session }
-          );
+          const biaya = rap[group][item.category];
+          biaya.biaya_pengajuan += item.amount;
+
+          if (biaya.biaya_pengajuan > biaya.jumlah) {
+            biaya.is_overbudget = true;
+            item.is_overbudget = true;
+          }
         }
       }
+      await rap.save({ session });
     }
 
     let finalnote = null;
@@ -163,7 +169,7 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
           request_status,
           approved_by: approvedBy,
           paid_by: paidBy,
-          note: finalnote // 🆕 simpan note kalau ada
+          note: finalnote
         }
       ],
       { session }
@@ -198,13 +204,12 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
 });
 
 const getExpenseRequests = asyncHandler(async (req, res) => {
+  const { status, voucher_prefix, expense_type, search } = req.query;
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 10;
   const skip = (page - 1) * limit;
 
-  const { status, voucher_prefix, expense_type, search } = req.query;
   const filter = {};
-
   if (status) filter.status = status;
   if (voucher_prefix) filter.voucher_prefix = voucher_prefix;
   if (expense_type) filter.expense_type = expense_type;
@@ -261,9 +266,7 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
     const userRole = req.user?.role;
     const updates = req.body;
 
-    // =================== ADMIN ===================
     if (userRole === 'admin') {
-      // ubah prefix voucher
       if (
         updates.voucher_prefix &&
         updates.voucher_prefix !== expenseRequest.voucher_prefix
@@ -274,7 +277,6 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
         );
       }
 
-      // ubah jenis biaya → reset detail
       if (
         updates.expense_type &&
         updates.expense_type !== expenseRequest.expense_type
@@ -296,7 +298,6 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
         }
       }
 
-      // recalc detail
       if (updates.details && Array.isArray(updates.details)) {
         expenseRequest.details = updates.details.map((item) => {
           const qty = Number(item.quantity) || 0;
@@ -307,7 +308,8 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
               typeof item.category === 'object'
                 ? item.category.value
                 : item.category,
-            amount: qty * unitPrice
+            amount: qty * unitPrice,
+            is_overbudget: false // default, dicek saat approve
           };
         });
         expenseRequest.total_amount = expenseRequest.details.reduce(
@@ -322,11 +324,10 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
         );
       }
 
-      // basic field
       if (updates.description !== undefined)
         expenseRequest.description = updates.description;
       if (updates.method !== undefined) expenseRequest.method = updates.method;
-      if (updates.note !== undefined) expenseRequest.note = updates.note; // 🆕 admin bisa update note kapanpun
+      if (updates.note !== undefined) expenseRequest.note = updates.note;
 
       if (updates.method === 'Tunai') {
         expenseRequest.bank_account_number = null;
@@ -343,7 +344,6 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
           updates.bank_account_holder ?? expenseRequest.bank_account_holder;
       }
 
-      // handle status baru
       const newStatus = updates.status;
       if (newStatus && prevStatus !== newStatus) {
         if (newStatus === 'Disetujui') {
@@ -366,16 +366,25 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
             paymentPrefix
           );
 
+          // cek RAP dan flag overbudget per detail
+          const rap = await RAP.findById(expenseRequest.project).session(
+            session
+          );
+          if (!rap) throwError('RAP tidak ditemukan', 404);
+
           for (const item of expenseRequest.details) {
             const group = mapExpenseType(expenseRequest.expense_type);
             if (group && item.category) {
-              await RAP.updateOne(
-                { _id: expenseRequest.project },
-                { $inc: { [`${group}.${item.category}.jumlah`]: item.amount } },
-                { session }
-              );
+              const biaya = rap[group][item.category];
+              biaya.biaya_pengajuan += item.amount;
+
+              if (biaya.biaya_pengajuan > biaya.jumlah) {
+                biaya.is_overbudget = true;
+                item.is_overbudget = true; // tandai di detail
+              }
             }
           }
+          await rap.save({ session });
 
           expenseRequest.request_status = 'Aktif';
 
@@ -411,18 +420,23 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
         }
 
         if (prevStatus === 'Disetujui' && newStatus !== 'Disetujui') {
-          // rollback RAP
-          for (const item of expenseRequest.details) {
-            const group = mapExpenseType(expenseRequest.expense_type);
-            if (group && item.category) {
-              await RAP.updateOne(
-                { _id: expenseRequest.project },
-                {
-                  $inc: { [`${group}.${item.category}.jumlah`]: -item.amount }
-                },
-                { session }
-              );
+          const rap = await RAP.findById(expenseRequest.project).session(
+            session
+          );
+          if (rap) {
+            for (const item of expenseRequest.details) {
+              const group = mapExpenseType(expenseRequest.expense_type);
+              if (group && item.category) {
+                rap[group][item.category].biaya_pengajuan -= item.amount;
+                if (
+                  rap[group][item.category].biaya_pengajuan <=
+                  rap[group][item.category].jumlah
+                ) {
+                  rap[group][item.category].is_overbudget = false;
+                }
+              }
             }
+            await rap.save({ session });
           }
 
           expenseRequest.payment_voucher = null;
@@ -441,10 +455,7 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
 
         expenseRequest.status = newStatus;
       }
-    }
-
-    // =================== KARYAWAN ===================
-    else {
+    } else {
       const { status, approved_by, paid_by, note, ...allowedUpdates } = updates;
 
       if (allowedUpdates.description !== undefined)
@@ -462,7 +473,8 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
               typeof item.category === 'object'
                 ? item.category.value
                 : item.category,
-            amount: qty * unitPrice
+            amount: qty * unitPrice,
+            is_overbudget: false
           };
         });
         expenseRequest.total_amount = expenseRequest.details.reduce(
@@ -530,9 +542,8 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
 });
 
 const deleteExpenseRequest = asyncHandler(async (req, res) => {
-  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id))
     throwError('ID tidak valid', 400);
-  }
 
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -543,40 +554,40 @@ const deleteExpenseRequest = asyncHandler(async (req, res) => {
     );
     if (!expenseRequest) throwError('Pengajuan biaya tidak ditemukan', 404);
 
-    const userRole = req.user?.role;
-
-    // Hanya admin atau karyawan dengan status Diproses
-    if (userRole !== 'admin' && expenseRequest.status !== 'Diproses') {
+    if (req.user?.role !== 'admin' && expenseRequest.status !== 'Diproses') {
       throwError(
         'Karyawan hanya boleh menghapus pengajuan dengan status Diproses',
         403
       );
     }
 
-    // Rollback ke RAP kalau status sudah disetujui
+    // rollback RAP kalau status sudah disetujui
     if (expenseRequest.status === 'Disetujui') {
+      const rap = await RAP.findById(expenseRequest.project).session(session);
       for (const item of expenseRequest.details) {
         const group = mapExpenseType(expenseRequest.expense_type);
         if (group && item.category) {
-          await RAP.updateOne(
-            { _id: expenseRequest.project },
-            { $inc: { [`${group}.${item.category}.jumlah`]: -item.amount } },
-            { session }
-          );
+          rap[group][item.category].biaya_pengajuan -= item.amount;
+          if (
+            rap[group][item.category].biaya_pengajuan <=
+            rap[group][item.category].jumlah
+          ) {
+            rap[group][item.category].is_overbudget = false;
+          }
         }
       }
+      await rap.save({ session });
     }
 
     await expenseRequest.deleteOne({ session });
-
     await session.commitTransaction();
-    session.endSession();
 
     res.status(200).json({ message: 'Pengajuan biaya berhasil dihapus' });
   } catch (err) {
     await session.abortTransaction();
-    session.endSession();
     throw err;
+  } finally {
+    session.endSession();
   }
 });
 

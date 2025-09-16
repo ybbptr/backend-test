@@ -6,7 +6,8 @@ const detailSchema = new mongoose.Schema(
     category: { type: String, required: true, trim: true }, // kategori
     quantity: { type: Number, required: true, min: 1 },
     unit_price: { type: Number, required: true, min: 0 }, // harga_satuan
-    amount: { type: Number, required: true, min: 0 } // jumlah
+    amount: { type: Number, required: true, min: 0 }, // jumlah
+    is_overbudget: { type: Boolean, default: false }
   },
   { _id: false }
 );

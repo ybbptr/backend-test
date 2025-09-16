@@ -2,10 +2,10 @@ const mongoose = require('mongoose');
 
 const biayaSchema = new mongoose.Schema(
   {
-    jumlah: { type: Number, default: 0 }, // budget/plafon awal
-    biaya_pengajuan: { type: Number, default: 0 }, // total biaya pengajuan (approve)
-    aktual: { type: Number, default: 0 }, // realisasi pertanggungjawaban
-    overBudget: { type: Boolean, default: false } // flag kalau pernah over budget
+    jumlah: { type: Number, default: 0 }, // budget awal
+    biaya_pengajuan: { type: Number, default: 0 }, // total pengajuan approved
+    aktual: { type: Number, default: 0 }, // realisasi
+    is_overbudget: { type: Boolean, default: false } // flag overbudget
   },
   { _id: false }
 );
