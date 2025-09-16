@@ -14,7 +14,7 @@ const dailyProgressSchema = new Schema(
   {
     project: {
       type: Types.ObjectId,
-      ref: 'Project',
+      ref: 'Progress',
       required: true,
       index: true
     },

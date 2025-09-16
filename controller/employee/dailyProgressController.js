@@ -1,11 +1,11 @@
 const mongoose = require('mongoose');
 const asyncHandler = require('express-async-handler');
 const throwError = require('../../utils/throwError');
-
 const ProgressProject = require('../../model/progressProjectModel');
 const DailyProgress = require('../../model/dailyProgressModel');
 
 const toDateStr = (date) => {
+  if (!date) return null;
   const d = new Date(date);
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
   return d.toISOString().slice(0, 10);
@@ -29,13 +29,6 @@ const pickProgress = (p = {}) => ({
   }
 });
 
-/**
- * PUT /:projectId/daily-progress/:local_date
- * Body: { notes?: string, items: Array<{ method:'sondir'|'bor'|'cptu', points_done:number, depth_reached:number }> }
- * Catatan:
- * - PUT = replace penuh: FE harus kirim SEMUA items yang ingin tersimpan untuk hari itu
- * - Mengosongkan items ([]) butuh konfirmasi ?confirm=clear
- */
 const upsertDailyProgress = asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -50,12 +43,11 @@ const upsertDailyProgress = asyncHandler(async (req, res) => {
     }
 
     const { notes = '', items } = req.body || {};
-
-    // PUT wajib menyertakan field "items"
     if (!Object.prototype.hasOwnProperty.call(req.body || {}, 'items')) {
       throwError('PUT requires full payload: field "items" wajib ada', 400);
     }
 
+    // cek project
     const project = await ProgressProject.findById(projectId).session(session);
     if (!project) throwError('Project tidak ditemukan', 404);
 
@@ -156,29 +148,32 @@ const upsertDailyProgress = asyncHandler(async (req, res) => {
       };
     }
 
-    const cur = {
-      sondir: project.progress?.sondir || {
-        total_points: 0,
-        completed_points: 0
-      },
-      bor: project.progress?.bor || { total_points: 0, completed_points: 0 },
-      cptu: project.progress?.cptu || { total_points: 0, completed_points: 0 }
-    };
+    const cur = project.progress || {};
     const nextCompleted = {
       sondir:
-        cur.sondir.completed_points + inc['progress.sondir.completed_points'],
-      bor: cur.bor.completed_points + inc['progress.bor.completed_points'],
-      cptu: cur.cptu.completed_points + inc['progress.cptu.completed_points']
+        (cur.sondir?.completed_points || 0) +
+        inc['progress.sondir.completed_points'],
+      bor:
+        (cur.bor?.completed_points || 0) + inc['progress.bor.completed_points'],
+      cptu:
+        (cur.cptu?.completed_points || 0) +
+        inc['progress.cptu.completed_points']
     };
     const bad = [];
     if (
       nextCompleted.sondir < 0 ||
-      nextCompleted.sondir > cur.sondir.total_points
+      nextCompleted.sondir > (cur.sondir?.total_points || 0)
     )
       bad.push('sondir');
-    if (nextCompleted.bor < 0 || nextCompleted.bor > cur.bor.total_points)
+    if (
+      nextCompleted.bor < 0 ||
+      nextCompleted.bor > (cur.bor?.total_points || 0)
+    )
       bad.push('bor');
-    if (nextCompleted.cptu < 0 || nextCompleted.cptu > cur.cptu.total_points)
+    if (
+      nextCompleted.cptu < 0 ||
+      nextCompleted.cptu > (cur.cptu?.total_points || 0)
+    )
       bad.push('cptu');
     if (bad.length)
       throwError(
@@ -192,6 +187,7 @@ const upsertDailyProgress = asyncHandler(async (req, res) => {
       { new: true, upsert: true, setDefaultsOnInsert: true, session }
     );
 
+    // update progress project
     await ProgressProject.updateOne(
       { _id: projectId },
       { $inc: inc, $max: max },
@@ -209,12 +205,8 @@ const upsertDailyProgress = asyncHandler(async (req, res) => {
       message: 'Progress harian tersimpan',
       data: doc,
       project_progress: pickProgress(freshProject.progress),
-      start_date: freshProject.start_date
-        ? new Date(freshProject.start_date).toISOString().slice(0, 10)
-        : null,
-      end_date: freshProject.end_date
-        ? new Date(freshProject.end_date).toISOString().slice(0, 10)
-        : null
+      start_date: toDateStr(freshProject.start_date),
+      end_date: toDateStr(freshProject.end_date)
     });
   } catch (e) {
     await session.abortTransaction();
@@ -226,7 +218,6 @@ const upsertDailyProgress = asyncHandler(async (req, res) => {
   }
 });
 
-// GET /:projectId/daily-progress/:local_date
 const getDailyProgress = asyncHandler(async (req, res) => {
   const { projectId, local_date } = req.params;
   const authorId = req.user?.id;
@@ -248,16 +239,11 @@ const getDailyProgress = asyncHandler(async (req, res) => {
   res.json({
     data: doc || null,
     project_progress: pickProgress(project.progress),
-    start_date: project.start_date
-      ? new Date(project.start_date).toISOString().slice(0, 10)
-      : null,
-    end_date: project.end_date
-      ? new Date(project.end_date).toISOString().slice(0, 10)
-      : null
+    start_date: toDateStr(project.start_date),
+    end_date: toDateStr(project.end_date)
   });
 });
 
-// DELETE /:projectId/daily-progress/:local_date
 const removeDailyProgress = asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -291,7 +277,7 @@ const removeDailyProgress = asyncHandler(async (req, res) => {
       );
     }
 
-    await ProgressProject.deleteOne({ _id: doc._id }).session(session);
+    await DailyProgress.deleteOne({ _id: doc._id }).session(session);
 
     const dec = {
       'progress.sondir.completed_points': -sum.sondir.points,
@@ -364,7 +350,6 @@ const getAllDailyProgress = asyncHandler(async (req, res) => {
   const project = await ProgressProject.findById(projectId).select('_id');
   if (!project) throwError('Project tidak ditemukan', 404);
 
-  // filter
   const q = { project: projectId };
   if (from) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from))
@@ -415,7 +400,7 @@ module.exports = {
   upsertDailyProgress,
   getDailyProgress,
   removeDailyProgress,
+  getAllDailyProgress,
   getProjects,
-  getProject,
-  getAllDailyProgress
+  getProject
 };
