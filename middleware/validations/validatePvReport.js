@@ -40,16 +40,7 @@ const pvItemSchema = Joi.object({
     'number.base': 'Aktual harus berupa angka',
     'number.min': 'Aktual minimal 0'
   }),
-
-  nota: Joi.alternatives()
-    .try(Joi.string().trim().min(1), Joi.array().min(1), Joi.object())
-    .required()
-    .messages({
-      'any.required': 'Nota/bukti wajib dilampirkan',
-      'string.empty': 'Nota/bukti tidak boleh kosong',
-      'array.min': 'Minimal 1 bukti dilampirkan',
-      'alternatives.match': 'Format nota tidak valid'
-    })
+  nota: Joi.any().optional()
 }).custom((val, helpers) => {
   const q = Number(val.quantity);
   const p = Number(val.unit_price);
