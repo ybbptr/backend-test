@@ -282,7 +282,6 @@ const getPVReport = asyncHandler(async (req, res) => {
   res.status(200).json(report);
 });
 
-/* ================= Update ================= */
 const updatePVReport = asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!mongoose.Types.ObjectId.isValid(id)) throwError('ID tidak valid', 400);
@@ -299,213 +298,168 @@ const updatePVReport = asyncHandler(async (req, res) => {
     const userRole = req.user?.role;
     const toNum = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
 
-    /* ==================== ADMIN ==================== */
-    if (userRole === 'admin') {
-      // merge aktual kalau dikirim
-      if (updates.items && Array.isArray(updates.items)) {
-        pvReport.items = pvReport.items.map((oldItem, idx) => {
-          const patch = updates.items[idx];
-          if (!patch) return oldItem;
+    let itemsUpdated = false;
 
-          const merged = {
-            ...(oldItem.toObject?.() ?? oldItem),
-            aktual: toNum(patch.aktual, oldItem.aktual)
-          };
-          merged.overbudget = merged.aktual > (merged.amount || 0);
-          return merged;
-        });
-        pvReport.markModified('items');
+    /* ====== MERGE ITEMS (ADMIN & KARYAWAN) ====== */
+    if (updates.items && Array.isArray(updates.items)) {
+      const existing = pvReport.items.map((d) =>
+        d.toObject ? d.toObject() : d
+      );
+      const result = [];
+
+      for (let idx = 0; idx < updates.items.length; idx++) {
+        const patch = updates.items[idx];
+        const base = existing[idx] || {};
+        const merged = { ...base, ...patch };
+
+        merged.quantity = toNum(merged.quantity);
+        merged.unit_price = toNum(merged.unit_price);
+        merged.amount = toNum(merged.amount);
+        merged.aktual = toNum(merged.aktual);
+
+        if (merged.aktual < 0) {
+          throwError(
+            `Aktual untuk "${merged.purpose}" tidak boleh negatif`,
+            400
+          );
+        }
+
+        merged.expense_type =
+          merged.expense_type || base.expense_type || pvReport.expense_type;
+        merged.overbudget = merged.aktual > merged.amount;
+        merged.nota = merged.nota ?? base.nota ?? null;
+
+        result.push(merged);
       }
 
-      // ubah status
-      if (updates.status && updates.status !== prevStatus) {
-        if (updates.status === 'Disetujui') {
-          if (!updates.approved_by) throwError('approved_by wajib diisi', 400);
-          pvReport.approved_by = updates.approved_by;
-          pvReport.recipient = updates.recipient || pvReport.recipient;
-
-          // validasi & update RAP
-          for (const item of pvReport.items) {
-            if (toNum(item.aktual) > toNum(item.amount)) {
-              throwError(
-                `Aktual untuk "${item.purpose}" melebihi pengajuan (${item.amount})`,
-                400
-              );
-            }
-            const group = mapExpenseType(item.expense_type);
-            if (group && item.category) {
-              await RAP.updateOne(
-                { _id: pvReport.project },
-                {
-                  $inc: {
-                    [`${group}.${item.category}.aktual`]: toNum(item.aktual)
-                  }
-                },
-                { session }
-              );
-            }
-          }
-
-          await ExpenseLog.findOneAndUpdate(
-            { voucher_number: pvReport.voucher_number },
+      // rollback RAP lama
+      for (const old of pvReport.items) {
+        const group = mapExpenseType(old.expense_type);
+        if (group && old.category) {
+          await RAP.updateOne(
+            { _id: pvReport.project },
             {
-              $set: {
-                details: pvReport.items.map((it) => ({
-                  purpose: it.purpose,
-                  category: it.category,
-                  quantity: it.quantity,
-                  unit_price: it.unit_price,
-                  amount: it.amount,
-                  aktual: it.aktual || 0,
-                  nota: it.nota
-                })),
-                completed_at: new Date()
-              }
+              $inc: { [`${group}.${old.category}.aktual`]: -(old.aktual || 0) }
             },
             { session }
           );
-
-          await ExpenseRequest.findOneAndUpdate(
-            {
-              payment_voucher: pvReport.pv_number,
-              voucher_number: pvReport.voucher_number
-            },
-            { $set: { request_status: 'Selesai' } },
-            { session }
-          );
         }
-
-        if (updates.status === 'Ditolak') {
-          if (!updates.note)
-            throwError('Catatan wajib diisi jika laporan ditolak', 400);
-          pvReport.note = updates.note;
-          pvReport.approved_by = null;
-
-          await ExpenseRequest.findOneAndUpdate(
-            {
-              payment_voucher: pvReport.pv_number,
-              voucher_number: pvReport.voucher_number
-            },
-            { $set: { request_status: 'Pending' } },
-            { session }
-          );
-        }
-
-        if (prevStatus === 'Disetujui' && updates.status !== 'Disetujui') {
-          // rollback RAP
-          for (const item of pvReport.items) {
-            const group = mapExpenseType(item.expense_type);
-            if (group && item.category) {
-              await RAP.updateOne(
-                { _id: pvReport.project },
-                {
-                  $inc: {
-                    [`${group}.${item.category}.aktual`]: -(item.aktual || 0)
-                  }
-                },
-                { session }
-              );
-            }
-          }
-
-          await ExpenseLog.findOneAndUpdate(
-            { voucher_number: pvReport.voucher_number },
-            { $unset: { completed_at: '' } },
-            { session }
-          );
-        }
-
-        pvReport.status = updates.status;
-      }
-    } else {
-      /* ==================== KARYAWAN ==================== */
-      if (updates.items && Array.isArray(updates.items)) {
-        const existing = pvReport.items.map((d) =>
-          d.toObject ? d.toObject() : d
-        );
-        const result = [];
-
-        for (let idx = 0; idx < updates.items.length; idx++) {
-          const patch = updates.items[idx];
-          const base = existing[idx] || {};
-          const merged = { ...base, ...patch };
-
-          merged.quantity = toNum(merged.quantity);
-          merged.unit_price = toNum(merged.unit_price);
-          merged.amount = toNum(merged.amount);
-          merged.aktual = toNum(merged.aktual);
-
-          if (merged.aktual < 0) {
-            throwError(
-              `Aktual untuk "${merged.purpose}" tidak boleh negatif`,
-              400
-            );
-          }
-
-          merged.expense_type =
-            merged.expense_type || base.expense_type || pvReport.expense_type;
-          merged.overbudget = merged.aktual > merged.amount;
-
-          // handle nota upload
-          const fileField = `nota_${idx + 1}`;
-          let file = null;
-          if (Array.isArray(req.files)) {
-            file = req.files.find((f) => f.fieldname === fileField) || null;
-          } else if (req.files && typeof req.files === 'object') {
-            file = req.files[fileField]?.[0] || null;
-          }
-
-          if (file) {
-            if (base?.nota?.key) {
-              try {
-                await deleteFile(base.nota.key);
-              } catch (_) {}
-            }
-            const ext = path.extname(file.originalname);
-            const key = `Pertanggungjawaban Dana/${pvReport.pv_number}/nota_${
-              idx + 1
-            }_${formatDate()}${ext}`;
-            await uploadBuffer(key, file.buffer);
-            merged.nota = {
-              key,
-              contentType: file.mimetype,
-              size: file.size,
-              uploadedAt: new Date()
-            };
-          } else {
-            merged.nota = merged.nota ?? base.nota ?? null;
-          }
-
-          result.push(merged);
-        }
-
-        pvReport.items = result;
-        pvReport.markModified('items');
       }
 
-      if (updates.report_date) pvReport.report_date = updates.report_date;
+      pvReport.items = result;
+      pvReport.markModified('items');
+      itemsUpdated = true;
+    }
 
+    /* ====== RESET STATUS JIKA ITEMS BERUBAH ====== */
+    if (itemsUpdated) {
       pvReport.status = 'Diproses';
       pvReport.approved_by = null;
       pvReport.note = null;
+    }
 
-      await ExpenseLog.findOneAndUpdate(
-        { voucher_number: pvReport.voucher_number },
-        {
-          $set: {
-            details: pvReport.items.map((it) => ({
-              purpose: it.purpose,
-              category: it.category,
-              quantity: it.quantity,
-              unit_price: it.unit_price,
-              amount: it.amount,
-              aktual: it.aktual || 0,
-              nota: it.nota
-            }))
+    /* ====== ADMIN: UBAH STATUS ====== */
+    if (
+      userRole === 'admin' &&
+      updates.status &&
+      updates.status !== prevStatus
+    ) {
+      if (updates.status === 'Disetujui') {
+        if (!updates.approved_by) throwError('approved_by wajib diisi', 400);
+        pvReport.approved_by = updates.approved_by;
+        pvReport.recipient = updates.recipient || pvReport.recipient;
+
+        for (const item of pvReport.items) {
+          if (toNum(item.aktual) > toNum(item.amount)) {
+            throwError(
+              `Aktual untuk "${item.purpose}" melebihi pengajuan (${item.amount})`,
+              400
+            );
           }
-        },
-        { session }
-      );
+          const group = mapExpenseType(item.expense_type);
+          if (group && item.category) {
+            await RAP.updateOne(
+              { _id: pvReport.project },
+              {
+                $inc: {
+                  [`${group}.${item.category}.aktual`]: toNum(item.aktual)
+                }
+              },
+              { session }
+            );
+          }
+        }
+
+        await ExpenseLog.findOneAndUpdate(
+          { voucher_number: pvReport.voucher_number },
+          {
+            $set: {
+              details: pvReport.items.map((it) => ({
+                purpose: it.purpose,
+                category: it.category,
+                quantity: it.quantity,
+                unit_price: it.unit_price,
+                amount: it.amount,
+                aktual: it.aktual || 0,
+                nota: it.nota
+              })),
+              completed_at: new Date()
+            }
+          },
+          { session }
+        );
+
+        await ExpenseRequest.findOneAndUpdate(
+          {
+            payment_voucher: pvReport.pv_number,
+            voucher_number: pvReport.voucher_number
+          },
+          { $set: { request_status: 'Selesai' } },
+          { session }
+        );
+      }
+
+      if (updates.status === 'Ditolak') {
+        if (!updates.note)
+          throwError('Catatan wajib diisi jika laporan ditolak', 400);
+        pvReport.note = updates.note;
+        pvReport.approved_by = null;
+
+        await ExpenseRequest.findOneAndUpdate(
+          {
+            payment_voucher: pvReport.pv_number,
+            voucher_number: pvReport.voucher_number
+          },
+          { $set: { request_status: 'Pending' } },
+          { session }
+        );
+      }
+
+      if (prevStatus === 'Disetujui' && updates.status !== 'Disetujui') {
+        // rollback RAP
+        for (const item of pvReport.items) {
+          const group = mapExpenseType(item.expense_type);
+          if (group && item.category) {
+            await RAP.updateOne(
+              { _id: pvReport.project },
+              {
+                $inc: {
+                  [`${group}.${item.category}.aktual`]: -(item.aktual || 0)
+                }
+              },
+              { session }
+            );
+          }
+        }
+
+        await ExpenseLog.findOneAndUpdate(
+          { voucher_number: pvReport.voucher_number },
+          { $unset: { completed_at: '' } },
+          { session }
+        );
+      }
+
+      pvReport.status = updates.status;
     }
 
     await pvReport.save({ session });
@@ -519,7 +473,6 @@ const updatePVReport = asyncHandler(async (req, res) => {
   }
 });
 
-/* ================= Delete ================= */
 const deletePVReport = asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!mongoose.Types.ObjectId.isValid(id)) throwError('ID tidak valid', 400);
@@ -532,22 +485,20 @@ const deletePVReport = asyncHandler(async (req, res) => {
     if (!pvReport) throwError('PV Report tidak ditemukan', 404);
 
     if (pvReport.status === 'Disetujui') {
-      for (const item of pvReport.items) {
-        const group = mapExpenseType(item.expense_type);
-        if (group && item.category) {
-          await RAP.updateOne(
-            { _id: pvReport.project },
-            {
-              $inc: {
-                [`${group}.${item.category}.aktual`]: -(item.aktual || 0)
-              }
-            },
-            { session }
-          );
-        }
-      }
+      throwError('Laporan yang sudah disetujui tidak bisa dihapus', 403);
     }
 
+    // rollback ke pengajuan biaya aktif
+    await ExpenseRequest.findOneAndUpdate(
+      {
+        payment_voucher: pvReport.pv_number,
+        voucher_number: pvReport.voucher_number
+      },
+      { $set: { request_status: 'Aktif' } },
+      { session }
+    );
+
+    // hapus nota
     for (const item of pvReport.items) {
       if (item?.nota?.key) {
         try {
@@ -567,7 +518,6 @@ const deletePVReport = asyncHandler(async (req, res) => {
   }
 });
 
-/* ================= Helpers for FE ================= */
 const getAllEmployee = asyncHandler(async (req, res) => {
   const employee = await Employee.find().select('name');
   if (!employee) throwError('Karyawan tidak ada', 404);
