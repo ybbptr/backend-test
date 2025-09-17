@@ -27,6 +27,63 @@ function mapExpenseType(expenseType) {
 }
 const num = (x) => Number(x) || 0;
 
+async function markOverbudgetFlags({
+  projectId,
+  expenseType,
+  details,
+  session,
+  excludeId = null
+}) {
+  const rap = await RAP.findById(projectId).session(session);
+  if (!rap) throwError('RAP tidak ditemukan', 404);
+
+  const group = mapExpenseType(expenseType);
+  if (!group) return details;
+
+  // Agregasi total pengajuan "Diproses" LAIN per kategori
+  const match = {
+    project: projectId,
+    expense_type: expenseType,
+    status: 'Diproses'
+  };
+  if (excludeId) match._id = { $ne: excludeId };
+
+  const pending = await ExpenseRequest.aggregate([
+    { $match: match },
+    { $unwind: '$details' },
+    {
+      $group: {
+        _id: '$details.category',
+        total: { $sum: '$details.amount' }
+      }
+    }
+  ]).session(session);
+
+  const pendingMap = new Map(pending.map((p) => [p._id, Number(p.total) || 0]));
+
+  // Tandai item overbudget berdasar proyeksi
+  return details.map((raw) => {
+    const qty = Number(raw.quantity) || 0;
+    const unitPrice = Number(raw.unit_price) || 0;
+    const cat =
+      typeof raw.category === 'object' ? raw.category.value : raw.category;
+    const amount = Number(raw.amount ?? qty * unitPrice) || 0;
+
+    const bucket = rap[group]?.[cat];
+    if (!bucket) {
+      return { ...raw, category: cat, amount, is_overbudget: false };
+    }
+
+    const approved = Number(bucket.biaya_pengajuan) || 0;
+    const pendingOthers = Number(pendingMap.get(cat)) || 0;
+    const projected = approved + pendingOthers + amount;
+    const limit = Number(bucket.jumlah) || 0;
+    const isOver = projected > limit;
+
+    return { ...raw, category: cat, amount, is_overbudget: isOver };
+  });
+}
+
 /* ================= Create ================= */
 const addExpenseRequest = asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
@@ -100,14 +157,8 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
         is_overbudget: false
       };
     });
-    const total_amount = normalizedDetails.reduce(
-      (acc, curr) => acc + curr.amount,
-      0
-    );
 
-    const voucher_number = await generateVoucherNumber(voucher_prefix);
-
-    // status & request_status
+    // status & request_status awal
     let status, request_status;
     if (req.user?.role === 'karyawan') {
       status = 'Diproses';
@@ -122,10 +173,28 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
       request_status = 'Pending';
     }
 
+    // Pasang flag overbudget proyeksi jika status masih Diproses (tidak mengubah RAP)
+    let detailsForSave = normalizedDetails;
+    if (status !== 'Disetujui') {
+      detailsForSave = await markOverbudgetFlags({
+        projectId: project,
+        expenseType: expense_type,
+        details: normalizedDetails,
+        session
+      });
+    }
+
+    const total_amount = detailsForSave.reduce(
+      (acc, curr) => acc + curr.amount,
+      0
+    );
+    const voucher_number = await generateVoucherNumber(voucher_prefix);
+
     let payment_voucher = null;
     let approvedBy = null;
     let paidBy = null;
 
+    // Jika langsung Disetujui oleh admin → update RAP dan set flag aktual
     if (status === 'Disetujui' && req.user?.role === 'admin') {
       const paymentPrefix = mapPaymentPrefix(voucher_prefix);
       if (!paymentPrefix) throwError('Prefix voucher tidak valid', 400);
@@ -145,7 +214,7 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
       const rap = await RAP.findById(project).session(session);
       if (!rap) throwError('RAP tidak ditemukan', 404);
 
-      for (const item of normalizedDetails) {
+      for (const item of detailsForSave) {
         const group = mapExpenseType(expense_type);
         if (group && item.category && rap[group]?.[item.category]) {
           const biaya = rap[group][item.category];
@@ -184,7 +253,7 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
           bank_account_holder:
             method === 'Transfer' ? bank_account_holder : null,
           description,
-          details: normalizedDetails,
+          details: detailsForSave,
           total_amount,
           status,
           request_status,
@@ -205,7 +274,7 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
           requester: requesterId,
           project,
           expense_type,
-          details: normalizedDetails
+          details: detailsForSave
         }
       ],
       { session }
@@ -341,7 +410,7 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
       }
 
       if (updates.details && Array.isArray(updates.details)) {
-        const newDetails = updates.details.map((item) => {
+        let newDetails = updates.details.map((item) => {
           const qty = Number(item.quantity) || 0;
           const unitPrice = Number(item.unit_price) || 0;
           return {
@@ -354,6 +423,20 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
             is_overbudget: false
           };
         });
+
+        // Jika BELUM Disetujui → pasang flag proyeksi (exclude dokumen ini)
+        if ((expenseRequest.status || 'Diproses') !== 'Disetujui') {
+          newDetails = await markOverbudgetFlags({
+            projectId: expenseRequest.project,
+            expenseType: expenseRequest.expense_type,
+            details: newDetails,
+            session,
+            excludeId: expenseRequest._id
+          });
+        } else {
+          // Jika sudah Disetujui → rollback lalu apply ke RAP di bawah (flag aktual)
+        }
+
         const newTotal = newDetails.reduce((acc, curr) => acc + curr.amount, 0);
 
         if (expenseRequest.status === 'Disetujui') {
@@ -361,7 +444,6 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
             session
           );
           if (!rap) throwError('RAP tidak ditemukan', 404);
-
           const group = mapExpenseType(expenseRequest.expense_type);
 
           // rollback biaya lama
@@ -389,11 +471,10 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
               }
             }
           }
-
           await rap.save({ session });
         }
 
-        // update expense request
+        // update expense request + log
         expenseRequest.details = newDetails;
         expenseRequest.total_amount = newTotal;
 
@@ -404,7 +485,7 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
         );
       }
 
-      // Update biasa
+      // Update field dasar
       if (updates.description !== undefined)
         expenseRequest.description = updates.description;
       if (updates.method !== undefined) expenseRequest.method = updates.method;
@@ -448,7 +529,7 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
             paymentPrefix
           );
 
-          // apply ke RAP
+          // apply ke RAP (flag aktual)
           const rap = await RAP.findById(expenseRequest.project).session(
             session
           );
@@ -547,7 +628,7 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
         expenseRequest.method = allowedUpdates.method;
 
       if (allowedUpdates.details && Array.isArray(allowedUpdates.details)) {
-        expenseRequest.details = allowedUpdates.details.map((item) => {
+        let recalced = allowedUpdates.details.map((item) => {
           const qty = Number(item.quantity) || 0;
           const unitPrice = Number(item.unit_price) || 0;
           return {
@@ -560,14 +641,25 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
             is_overbudget: false
           };
         });
-        expenseRequest.total_amount = expenseRequest.details.reduce(
-          (acc, curr) => acc + curr.amount,
+
+        // pasang flag proyeksi (exclude dokumen ini)
+        recalced = await markOverbudgetFlags({
+          projectId: expenseRequest.project,
+          expenseType: expenseRequest.expense_type,
+          details: recalced,
+          session,
+          excludeId: expenseRequest._id
+        });
+
+        expenseRequest.details = recalced;
+        expenseRequest.total_amount = recalced.reduce(
+          (a, c) => a + c.amount,
           0
         );
 
         await ExpenseLog.updateOne(
           { voucher_number: expenseRequest.voucher_number },
-          { $set: { details: expenseRequest.details } },
+          { $set: { details: recalced } },
           { session }
         );
       }
@@ -686,11 +778,11 @@ const categoryLabels = {
   uang_wakar: 'Uang Wakar',
   akomodasi_transport: 'Akomodasi Transport',
   mobilisasi_demobilisasi_titik: 'Mobilisasi + Demobilisasi / Titik',
-  biaya_rtk_takterduga: 'Biaya RTK / Tak Terduga',
+  biaya_rtk_tak_terduga: 'Biaya RTK / Tak Terduga',
   penginapan: 'Penginapan',
   transportasi_akomodasi_lokal: 'Transportasi & Akomodasi Lokal',
   transportasi_akomodasi_site: 'Transportasi & Akomodasi Site',
-  uang_makan_ta: 'Uang Makan',
+  uang_makan: 'Uang Makan',
   osa: 'Osa',
   fee_tenaga_ahli: 'Fee Tenaga Ahli',
   alat_sondir: 'Alat Sondir',

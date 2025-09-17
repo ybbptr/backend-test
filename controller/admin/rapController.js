@@ -317,6 +317,7 @@ const updateRAP = asyncHandler(async (req, res) => {
     rap.pajak = body.pajak ?? rap.pajak;
     rap.biaya_lain_lain = body.biaya_lain_lain ?? rap.biaya_lain_lain;
 
+    // normalisasi nilai numerik dan flag overbudget
     for (const group of GROUP_KEYS) {
       if (!rap[group]) continue;
       for (const [category, biaya] of Object.entries(rap[group])) {
@@ -330,6 +331,7 @@ const updateRAP = asyncHandler(async (req, res) => {
 
     await rap.save({ session });
 
+    // update ProfitReport sinkron
     await ProfitReport.findOneAndUpdate(
       {
         $or: [
@@ -352,6 +354,7 @@ const updateRAP = asyncHandler(async (req, res) => {
       { new: true, upsert: true, session }
     );
 
+    // update flag is_overbudget di ExpenseRequest
     for (const group of GROUP_KEYS) {
       if (!rap[group]) continue;
 
@@ -365,11 +368,11 @@ const updateRAP = asyncHandler(async (req, res) => {
           {
             project: rap._id,
             expense_type: expenseTypeStr,
-            'details.category': category
+            details: { $elemMatch: { category } } // hanya update kalau ada
           },
           {
             $set: {
-              'details.$[elem].is_overbudget': !!biaya.is_overbudget
+              'details.$[elem].is_overbudget': Boolean(biaya.is_overbudget)
             }
           },
           {
@@ -385,6 +388,7 @@ const updateRAP = asyncHandler(async (req, res) => {
   } catch (error) {
     await session.abortTransaction();
 
+    // rollback file upload kalau error
     if (req.file) {
       try {
         const ext = path.extname(req.file.originalname);
