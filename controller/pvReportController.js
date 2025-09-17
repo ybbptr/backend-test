@@ -291,6 +291,23 @@ const updatePVReport = asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
+  const toNum = (v, d = 0) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : d;
+  };
+
+  const getNotaFile = (req, idx) => {
+    const field = `nota_${idx + 1}`;
+    if (Array.isArray(req.files)) {
+      return req.files.find((f) => f.fieldname === field) || null;
+    }
+    if (req.files && typeof req.files === 'object') {
+      const arr = req.files[field];
+      return arr && arr[0] ? arr[0] : null;
+    }
+    return null;
+  };
+
   try {
     const pvReport = await PVReport.findById(id).session(session);
     if (!pvReport) throwError('PV Report tidak ditemukan', 404);
@@ -299,14 +316,16 @@ const updatePVReport = asyncHandler(async (req, res) => {
     const userRole = req.user?.role;
 
     if (userRole === 'admin') {
+      // ===== Admin: ubah status saja
       if (updates.status && updates.status !== prevStatus) {
         if (updates.status === 'Disetujui') {
           if (!updates.approved_by) throwError('approved_by wajib diisi', 400);
           pvReport.approved_by = updates.approved_by;
           pvReport.recipient = updates.recipient || pvReport.recipient;
 
+          // validasi max aktual & apply ke RAP
           for (const item of pvReport.items) {
-            if ((item.aktual ?? 0) > item.amount) {
+            if (toNum(item.aktual) > toNum(item.amount)) {
               throwError(
                 `Aktual untuk "${item.purpose}" melebihi pengajuan (${item.amount})`,
                 400
@@ -318,7 +337,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
                 { _id: pvReport.project },
                 {
                   $inc: {
-                    [`${group}.${item.category}.aktual`]: item.aktual || 0
+                    [`${group}.${item.category}.aktual`]: toNum(item.aktual)
                   }
                 },
                 { session }
@@ -333,10 +352,10 @@ const updatePVReport = asyncHandler(async (req, res) => {
                 details: pvReport.items.map((it) => ({
                   purpose: it.purpose,
                   category: it.category,
-                  quantity: it.quantity,
-                  unit_price: it.unit_price,
-                  amount: it.amount,
-                  aktual: it.aktual || 0,
+                  quantity: toNum(it.quantity),
+                  unit_price: toNum(it.unit_price),
+                  amount: toNum(it.amount),
+                  aktual: toNum(it.aktual),
                   nota: it.nota
                 })),
                 completed_at: new Date()
@@ -380,7 +399,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
                 { _id: pvReport.project },
                 {
                   $inc: {
-                    [`${group}.${item.category}.aktual`]: -(item.aktual || 0)
+                    [`${group}.${item.category}.aktual`]: -toNum(item.aktual)
                   }
                 },
                 { session }
@@ -398,59 +417,80 @@ const updatePVReport = asyncHandler(async (req, res) => {
         pvReport.status = updates.status;
       }
     } else {
-      // ===== Karyawan: boleh update items & report_date, reset status ke Diproses
-      if (updates.items && Array.isArray(updates.items)) {
-        // merge by index; pertahankan nota lama jika tidak ada file baru
-        const merged = updates.items.map((it, i) => {
-          const aktual = Number(it.aktual) || 0;
-          if (aktual < 0)
-            throwError(`Aktual untuk "${it.purpose}" tidak boleh negatif`, 400);
+      // ===== Karyawan: update items & report_date, reset status
+      if (Array.isArray(updates.items)) {
+        // snapshot existing & index by _id
+        const existing = pvReport.items.map((d) =>
+          d.toObject ? d.toObject() : d
+        );
+        const byId = new Map(existing.map((x, i) => [String(x._id), i]));
+        const result = existing.slice();
 
-          const base = pvReport.items[i]
-            ? pvReport.items[i].toObject?.() ?? pvReport.items[i]
-            : {};
-          const next = {
-            ...base,
-            ...it,
-            expense_type:
-              it.expense_type || base.expense_type || pvReport.expense_type,
-            overbudget: aktual > (Number(it.amount ?? base.amount) || 0)
-          };
-          return next;
-        });
+        for (
+          let idxInPayload = 0;
+          idxInPayload < updates.items.length;
+          idxInPayload++
+        ) {
+          const patch = updates.items[idxInPayload];
 
-        // handle file pengganti per index
-        for (let i = 0; i < merged.length; i++) {
-          const file = getNotaFile(req, i);
-          if (!file) {
-            // tidak ada file baru → pertahankan nota lama kalau ada
-            merged[i].nota = merged[i].nota ?? pvReport.items[i]?.nota ?? null;
-            continue;
+          // target index by _id; fallback ke index payload
+          let targetIndex = idxInPayload;
+          if (patch._id && byId.has(String(patch._id))) {
+            targetIndex = byId.get(String(patch._id));
           }
 
-          // hapus file lama jika ada
-          if (pvReport.items[i]?.nota?.key) {
-            try {
-              await deleteFile(pvReport.items[i].nota.key);
-            } catch (_) {}
+          const base = existing[targetIndex] || {};
+          const merged = { ...base, ...patch };
+
+          // coerce angka & validasi
+          merged.quantity = toNum(merged.quantity);
+          merged.unit_price = toNum(merged.unit_price);
+          merged.amount = toNum(merged.amount);
+          merged.aktual = toNum(merged.aktual);
+          if (merged.aktual < 0) {
+            throwError(
+              `Aktual untuk "${merged.purpose}" tidak boleh negatif`,
+              400
+            );
           }
 
-          const ext = path.extname(file.originalname);
-          const key = `Pertanggungjawaban Dana/${pvReport.pv_number}/nota_${
-            i + 1
-          }_${formatDate()}${ext}`;
-          await uploadBuffer(key, file.buffer);
+          // fallback tipe & overbudget
+          merged.expense_type =
+            merged.expense_type || base.expense_type || pvReport.expense_type;
+          merged.overbudget = merged.aktual > merged.amount;
 
-          merged[i].nota = {
-            key,
-            contentType: file.mimetype,
-            size: file.size,
-            uploadedAt: new Date()
-          };
+          // file nota baru?
+          const file = getNotaFile(req, idxInPayload);
+          if (file) {
+            if (base?.nota?.key) {
+              try {
+                await deleteFile(base.nota.key);
+              } catch (_) {}
+            }
+            const ext = path.extname(file.originalname);
+            const key = `Pertanggungjawaban Dana/${pvReport.pv_number}/nota_${
+              targetIndex + 1
+            }_${formatDate()}${ext}`;
+            await uploadBuffer(key, file.buffer);
+
+            merged.nota = {
+              key,
+              contentType: file.mimetype,
+              size: file.size,
+              uploadedAt: new Date()
+            };
+          } else {
+            // pertahankan nota lama
+            merged.nota = merged.nota ?? base.nota ?? null;
+          }
+
+          result[targetIndex] = merged;
         }
 
-        pvReport.items = merged;
+        pvReport.items = result;
+        pvReport.markModified('items');
 
+        // sinkron ke ExpenseLog
         await ExpenseLog.findOneAndUpdate(
           { voucher_number: pvReport.voucher_number },
           {
@@ -458,10 +498,10 @@ const updatePVReport = asyncHandler(async (req, res) => {
               details: pvReport.items.map((it) => ({
                 purpose: it.purpose,
                 category: it.category,
-                quantity: it.quantity,
-                unit_price: it.unit_price,
-                amount: it.amount,
-                aktual: it.aktual || 0,
+                quantity: toNum(it.quantity),
+                unit_price: toNum(it.unit_price),
+                amount: toNum(it.amount),
+                aktual: toNum(it.aktual),
                 nota: it.nota
               }))
             }
