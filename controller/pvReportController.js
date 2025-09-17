@@ -309,7 +309,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
         adjusted[path] = n;
       } else {
         const curr = toNum(getByPath(rapSnap || {}, path), 0);
-        const safe = -Math.min(curr, Math.abs(n)); // minimal 0 setelah di-apply
+        const safe = -Math.min(curr, Math.abs(n)); // minimal 0 setelah diterapkan
         if (safe !== 0) adjusted[path] = safe;
       }
     }
@@ -326,9 +326,14 @@ const updatePVReport = asyncHandler(async (req, res) => {
 
     const prevStatus = pvReport.status;
     const userRole = req.user?.role || 'unknown';
+    const wantApproveNow =
+      userRole === 'admin' && updates.status === 'Disetujui';
 
     /* ================== Merge Items & Deteksi Perubahan AKTUAL ================== */
     let aktualChanged = false;
+    // Khusus admin bila prevStatus sudah Disetujui dan tetap ingin Disetujui:
+    // kita siapkan delta bag supaya bisa langsung pantulkan perubahan ke RAP.
+    const incDeltaBag = {}; // hanya dipakai kalau prevStatus === 'Disetujui'
 
     if (updates.items && Array.isArray(updates.items)) {
       if (userRole === 'admin') {
@@ -337,11 +342,40 @@ const updatePVReport = asyncHandler(async (req, res) => {
           const patch = updates.items[idx];
           if (!patch) return oldItem;
 
-          const nextAkt = toNum(patch.aktual, oldObj.aktual);
-          if (toNum(oldObj.aktual) !== nextAkt) aktualChanged = true;
+          const oldAkt = toNum(oldObj.aktual);
+          const newAkt = toNum(patch.aktual, oldObj.aktual);
+          if (newAkt !== oldAkt) aktualChanged = true;
 
-          const next = { ...oldObj, aktual: nextAkt };
+          const next = { ...oldObj, aktual: newAkt };
           next.overbudget = toNum(next.aktual) > toNum(next.amount);
+
+          // Hitung delta bila sebelumnya sudah Disetujui (approve→approve)
+          if (prevStatus === 'Disetujui') {
+            const oldExpType = oldObj.expense_type || pvReport.expense_type;
+            const newExpType = next.expense_type || pvReport.expense_type;
+            const oldGroup = mapExpenseType(oldExpType);
+            const newGroup = mapExpenseType(newExpType);
+            const oldCat = oldObj.category;
+            const newCat = next.category;
+            const oldPath =
+              oldGroup && oldCat ? `${oldGroup}.${oldCat}.aktual` : null;
+            const newPath =
+              newGroup && newCat ? `${newGroup}.${newCat}.aktual` : null;
+
+            if (newPath && oldPath) {
+              if (newPath === oldPath) {
+                addInc(incDeltaBag, newPath, newAkt - oldAkt);
+              } else {
+                addInc(incDeltaBag, oldPath, -oldAkt);
+                addInc(incDeltaBag, newPath, newAkt);
+              }
+            } else if (oldPath && !newPath) {
+              addInc(incDeltaBag, oldPath, -oldAkt);
+            } else if (!oldPath && newPath) {
+              addInc(incDeltaBag, newPath, newAkt);
+            }
+          }
+
           return next;
         });
         pvReport.markModified('items');
@@ -374,6 +408,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
             merged.expense_type || base.expense_type || pvReport.expense_type;
           merged.overbudget = merged.aktual > merged.amount;
 
+          // nota_i
           const fileField = `nota_${idx + 1}`;
           let file = null;
           if (Array.isArray(req.files)) {
@@ -416,7 +451,14 @@ const updatePVReport = asyncHandler(async (req, res) => {
       pvReport.report_date = updates.report_date;
     }
 
-    if (aktualChanged) {
+    /* ================== Kebijakan Reset Saat AKTUAL Berubah ==================
+       - Jika aktual berubah & TIDAK ada permintaan approve sekarang → reset ke Diproses
+       - Jika aktual berubah & admin minta approve sekarang:
+         * prev Diproses  -> lanjut approve biasa (full $inc)
+         * prev Disetujui -> apply delta $inc (clamp) lalu tetap Disetujui
+    ======================================================================== */
+    if (aktualChanged && !wantApproveNow) {
+      // Kalau sebelumnya approved → rollback RAP dengan clamp
       if (prevStatus === 'Disetujui') {
         const rbBag = {};
         for (const item of pvReport.items) {
@@ -425,7 +467,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
           const category = item.category;
           if (group && category) {
             const pathStr = `${group}.${category}.aktual`;
-            addInc(rbBag, pathStr, -toNum(item.aktual)); // negatif
+            addInc(rbBag, pathStr, -toNum(item.aktual));
           }
         }
         const safeRbBag = await clampIncBagNegatives(
@@ -440,8 +482,6 @@ const updatePVReport = asyncHandler(async (req, res) => {
             { session }
           );
         }
-
-        // unset completed_at di ExpenseLog
         await ExpenseLog.findOneAndUpdate(
           { voucher_number: pvReport.voucher_number },
           { $unset: { completed_at: '' } },
@@ -449,7 +489,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
         );
       }
 
-      // sinkronisasi detail log (tanpa completed_at)
+      // Update log details (tanpa completed_at)
       await ExpenseLog.findOneAndUpdate(
         { voucher_number: pvReport.voucher_number },
         {
@@ -468,7 +508,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
         { session }
       );
 
-      // aktifkan kembali ExpenseRequest
+      // ExpenseRequest -> Aktif (re-open)
       await ExpenseRequest.findOneAndUpdate(
         {
           payment_voucher: pvReport.pv_number,
@@ -486,6 +526,8 @@ const updatePVReport = asyncHandler(async (req, res) => {
       await session.commitTransaction();
       return res.status(200).json(pvReport);
     }
+
+    /* ================== Jalur Perubahan STATUS (tanpa perubahan aktual, atau aktualChanged+approveNow) ================== */
     if (
       userRole === 'admin' &&
       updates.status &&
@@ -496,30 +538,46 @@ const updatePVReport = asyncHandler(async (req, res) => {
         pvReport.approved_by = updates.approved_by;
         pvReport.recipient = updates.recipient || pvReport.recipient;
 
-        // validasi & update RAP (full inc)
-        for (const item of pvReport.items) {
-          const incVal = toNum(item.aktual);
-          const amount = toNum(item.amount);
-          if (incVal > amount) {
-            throwError(
-              `Aktual untuk "${item.purpose}" melebihi pengajuan (${amount})`,
-              400
-            );
-          }
-          const expenseType = item.expense_type || pvReport.expense_type;
-          const group = mapExpenseType(expenseType);
-          const category = item.category;
-          if (group && category) {
-            const pathStr = `${group}.${category}.aktual`;
+        if (prevStatus === 'Disetujui') {
+          // approve -> approve: sudah dihitung incDeltaBag saat merge; terapkan delta (clamp)
+          const safeInc = await clampIncBagNegatives(
+            pvReport.project,
+            incDeltaBag,
+            session
+          );
+          if (Object.keys(safeInc).length > 0) {
             await RAP.updateOne(
               { _id: pvReport.project },
-              { $inc: { [pathStr]: incVal } },
+              { $inc: safeInc },
               { session }
             );
           }
+        } else {
+          // (Diproses/Ditolak) -> Disetujui: full inc sesuai aktual
+          for (const item of pvReport.items) {
+            const incVal = toNum(item.aktual);
+            const amount = toNum(item.amount);
+            if (incVal > amount) {
+              throwError(
+                `Aktual untuk "${item.purpose}" melebihi pengajuan (${amount})`,
+                400
+              );
+            }
+            const expenseType = item.expense_type || pvReport.expense_type;
+            const group = mapExpenseType(expenseType);
+            const category = item.category;
+            if (group && category) {
+              const pathStr = `${group}.${category}.aktual`;
+              await RAP.updateOne(
+                { _id: pvReport.project },
+                { $inc: { [pathStr]: incVal } },
+                { session }
+              );
+            }
+          }
         }
 
-        // set log + completed_at
+        // Log + completed_at
         await ExpenseLog.findOneAndUpdate(
           { voucher_number: pvReport.voucher_number },
           {
@@ -556,7 +614,6 @@ const updatePVReport = asyncHandler(async (req, res) => {
         pvReport.note = updates.note;
         pvReport.approved_by = null;
 
-        // bila sebelumnya approved → rollback RAP (clamp)
         if (prevStatus === 'Disetujui') {
           const rbBag = {};
           for (const item of pvReport.items) {
@@ -580,7 +637,6 @@ const updatePVReport = asyncHandler(async (req, res) => {
               { session }
             );
           }
-
           await ExpenseLog.findOneAndUpdate(
             { voucher_number: pvReport.voucher_number },
             { $unset: { completed_at: '' } },
@@ -600,7 +656,6 @@ const updatePVReport = asyncHandler(async (req, res) => {
       }
 
       if (updates.status === 'Diproses') {
-        // bila sebelumnya approved → rollback RAP (clamp)
         if (prevStatus === 'Disetujui') {
           const rbBag = {};
           for (const item of pvReport.items) {
@@ -624,7 +679,6 @@ const updatePVReport = asyncHandler(async (req, res) => {
               { session }
             );
           }
-
           await ExpenseLog.findOneAndUpdate(
             { voucher_number: pvReport.voucher_number },
             { $unset: { completed_at: '' } },
