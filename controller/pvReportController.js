@@ -286,8 +286,12 @@ const updatePVReport = asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!mongoose.Types.ObjectId.isValid(id)) throwError('ID tidak valid', 400);
 
-  // ===== Helpers =====
-  const toNum = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
+  // ===== Helpers aman =====
+  const toNum = (v, d = 0) => {
+    if (v === '' || v === null || v === undefined) return d;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : d;
+  };
   const getByPath = (obj, path) =>
     path
       .split('.')
@@ -297,19 +301,22 @@ const updatePVReport = asyncHandler(async (req, res) => {
     if (!Number.isFinite(n) || n === 0) return;
     bag[path] = (bag[path] || 0) + n;
   };
-  // clamp semua delta negatif supaya nilai akhir tidak < 0
+  const hasKey = (obj, k) => Object.prototype.hasOwnProperty.call(obj || {}, k);
+  const normNum = (patch, base, key) =>
+    hasKey(patch, key) ? toNum(patch[key], base?.[key]) : base?.[key];
+
+  // Clamp delta negatif agar nilai akhir tidak < 0
   const clampIncBagNegatives = async (projectId, incBag, session) => {
     const rapSnap = await RAP.findById(projectId).lean().session(session);
     const adjusted = {};
     for (const [path, delta] of Object.entries(incBag)) {
       const n = Number(delta);
       if (!Number.isFinite(n) || n === 0) continue;
-
       if (n > 0) {
         adjusted[path] = n;
       } else {
         const curr = toNum(getByPath(rapSnap || {}, path), 0);
-        const safe = -Math.min(curr, Math.abs(n)); // minimal 0 setelah diterapkan
+        const safe = -Math.min(curr, Math.abs(n));
         if (safe !== 0) adjusted[path] = safe;
       }
     }
@@ -329,18 +336,37 @@ const updatePVReport = asyncHandler(async (req, res) => {
     const wantApproveNow =
       userRole === 'admin' && updates.status === 'Disetujui';
 
-    /* ================== Merge Items & Deteksi Perubahan AKTUAL ================== */
+    // ===== Snapshot kontribusi lama (untuk rollback akurat bila sebelumnya approved) =====
+    let approvedOldBag = {};
+    if (prevStatus === 'Disetujui') {
+      for (const item of pvReport.items) {
+        const expenseType = item.expense_type || pvReport.expense_type;
+        const group = mapExpenseType(expenseType);
+        const category = item.category;
+        if (group && category) {
+          const pathStr = `${group}.${category}.aktual`;
+          addInc(approvedOldBag, pathStr, -toNum(item.aktual));
+        }
+      }
+    }
+
+    // ===== Merge items & deteksi perubahan AKTUAL =====
     let aktualChanged = false;
-    // Khusus admin bila prevStatus sudah Disetujui dan tetap ingin Disetujui:
-    // kita siapkan delta bag supaya bisa langsung pantulkan perubahan ke RAP.
-    const incDeltaBag = {}; // hanya dipakai kalau prevStatus === 'Disetujui'
+    const incDeltaBag = {}; // dipakai saat approve->approve
 
     if (updates.items && Array.isArray(updates.items)) {
       if (userRole === 'admin') {
-        pvReport.items = pvReport.items.map((oldItem, idx) => {
+        // Admin: update AKTUAL saja (tanpa await di callback)
+        const nextItems = [];
+        for (let idx = 0; idx < pvReport.items.length; idx++) {
+          const oldItem = pvReport.items[idx];
           const oldObj = oldItem.toObject?.() ?? oldItem;
           const patch = updates.items[idx];
-          if (!patch) return oldItem;
+
+          if (!patch) {
+            nextItems.push(oldItem);
+            continue;
+          }
 
           const oldAkt = toNum(oldObj.aktual);
           const newAkt = toNum(patch.aktual, oldObj.aktual);
@@ -349,7 +375,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
           const next = { ...oldObj, aktual: newAkt };
           next.overbudget = toNum(next.aktual) > toNum(next.amount);
 
-          // Hitung delta bila sebelumnya sudah Disetujui (approve→approve)
+          // Kalau sudah approved & tetap mau approved (approve->approve), siapkan delta
           if (prevStatus === 'Disetujui') {
             const oldExpType = oldObj.expense_type || pvReport.expense_type;
             const newExpType = next.expense_type || pvReport.expense_type;
@@ -376,45 +402,71 @@ const updatePVReport = asyncHandler(async (req, res) => {
             }
           }
 
-          return next;
-        });
+          nextItems.push(next);
+        }
+        pvReport.items = nextItems;
         pvReport.markModified('items');
       } else {
-        // Karyawan: merge menyeluruh + handle nota
+        // Karyawan: merge menyeluruh + handle nota (pakai loop async-friendly)
         const existing = pvReport.items.map((d) =>
           d.toObject ? d.toObject() : d
         );
-        const result = [];
+        const byId = new Map(
+          existing
+            .filter((it) => it && it._id)
+            .map((it) => [String(it._id), it])
+        );
 
+        const result = [];
         for (let idx = 0; idx < updates.items.length; idx++) {
           const patch = updates.items[idx] || {};
-          const base = existing[idx] || {};
+          const base =
+            (patch && patch._id && byId.get(String(patch._id))) ||
+            existing[idx] ||
+            {};
+
           const merged = { ...base, ...patch };
 
-          merged.quantity = toNum(merged.quantity);
-          merged.unit_price = toNum(merged.unit_price);
-          merged.amount = toNum(merged.amount);
+          // Numeric fields: hanya ubah kalau field dikirim
+          const quantity = normNum(patch, base, 'quantity');
+          const unit_price = normNum(patch, base, 'unit_price');
 
-          const nextAkt = toNum(merged.aktual);
-          if (nextAkt !== toNum(base.aktual)) aktualChanged = true;
-          if (nextAkt < 0)
+          let amount;
+          if (hasKey(patch, 'amount')) {
+            amount = toNum(patch.amount, base.amount);
+          } else if (hasKey(patch, 'quantity') || hasKey(patch, 'unit_price')) {
+            // kalau qty/price berubah, amount turunan
+            amount =
+              toNum(quantity, base.quantity) *
+              toNum(unit_price, base.unit_price);
+          } else {
+            amount = base.amount;
+          }
+
+          const nextAkt = normNum(patch, base, 'aktual');
+          if (toNum(nextAkt) !== toNum(base.aktual)) aktualChanged = true;
+          if (toNum(nextAkt) < 0)
             throwError(
               `Aktual untuk "${merged.purpose}" tidak boleh negatif`,
               400
             );
+
+          merged.quantity = quantity;
+          merged.unit_price = unit_price;
+          merged.amount = amount;
           merged.aktual = nextAkt;
 
           merged.expense_type =
             merged.expense_type || base.expense_type || pvReport.expense_type;
-          merged.overbudget = merged.aktual > merged.amount;
 
-          // nota_i
+          merged.overbudget = toNum(merged.aktual) > toNum(merged.amount);
+
           const fileField = `nota_${idx + 1}`;
           let file = null;
           if (Array.isArray(req.files)) {
             file = req.files.find((f) => f.fieldname === fileField) || null;
           } else if (req.files && typeof req.files === 'object') {
-            file = req.files[fileField]?.[0] || null;
+            file = (req.files[fileField] && req.files[fileField][0]) || null;
           }
 
           if (file) {
@@ -436,7 +488,9 @@ const updatePVReport = asyncHandler(async (req, res) => {
               uploadedAt: new Date()
             };
           } else {
-            merged.nota = merged.nota ?? base.nota ?? null;
+            merged.nota = hasKey(merged, 'nota')
+              ? merged.nota
+              : base.nota ?? null;
           }
 
           result.push(merged);
@@ -451,28 +505,11 @@ const updatePVReport = asyncHandler(async (req, res) => {
       pvReport.report_date = updates.report_date;
     }
 
-    /* ================== Kebijakan Reset Saat AKTUAL Berubah ==================
-       - Jika aktual berubah & TIDAK ada permintaan approve sekarang → reset ke Diproses
-       - Jika aktual berubah & admin minta approve sekarang:
-         * prev Diproses  -> lanjut approve biasa (full $inc)
-         * prev Disetujui -> apply delta $inc (clamp) lalu tetap Disetujui
-    ======================================================================== */
     if (aktualChanged && !wantApproveNow) {
-      // Kalau sebelumnya approved → rollback RAP dengan clamp
       if (prevStatus === 'Disetujui') {
-        const rbBag = {};
-        for (const item of pvReport.items) {
-          const expenseType = item.expense_type || pvReport.expense_type;
-          const group = mapExpenseType(expenseType);
-          const category = item.category;
-          if (group && category) {
-            const pathStr = `${group}.${category}.aktual`;
-            addInc(rbBag, pathStr, -toNum(item.aktual));
-          }
-        }
         const safeRbBag = await clampIncBagNegatives(
           pvReport.project,
-          rbBag,
+          approvedOldBag,
           session
         );
         if (Object.keys(safeRbBag).length > 0) {
@@ -482,6 +519,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
             { session }
           );
         }
+        // Log: unset completed_at
         await ExpenseLog.findOneAndUpdate(
           { voucher_number: pvReport.voucher_number },
           { $unset: { completed_at: '' } },
@@ -489,7 +527,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
         );
       }
 
-      // Update log details (tanpa completed_at)
+      // Sinkron detail log (tanpa completed_at)
       await ExpenseLog.findOneAndUpdate(
         { voucher_number: pvReport.voucher_number },
         {
@@ -508,7 +546,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
         { session }
       );
 
-      // ExpenseRequest -> Aktif (re-open)
+      // ExpenseRequest -> Aktif
       await ExpenseRequest.findOneAndUpdate(
         {
           payment_voucher: pvReport.pv_number,
@@ -527,7 +565,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
       return res.status(200).json(pvReport);
     }
 
-    /* ================== Jalur Perubahan STATUS (tanpa perubahan aktual, atau aktualChanged+approveNow) ================== */
+    // ===== Jalur perubahan STATUS (tanpa perubahan aktual, atau aktualChanged + approveNow) =====
     if (
       userRole === 'admin' &&
       updates.status &&
@@ -539,7 +577,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
         pvReport.recipient = updates.recipient || pvReport.recipient;
 
         if (prevStatus === 'Disetujui') {
-          // approve -> approve: sudah dihitung incDeltaBag saat merge; terapkan delta (clamp)
+          // approve -> approve: terapkan delta (clamp)
           const safeInc = await clampIncBagNegatives(
             pvReport.project,
             incDeltaBag,
