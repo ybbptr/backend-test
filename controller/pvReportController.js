@@ -286,27 +286,10 @@ const getPVReport = asyncHandler(async (req, res) => {
 const updatePVReport = asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!mongoose.Types.ObjectId.isValid(id)) throwError('ID tidak valid', 400);
-  const updates = req.body || {};
-  console.log(req.body.items);
+
+  const updates = req.body;
   const session = await mongoose.startSession();
   session.startTransaction();
-
-  const toNum = (v, d = 0) => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : d;
-  };
-
-  const getNotaFile = (req, idx) => {
-    const field = `nota_${idx + 1}`;
-    if (Array.isArray(req.files)) {
-      return req.files.find((f) => f.fieldname === field) || null;
-    }
-    if (req.files && typeof req.files === 'object') {
-      const arr = req.files[field];
-      return arr && arr[0] ? arr[0] : null;
-    }
-    return null;
-  };
 
   try {
     const pvReport = await PVReport.findById(id).session(session);
@@ -314,16 +297,34 @@ const updatePVReport = asyncHandler(async (req, res) => {
 
     const prevStatus = pvReport.status;
     const userRole = req.user?.role;
+    const toNum = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
 
+    /* ==================== ADMIN ==================== */
     if (userRole === 'admin') {
-      // ===== Admin: ubah status saja
+      // merge aktual kalau dikirim
+      if (updates.items && Array.isArray(updates.items)) {
+        pvReport.items = pvReport.items.map((oldItem, idx) => {
+          const patch = updates.items[idx];
+          if (!patch) return oldItem;
+
+          const merged = {
+            ...(oldItem.toObject?.() ?? oldItem),
+            aktual: toNum(patch.aktual, oldItem.aktual)
+          };
+          merged.overbudget = merged.aktual > (merged.amount || 0);
+          return merged;
+        });
+        pvReport.markModified('items');
+      }
+
+      // ubah status
       if (updates.status && updates.status !== prevStatus) {
         if (updates.status === 'Disetujui') {
           if (!updates.approved_by) throwError('approved_by wajib diisi', 400);
           pvReport.approved_by = updates.approved_by;
           pvReport.recipient = updates.recipient || pvReport.recipient;
-          console.log('updates.items:', updates.items);
-          // validasi max aktual & apply ke RAP
+
+          // validasi & update RAP
           for (const item of pvReport.items) {
             if (toNum(item.aktual) > toNum(item.amount)) {
               throwError(
@@ -352,10 +353,10 @@ const updatePVReport = asyncHandler(async (req, res) => {
                 details: pvReport.items.map((it) => ({
                   purpose: it.purpose,
                   category: it.category,
-                  quantity: toNum(it.quantity),
-                  unit_price: toNum(it.unit_price),
-                  amount: toNum(it.amount),
-                  aktual: toNum(it.aktual),
+                  quantity: it.quantity,
+                  unit_price: it.unit_price,
+                  amount: it.amount,
+                  aktual: it.aktual || 0,
                   nota: it.nota
                 })),
                 completed_at: new Date()
@@ -391,7 +392,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
         }
 
         if (prevStatus === 'Disetujui' && updates.status !== 'Disetujui') {
-          // rollback RAP aktual
+          // rollback RAP
           for (const item of pvReport.items) {
             const group = mapExpenseType(item.expense_type);
             if (group && item.category) {
@@ -399,7 +400,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
                 { _id: pvReport.project },
                 {
                   $inc: {
-                    [`${group}.${item.category}.aktual`]: -toNum(item.aktual)
+                    [`${group}.${item.category}.aktual`]: -(item.aktual || 0)
                   }
                 },
                 { session }
@@ -417,36 +418,23 @@ const updatePVReport = asyncHandler(async (req, res) => {
         pvReport.status = updates.status;
       }
     } else {
-      // ===== Karyawan: update items & report_date, reset status
-      if (Array.isArray(updates.items)) {
-        // snapshot existing & index by _id
+      /* ==================== KARYAWAN ==================== */
+      if (updates.items && Array.isArray(updates.items)) {
         const existing = pvReport.items.map((d) =>
           d.toObject ? d.toObject() : d
         );
-        const byId = new Map(existing.map((x, i) => [String(x._id), i]));
-        const result = existing.slice();
+        const result = [];
 
-        for (
-          let idxInPayload = 0;
-          idxInPayload < updates.items.length;
-          idxInPayload++
-        ) {
-          const patch = updates.items[idxInPayload];
-
-          // target index by _id; fallback ke index payload
-          let targetIndex = idxInPayload;
-          if (patch._id && byId.has(String(patch._id))) {
-            targetIndex = byId.get(String(patch._id));
-          }
-
-          const base = existing[targetIndex] || {};
+        for (let idx = 0; idx < updates.items.length; idx++) {
+          const patch = updates.items[idx];
+          const base = existing[idx] || {};
           const merged = { ...base, ...patch };
 
-          // coerce angka & validasi
           merged.quantity = toNum(merged.quantity);
           merged.unit_price = toNum(merged.unit_price);
           merged.amount = toNum(merged.amount);
           merged.aktual = toNum(merged.aktual);
+
           if (merged.aktual < 0) {
             throwError(
               `Aktual untuk "${merged.purpose}" tidak boleh negatif`,
@@ -454,13 +442,19 @@ const updatePVReport = asyncHandler(async (req, res) => {
             );
           }
 
-          // fallback tipe & overbudget
           merged.expense_type =
             merged.expense_type || base.expense_type || pvReport.expense_type;
           merged.overbudget = merged.aktual > merged.amount;
 
-          // file nota baru?
-          const file = getNotaFile(req, idxInPayload);
+          // handle nota upload
+          const fileField = `nota_${idx + 1}`;
+          let file = null;
+          if (Array.isArray(req.files)) {
+            file = req.files.find((f) => f.fieldname === fileField) || null;
+          } else if (req.files && typeof req.files === 'object') {
+            file = req.files[fileField]?.[0] || null;
+          }
+
           if (file) {
             if (base?.nota?.key) {
               try {
@@ -469,10 +463,9 @@ const updatePVReport = asyncHandler(async (req, res) => {
             }
             const ext = path.extname(file.originalname);
             const key = `Pertanggungjawaban Dana/${pvReport.pv_number}/nota_${
-              targetIndex + 1
+              idx + 1
             }_${formatDate()}${ext}`;
             await uploadBuffer(key, file.buffer);
-
             merged.nota = {
               key,
               contentType: file.mimetype,
@@ -480,34 +473,14 @@ const updatePVReport = asyncHandler(async (req, res) => {
               uploadedAt: new Date()
             };
           } else {
-            // pertahankan nota lama
             merged.nota = merged.nota ?? base.nota ?? null;
           }
 
-          result[targetIndex] = merged;
+          result.push(merged);
         }
 
         pvReport.items = result;
         pvReport.markModified('items');
-
-        // sinkron ke ExpenseLog
-        await ExpenseLog.findOneAndUpdate(
-          { voucher_number: pvReport.voucher_number },
-          {
-            $set: {
-              details: pvReport.items.map((it) => ({
-                purpose: it.purpose,
-                category: it.category,
-                quantity: toNum(it.quantity),
-                unit_price: toNum(it.unit_price),
-                amount: toNum(it.amount),
-                aktual: toNum(it.aktual),
-                nota: it.nota
-              }))
-            }
-          },
-          { session }
-        );
       }
 
       if (updates.report_date) pvReport.report_date = updates.report_date;
@@ -515,6 +488,24 @@ const updatePVReport = asyncHandler(async (req, res) => {
       pvReport.status = 'Diproses';
       pvReport.approved_by = null;
       pvReport.note = null;
+
+      await ExpenseLog.findOneAndUpdate(
+        { voucher_number: pvReport.voucher_number },
+        {
+          $set: {
+            details: pvReport.items.map((it) => ({
+              purpose: it.purpose,
+              category: it.category,
+              quantity: it.quantity,
+              unit_price: it.unit_price,
+              amount: it.amount,
+              aktual: it.aktual || 0,
+              nota: it.nota
+            }))
+          }
+        },
+        { session }
+      );
     }
 
     await pvReport.save({ session });
