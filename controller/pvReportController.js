@@ -12,24 +12,6 @@ const { uploadBuffer, deleteFile, getFileUrl } = require('../utils/wasabi');
 const formatDate = require('../utils/formatDate');
 
 /* ================= Helpers ================= */
-const clampIncBagNegatives = async (projectId, incBag, session) => {
-  const rapSnap = await RAP.findById(projectId).lean().session(session);
-  const adjusted = {};
-  for (const [path, delta] of Object.entries(incBag)) {
-    const n = Number(delta);
-    if (!Number.isFinite(n) || n === 0) continue;
-
-    if (n > 0) {
-      adjusted[path] = n;
-    } else {
-      const curr = toNum(getByPath(rapSnap || {}, path), 0);
-      const safe = -Math.min(curr, Math.abs(n)); // minimal 0 setelah di-apply
-      if (safe !== 0) adjusted[path] = safe;
-    }
-  }
-  return adjusted;
-};
-
 function parseItems(raw) {
   if (!raw) return [];
   let parsed = raw;
@@ -316,6 +298,23 @@ const updatePVReport = asyncHandler(async (req, res) => {
     bag[path] = (bag[path] || 0) + n;
   };
   // clamp semua delta negatif supaya nilai akhir tidak < 0
+  const clampIncBagNegatives = async (projectId, incBag, session) => {
+    const rapSnap = await RAP.findById(projectId).lean().session(session);
+    const adjusted = {};
+    for (const [path, delta] of Object.entries(incBag)) {
+      const n = Number(delta);
+      if (!Number.isFinite(n) || n === 0) continue;
+
+      if (n > 0) {
+        adjusted[path] = n;
+      } else {
+        const curr = toNum(getByPath(rapSnap || {}, path), 0);
+        const safe = -Math.min(curr, Math.abs(n)); // minimal 0 setelah di-apply
+        if (safe !== 0) adjusted[path] = safe;
+      }
+    }
+    return adjusted;
+  };
 
   const updates = req.body;
   const session = await mongoose.startSession();
