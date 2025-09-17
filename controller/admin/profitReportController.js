@@ -114,18 +114,26 @@ const getAllProfitReports = asyncHandler(async (req, res) => {
 
     const kontrak_value =
       report.nilai_fix_pekerjaan ?? report.nilai_pekerjaan ?? 0;
-    let profit = kontrak_value;
+
+    let rap_total = 0; // total "jumlah" di RAP
+    let total_aktual = 0; // total "aktual" di RAP
 
     if (rap) {
-      const { total_aktual } = computeMetricsFromRap(rap);
-      profit = kontrak_value - total_aktual;
+      const m = computeMetricsFromRap(rap);
+      rap_total = m.total_budget;
+      total_aktual = m.total_aktual;
     }
+
+    const profit = kontrak_value - total_aktual;
 
     data.push({
       _id: report._id,
       project_name: report.project_name,
       nomor_kontrak: report.nomor_kontrak,
       client_name: report.client_name,
+      nilai_fix_pekerjaan: kontrak_value,
+      rap_total,
+      total_aktual,
       profit
     });
   }
@@ -139,7 +147,6 @@ const getAllProfitReports = asyncHandler(async (req, res) => {
   });
 });
 
-// ===== DETAIL: header + metrics + detail aktual per kategori =====
 const getProfitReportDetail = asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!mongoose.Types.ObjectId.isValid(id)) throwError('ID tidak valid', 400);

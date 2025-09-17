@@ -1,5 +1,15 @@
 const mongoose = require('mongoose');
 
+const NotaSchema = new mongoose.Schema(
+  {
+    key: { type: String },
+    contentType: { type: String },
+    size: { type: Number },
+    uploadedAt: { type: Date, default: Date.now }
+  },
+  { _id: false }
+);
+
 const pvItemSchema = new mongoose.Schema(
   {
     purpose: { type: String, required: true },
@@ -22,12 +32,8 @@ const pvItemSchema = new mongoose.Schema(
       ],
       required: true
     },
-    nota: {
-      key: String,
-      contentType: String,
-      size: Number,
-      uploadedAt: { type: Date, default: Date.now }
-    }
+    // ⬇️ Wajib ada & bertipe sub-schema
+    nota: { type: NotaSchema, required: true }
   },
   { _id: true }
 );
@@ -71,7 +77,7 @@ const pvReportSchema = new mongoose.Schema(
     },
     note: { type: String, default: null },
 
-    items: [pvItemSchema],
+    items: { type: [pvItemSchema], default: [] },
 
     total_amount: { type: Number, default: 0 },
     total_aktual: { type: Number, default: 0 },
@@ -82,16 +88,17 @@ const pvReportSchema = new mongoose.Schema(
 );
 
 pvReportSchema.pre('save', function (next) {
-  this.total_amount = this.items.reduce(
+  const items = Array.isArray(this.items) ? this.items : [];
+  this.total_amount = items.reduce(
     (sum, it) => sum + (Number(it.amount) || 0),
     0
   );
-  this.total_aktual = this.items.reduce(
+  this.total_aktual = items.reduce(
     (sum, it) => sum + (Number(it.aktual) || 0),
     0
   );
   this.remaining = this.total_amount - this.total_aktual;
-  this.has_overbudget = this.items.some(
+  this.has_overbudget = items.some(
     (it) => (Number(it.aktual) || 0) > (Number(it.amount) || 0)
   );
   if (this.status !== 'Ditolak') this.note = null;

@@ -27,6 +27,19 @@ function parseItems(raw) {
   if (!Array.isArray(parsed)) throwError('items harus berupa array', 400);
   return parsed;
 }
+
+function getNotaFile(req, idx) {
+  const field = `nota_${idx + 1}`;
+  if (Array.isArray(req.files)) {
+    return req.files.find((f) => f.fieldname === field) || null;
+  }
+  if (req.files && typeof req.files === 'object') {
+    const arr = req.files[field];
+    return arr && arr[0] ? arr[0] : null;
+  }
+  return null;
+}
+
 function mapExpenseType(expenseType) {
   switch (expenseType) {
     case 'Persiapan Pekerjaan':
@@ -65,7 +78,6 @@ const createPVReport = asyncHandler(async (req, res) => {
     throwError('Field wajib belum lengkap', 400);
   }
 
-  // validasi aktual non-negatif
   for (const it of items) {
     if ((it.aktual ?? 0) < 0) {
       throwError(
@@ -75,11 +87,11 @@ const createPVReport = asyncHandler(async (req, res) => {
     }
   }
 
-  // cari ExpenseRequest terkait
   const expenseReq = await ExpenseRequest.findOne({
     payment_voucher: pv_number,
     voucher_number
   }).select('name project expense_type request_status details');
+
   if (!expenseReq) throwError('Pengajuan biaya tidak ditemukan', 404);
 
   // Tentukan created_by berdasar role
@@ -92,7 +104,7 @@ const createPVReport = asyncHandler(async (req, res) => {
     createdById = chosen._id;
   } else {
     const me = await Employee.findOne({ user: req.user.id }).select('_id');
-    createdById = me?._id || expenseReq.name; // fallback ke pemohon ER
+    createdById = me?._id || expenseReq.name;
   }
 
   const session = await mongoose.startSession();
@@ -103,7 +115,6 @@ const createPVReport = asyncHandler(async (req, res) => {
       throwError('approved_by wajib diisi jika status Disetujui', 400);
     }
 
-    // buat PV Report
     const [pvReport] = await PVReport.create(
       [
         {
@@ -122,31 +133,33 @@ const createPVReport = asyncHandler(async (req, res) => {
       { session }
     );
 
-    // upload nota per item
+    // Upload nota per item (wajib ada)
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
-      const file = req.files?.[`nota_${i + 1}`]?.[0];
-      let notaObj = null;
 
-      if (file) {
-        const ext = path.extname(file.originalname);
-        const key = `Pertanggungjawaban Dana/${pv_number}/nota_${
-          i + 1
-        }_${formatDate()}${ext}`;
-        await uploadBuffer(key, file.buffer);
-        notaObj = {
-          key,
-          contentType: file.mimetype,
-          size: file.size,
-          uploadedAt: new Date()
-        };
+      const file = getNotaFile(req, i);
+      if (!file) {
+        throwError(`Nota (bukti) untuk item #${i + 1} wajib diupload`, 400);
       }
+
+      const ext = path.extname(file.originalname);
+      const key = `Pertanggungjawaban Dana/${pv_number}/nota_${
+        i + 1
+      }_${formatDate()}${ext}`;
+      await uploadBuffer(key, file.buffer);
+
+      const notaObj = {
+        key,
+        contentType: file.mimetype,
+        size: file.size,
+        uploadedAt: new Date()
+      };
 
       pvReport.items.push({
         ...it,
         expense_type: expenseReq.expense_type,
         nota: notaObj,
-        overbudget: (it.aktual ?? 0) > it.amount
+        overbudget: (Number(it.aktual) || 0) > (Number(it.amount) || 0)
       });
     }
 
@@ -197,7 +210,6 @@ const createPVReport = asyncHandler(async (req, res) => {
         { session }
       );
     } else {
-      // default kalau karyawan buat → status Aktif
       await ExpenseRequest.findOneAndUpdate(
         { payment_voucher: pv_number, voucher_number },
         { $set: { request_status: 'Aktif' } },
@@ -255,7 +267,6 @@ const getPVReport = asyncHandler(async (req, res) => {
 
   if (!report) throwError('PV Report tidak ditemukan', 404);
 
-  // generate nota_url
   report.items = await Promise.all(
     report.items.map(async (item) => {
       let nota_url = null;
@@ -276,7 +287,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!mongoose.Types.ObjectId.isValid(id)) throwError('ID tidak valid', 400);
 
-  const updates = req.body;
+  const updates = req.body || {};
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -387,17 +398,76 @@ const updatePVReport = asyncHandler(async (req, res) => {
         pvReport.status = updates.status;
       }
     } else {
-      // Karyawan: boleh update items & report_date, reset status ke Diproses
+      // ===== Karyawan: boleh update items & report_date, reset status ke Diproses
       if (updates.items && Array.isArray(updates.items)) {
-        for (const it of updates.items) {
-          if ((it.aktual ?? 0) < 0)
+        // merge by index; pertahankan nota lama jika tidak ada file baru
+        const merged = updates.items.map((it, i) => {
+          const aktual = Number(it.aktual) || 0;
+          if (aktual < 0)
             throwError(`Aktual untuk "${it.purpose}" tidak boleh negatif`, 400);
+
+          const base = pvReport.items[i]
+            ? pvReport.items[i].toObject?.() ?? pvReport.items[i]
+            : {};
+          const next = {
+            ...base,
+            ...it,
+            expense_type:
+              it.expense_type || base.expense_type || pvReport.expense_type,
+            overbudget: aktual > (Number(it.amount ?? base.amount) || 0)
+          };
+          return next;
+        });
+
+        // handle file pengganti per index
+        for (let i = 0; i < merged.length; i++) {
+          const file = getNotaFile(req, i);
+          if (!file) {
+            // tidak ada file baru → pertahankan nota lama kalau ada
+            merged[i].nota = merged[i].nota ?? pvReport.items[i]?.nota ?? null;
+            continue;
+          }
+
+          // hapus file lama jika ada
+          if (pvReport.items[i]?.nota?.key) {
+            try {
+              await deleteFile(pvReport.items[i].nota.key);
+            } catch (_) {}
+          }
+
+          const ext = path.extname(file.originalname);
+          const key = `Pertanggungjawaban Dana/${pvReport.pv_number}/nota_${
+            i + 1
+          }_${formatDate()}${ext}`;
+          await uploadBuffer(key, file.buffer);
+
+          merged[i].nota = {
+            key,
+            contentType: file.mimetype,
+            size: file.size,
+            uploadedAt: new Date()
+          };
         }
-        pvReport.items = updates.items.map((it) => ({
-          ...it,
-          expense_type: it.expense_type || pvReport.expense_type,
-          overbudget: (it.aktual ?? 0) > it.amount
-        }));
+
+        pvReport.items = merged;
+
+        await ExpenseLog.findOneAndUpdate(
+          { voucher_number: pvReport.voucher_number },
+          {
+            $set: {
+              details: pvReport.items.map((it) => ({
+                purpose: it.purpose,
+                category: it.category,
+                quantity: it.quantity,
+                unit_price: it.unit_price,
+                amount: it.amount,
+                aktual: it.aktual || 0,
+                nota: it.nota
+              }))
+            }
+          },
+          { session }
+        );
       }
 
       if (updates.report_date) pvReport.report_date = updates.report_date;
@@ -405,24 +475,6 @@ const updatePVReport = asyncHandler(async (req, res) => {
       pvReport.status = 'Diproses';
       pvReport.approved_by = null;
       pvReport.note = null;
-
-      await ExpenseLog.findOneAndUpdate(
-        { voucher_number: pvReport.voucher_number },
-        {
-          $set: {
-            details: pvReport.items.map((it) => ({
-              purpose: it.purpose,
-              category: it.category,
-              quantity: it.quantity,
-              unit_price: it.unit_price,
-              amount: it.amount,
-              aktual: it.aktual || 0,
-              nota: it.nota
-            }))
-          }
-        },
-        { session }
-      );
     }
 
     await pvReport.save({ session });
@@ -467,7 +519,9 @@ const deletePVReport = asyncHandler(async (req, res) => {
 
     for (const item of pvReport.items) {
       if (item?.nota?.key) {
-        await deleteFile(item.nota.key);
+        try {
+          await deleteFile(item.nota.key);
+        } catch (_) {}
       }
     }
 
@@ -497,7 +551,7 @@ const getMyPVNumbers = asyncHandler(async (req, res) => {
       '_id name'
     );
     if (!employee) throwError('Karyawan tidak ditemukan', 404);
-    filter.name = employee._id; // hanya milik karyawan tsb
+    filter.name = employee._id;
   }
 
   const expenseRequests = await ExpenseRequest.find(filter)
@@ -526,7 +580,7 @@ const getMyPVNumbers = asyncHandler(async (req, res) => {
   });
 });
 
-// (opsional) taruh di utils/shared supaya DRY, tapi boleh inline di file ini juga
+// Label kategori (untuk PV Form)
 const categoryLabels = {
   biaya_survey_awal_lapangan: 'Biaya Survey Awal Lapangan',
   uang_saku_survey_osa: 'Uang Saku Survey / OSA',
@@ -593,13 +647,13 @@ const getPVForm = asyncHandler(async (req, res) => {
     project_name: expense.project?.project_name,
     name: expense.name?.name,
     position: expense.name?.position || null,
-    items: expense.details.map((it) => {
+    items: expense.details.map((it, idx) => {
       const key = it.category;
       const label = categoryLabels[key] ?? key;
       return {
         purpose: it.purpose,
-        category: key, // raw key tetap dikirim (kompatibel)
-        category_label: label, // label untuk ditampilkan di FE
+        category: key,
+        category_label: label,
         quantity: it.quantity,
         unit_price: it.unit_price,
         amount: it.amount

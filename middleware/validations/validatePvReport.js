@@ -31,7 +31,6 @@ const pvItemSchema = Joi.object({
     'number.min': 'Harga satuan minimal 0',
     'any.required': 'Harga satuan wajib diisi'
   }),
-  // diambil dari ER → wajib ada, dan dicek konsistensi
   amount: nonNeg.required().messages({
     'number.base': 'Jumlah total harus berupa angka',
     'number.min': 'Jumlah total minimal 0',
@@ -41,8 +40,16 @@ const pvItemSchema = Joi.object({
     'number.base': 'Aktual harus berupa angka',
     'number.min': 'Aktual minimal 0'
   }),
-  // file nota datang via multipart, bukan JSON → strip kalau ada
-  nota: Joi.any().strip()
+
+  nota: Joi.alternatives()
+    .try(Joi.string().trim().min(1), Joi.array().min(1), Joi.object())
+    .required()
+    .messages({
+      'any.required': 'Nota/bukti wajib dilampirkan',
+      'string.empty': 'Nota/bukti tidak boleh kosong',
+      'array.min': 'Minimal 1 bukti dilampirkan',
+      'alternatives.match': 'Format nota tidak valid'
+    })
 }).custom((val, helpers) => {
   const q = Number(val.quantity);
   const p = Number(val.unit_price);
