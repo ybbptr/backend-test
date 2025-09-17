@@ -12,6 +12,24 @@ const { uploadBuffer, deleteFile, getFileUrl } = require('../utils/wasabi');
 const formatDate = require('../utils/formatDate');
 
 /* ================= Helpers ================= */
+const clampIncBagNegatives = async (projectId, incBag, session) => {
+  const rapSnap = await RAP.findById(projectId).lean().session(session);
+  const adjusted = {};
+  for (const [path, delta] of Object.entries(incBag)) {
+    const n = Number(delta);
+    if (!Number.isFinite(n) || n === 0) continue;
+
+    if (n > 0) {
+      adjusted[path] = n;
+    } else {
+      const curr = toNum(getByPath(rapSnap || {}, path), 0);
+      const safe = -Math.min(curr, Math.abs(n)); // minimal 0 setelah di-apply
+      if (safe !== 0) adjusted[path] = safe;
+    }
+  }
+  return adjusted;
+};
+
 function parseItems(raw) {
   if (!raw) return [];
   let parsed = raw;
@@ -287,7 +305,6 @@ const updatePVReport = asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(id)) throwError('ID tidak valid', 400);
 
   // ===== Helpers =====
-  const DBG = (...args) => console.log('[PVReport:update]', ...args);
   const toNum = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
   const getByPath = (obj, path) =>
     path
@@ -298,6 +315,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
     if (!Number.isFinite(n) || n === 0) return;
     bag[path] = (bag[path] || 0) + n;
   };
+  // clamp semua delta negatif supaya nilai akhir tidak < 0
 
   const updates = req.body;
   const session = await mongoose.startSession();
@@ -310,343 +328,26 @@ const updatePVReport = asyncHandler(async (req, res) => {
     const prevStatus = pvReport.status;
     const userRole = req.user?.role || 'unknown';
 
-    DBG('START', {
-      pv_id: String(pvReport._id),
-      voucher_number: pvReport.voucher_number,
-      pv_number: pvReport.pv_number,
-      role: userRole,
-      prevStatus,
-      updateKeys: Object.keys(updates || {}),
-      files: Array.isArray(req.files)
-        ? req.files.map((f) => f.fieldname)
-        : (req.files && Object.keys(req.files)) || []
-    });
+    /* ================== Merge Items & Deteksi Perubahan AKTUAL ================== */
+    let aktualChanged = false;
 
-    /* ==================== ADMIN ==================== */
-    if (userRole === 'admin') {
-      let hadItemPatch = false;
-
-      // --- siapkan delta inc RAP bila report sudah approved ---
-      const incBag = {}; // { "group.cat.aktual": delta }
-
-      if (updates.items && Array.isArray(updates.items)) {
-        hadItemPatch = true;
-        DBG('ADMIN: merge items (aktual)', { count: updates.items.length });
-
+    if (updates.items && Array.isArray(updates.items)) {
+      if (userRole === 'admin') {
         pvReport.items = pvReport.items.map((oldItem, idx) => {
           const oldObj = oldItem.toObject?.() ?? oldItem;
           const patch = updates.items[idx];
-
           if (!patch) return oldItem;
 
-          // sebelum merge
-          const oldAkt = toNum(oldObj.aktual);
-          const oldExpType = oldObj.expense_type || pvReport.expense_type;
-          const oldGroup = mapExpenseType(oldExpType);
-          const oldCat = oldObj.category;
-          const oldPath =
-            oldGroup && oldCat ? `${oldGroup}.${oldCat}.aktual` : null;
+          const nextAkt = toNum(patch.aktual, oldObj.aktual);
+          if (toNum(oldObj.aktual) !== nextAkt) aktualChanged = true;
 
-          // sesudah merge (admin kita batasi cuma aktual, tapi tetap aman bila ada field lain ikut masuk)
-          const next = {
-            ...oldObj,
-            aktual: toNum(patch.aktual, oldObj.aktual)
-          };
+          const next = { ...oldObj, aktual: nextAkt };
           next.overbudget = toNum(next.aktual) > toNum(next.amount);
-
-          // path setelah merge
-          const newExpType = next.expense_type || pvReport.expense_type;
-          const newGroup = mapExpenseType(newExpType);
-          const newCat = next.category;
-          const newPath =
-            newGroup && newCat ? `${newGroup}.${newCat}.aktual` : null;
-
-          const newAkt = toNum(next.aktual);
-
-          if (newAkt !== oldAkt) {
-            DBG('ADMIN: aktual changed', {
-              idx,
-              purpose: next.purpose,
-              before: oldAkt,
-              after: newAkt,
-              amount: toNum(next.amount),
-              overbudget: next.overbudget,
-              oldPath,
-              newPath
-            });
-
-            // Jika status SEKARANG sudah Disetujui, kita langsung pantulkan delta ke RAP
-            if (prevStatus === 'Disetujui') {
-              if (oldPath && newPath) {
-                if (oldPath === newPath) {
-                  // hanya beda angka aktual di path yang sama
-                  addInc(incBag, oldPath, newAkt - oldAkt);
-                } else {
-                  // pindah kategori/expense_type: minus total lama di path lama, plus total baru di path baru
-                  addInc(incBag, oldPath, -oldAkt);
-                  addInc(incBag, newPath, newAkt);
-                }
-              } else if (oldPath && !newPath) {
-                // kehilangan path (mis: category terhapus) → tarik semua aktual lama
-                addInc(incBag, oldPath, -oldAkt);
-              } else if (!oldPath && newPath) {
-                // baru punya path → tambahkan aktual baru
-                addInc(incBag, newPath, newAkt);
-              }
-            }
-          }
-
           return next;
         });
-
         pvReport.markModified('items');
-      }
-
-      // Jika report SUDAH approved dan ada patch item, jalankan delta $inc
-      if (prevStatus === 'Disetujui' && hadItemPatch) {
-        if (Object.keys(incBag).length > 0) {
-          DBG('ADMIN: APPLY delta RAP (already approved)', { incBag });
-
-          const upd = await RAP.updateOne(
-            { _id: pvReport.project },
-            { $inc: incBag },
-            { session }
-          );
-
-          DBG('ADMIN: RAP $inc result', {
-            matchedCount: upd.matchedCount,
-            modifiedCount: upd.modifiedCount
-          });
-
-          // read-back nilai terkini di setiap path yang diubah
-          try {
-            const rapAfter = await RAP.findById(pvReport.project)
-              .lean()
-              .session(session);
-            const readBack = {};
-            for (const p of Object.keys(incBag)) {
-              readBack[p] = getByPath(rapAfter || {}, p);
-            }
-            DBG('ADMIN: RAP read-back after delta', readBack);
-          } catch (e) {
-            DBG('ADMIN: RAP read-back FAILED', e?.message);
-          }
-
-          // sinkronisasikan ExpenseLog.details supaya mirror items terbaru
-          const logUpd = await ExpenseLog.findOneAndUpdate(
-            { voucher_number: pvReport.voucher_number },
-            {
-              $set: {
-                details: pvReport.items.map((it) => ({
-                  purpose: it.purpose,
-                  category: it.category,
-                  quantity: it.quantity,
-                  unit_price: it.unit_price,
-                  amount: toNum(it.amount),
-                  aktual: toNum(it.aktual),
-                  nota: it.nota
-                }))
-              }
-            },
-            { session, new: true }
-          );
-          DBG('ADMIN: ExpenseLog updated (stay approved)', {
-            log_found: !!logUpd,
-            details_count: pvReport.items.length
-          });
-        } else {
-          DBG(
-            'ADMIN: no delta to apply (aktual unchanged or paths unresolved)'
-          );
-        }
-      }
-
-      // --- Ubah status manual (Disetujui / Ditolak / Diproses, dll) ---
-      if (updates.status && updates.status !== prevStatus) {
-        DBG('ADMIN: status change requested', {
-          from: prevStatus,
-          to: updates.status
-        });
-
-        if (updates.status === 'Disetujui') {
-          if (!updates.approved_by) throwError('approved_by wajib diisi', 400);
-          pvReport.approved_by = updates.approved_by;
-          pvReport.recipient = updates.recipient || pvReport.recipient;
-
-          // Validasi & FULL inc RAP (approve dari belum approved)
-          for (const item of pvReport.items) {
-            const incVal = toNum(item.aktual);
-            const amount = toNum(item.amount);
-            if (incVal > amount) {
-              throwError(
-                `Aktual untuk "${item.purpose}" melebihi pengajuan (${amount})`,
-                400
-              );
-            }
-            const expenseType = item.expense_type || pvReport.expense_type;
-            const group = mapExpenseType(expenseType);
-            const category = item.category;
-            DBG('APPROVE: prepare RAP inc', {
-              purpose: item.purpose,
-              expenseType,
-              group,
-              category,
-              inc: incVal
-            });
-
-            if (group && category) {
-              const pathStr = `${group}.${category}.aktual`;
-              const upd = await RAP.updateOne(
-                { _id: pvReport.project },
-                { $inc: { [pathStr]: incVal } },
-                { session }
-              );
-              DBG('APPROVE: RAP $inc result', {
-                path: pathStr,
-                inc: incVal,
-                matchedCount: upd.matchedCount,
-                modifiedCount: upd.modifiedCount
-              });
-
-              try {
-                const rapAfter = await RAP.findById(pvReport.project)
-                  .select(pathStr)
-                  .lean()
-                  .session(session);
-                const nowVal = getByPath(rapAfter || {}, pathStr);
-                DBG('APPROVE: RAP read-back', {
-                  path: pathStr,
-                  current_value: nowVal
-                });
-              } catch (e) {
-                DBG('APPROVE: RAP read-back FAILED', e?.message);
-              }
-            } else {
-              DBG('APPROVE: SKIP RAP inc (missing group/category)', {
-                expenseType,
-                group,
-                category
-              });
-            }
-          }
-
-          // sinkronisasi ExpenseLog + completed_at
-          const logUpd = await ExpenseLog.findOneAndUpdate(
-            { voucher_number: pvReport.voucher_number },
-            {
-              $set: {
-                details: pvReport.items.map((it) => ({
-                  purpose: it.purpose,
-                  category: it.category,
-                  quantity: it.quantity,
-                  unit_price: it.unit_price,
-                  amount: toNum(it.amount),
-                  aktual: toNum(it.aktual),
-                  nota: it.nota
-                })),
-                completed_at: new Date()
-              }
-            },
-            { session, new: true }
-          );
-          DBG('APPROVE: ExpenseLog updated', {
-            log_found: !!logUpd,
-            details_count: pvReport.items.length
-          });
-
-          // ExpenseRequest -> Selesai
-          const erUpd = await ExpenseRequest.findOneAndUpdate(
-            {
-              payment_voucher: pvReport.pv_number,
-              voucher_number: pvReport.voucher_number
-            },
-            { $set: { request_status: 'Selesai' } },
-            { session, new: true }
-          );
-          DBG('APPROVE: ExpenseRequest status -> Selesai', { found: !!erUpd });
-        }
-
-        if (updates.status === 'Ditolak') {
-          if (!updates.note)
-            throwError('Catatan wajib diisi jika laporan ditolak', 400);
-          pvReport.note = updates.note;
-          pvReport.approved_by = null;
-
-          const erUpd = await ExpenseRequest.findOneAndUpdate(
-            {
-              payment_voucher: pvReport.pv_number,
-              voucher_number: pvReport.voucher_number
-            },
-            { $set: { request_status: 'Pending' } },
-            { session, new: true }
-          );
-          DBG('REJECT: ExpenseRequest status -> Pending', { found: !!erUpd });
-        }
-
-        // Rollback RAP jika dari Disetujui → non-Disetujui
-        if (prevStatus === 'Disetujui' && updates.status !== 'Disetujui') {
-          DBG('ROLLBACK: from Approved -> non-Approved, revert RAP aktual');
-
-          for (const item of pvReport.items) {
-            const decVal = -toNum(item.aktual);
-            const expenseType = item.expense_type || pvReport.expense_type;
-            const group = mapExpenseType(expenseType);
-            const category = item.category;
-
-            if (group && category) {
-              const pathStr = `${group}.${category}.aktual`;
-              const upd = await RAP.updateOne(
-                { _id: pvReport.project },
-                { $inc: { [pathStr]: decVal } },
-                { session }
-              );
-              DBG('ROLLBACK: RAP $inc result', {
-                path: pathStr,
-                inc: decVal,
-                matchedCount: upd.matchedCount,
-                modifiedCount: upd.modifiedCount
-              });
-
-              try {
-                const rapAfter = await RAP.findById(pvReport.project)
-                  .select(pathStr)
-                  .lean()
-                  .session(session);
-                const nowVal = getByPath(rapAfter || {}, pathStr);
-                DBG('ROLLBACK: RAP read-back', {
-                  path: pathStr,
-                  current_value: nowVal
-                });
-              } catch (e) {
-                DBG('ROLLBACK: RAP read-back FAILED', e?.message);
-              }
-            } else {
-              DBG('ROLLBACK: SKIP (missing group/category)', {
-                expenseType,
-                group,
-                category
-              });
-            }
-          }
-
-          // unset completed_at di ExpenseLog
-          const logUpd = await ExpenseLog.findOneAndUpdate(
-            { voucher_number: pvReport.voucher_number },
-            { $unset: { completed_at: '' } },
-            { session, new: true }
-          );
-          DBG('ROLLBACK: ExpenseLog unset completed_at', {
-            log_found: !!logUpd
-          });
-        }
-
-        pvReport.status = updates.status;
-      }
-    } else {
-      /* ==================== KARYAWAN ==================== */
-      if (updates.items && Array.isArray(updates.items)) {
-        DBG('EMPLOYEE: merge items', { count: updates.items.length });
-
+      } else {
+        // Karyawan: merge menyeluruh + handle nota
         const existing = pvReport.items.map((d) =>
           d.toObject ? d.toObject() : d
         );
@@ -660,20 +361,20 @@ const updatePVReport = asyncHandler(async (req, res) => {
           merged.quantity = toNum(merged.quantity);
           merged.unit_price = toNum(merged.unit_price);
           merged.amount = toNum(merged.amount);
-          merged.aktual = toNum(merged.aktual);
 
-          if (merged.aktual < 0) {
+          const nextAkt = toNum(merged.aktual);
+          if (nextAkt !== toNum(base.aktual)) aktualChanged = true;
+          if (nextAkt < 0)
             throwError(
               `Aktual untuk "${merged.purpose}" tidak boleh negatif`,
               400
             );
-          }
+          merged.aktual = nextAkt;
 
           merged.expense_type =
             merged.expense_type || base.expense_type || pvReport.expense_type;
           merged.overbudget = merged.aktual > merged.amount;
 
-          // handle upload nota_i
           const fileField = `nota_${idx + 1}`;
           let file = null;
           if (Array.isArray(req.files)) {
@@ -683,28 +384,11 @@ const updatePVReport = asyncHandler(async (req, res) => {
           }
 
           if (file) {
-            DBG('EMPLOYEE: upload nota', {
-              idx,
-              field: fileField,
-              name: file.originalname,
-              size: file.size
-            });
-
             if (base?.nota?.key) {
               try {
                 await deleteFile(base.nota.key);
-                DBG('EMPLOYEE: delete old nota OK', {
-                  idx,
-                  key: base.nota.key
-                });
-              } catch (e) {
-                DBG('EMPLOYEE: delete old nota FAILED', {
-                  idx,
-                  err: e?.message
-                });
-              }
+              } catch (_) {}
             }
-
             const ext = path.extname(file.originalname);
             const key = `Pertanggungjawaban Dana/${pvReport.pv_number}/nota_${
               idx + 1
@@ -721,33 +405,53 @@ const updatePVReport = asyncHandler(async (req, res) => {
             merged.nota = merged.nota ?? base.nota ?? null;
           }
 
-          DBG('EMPLOYEE: item merged', {
-            idx,
-            purpose: merged.purpose,
-            amount: merged.amount,
-            aktual: merged.aktual,
-            overbudget: merged.overbudget
-          });
-
           result.push(merged);
         }
 
         pvReport.items = result;
         pvReport.markModified('items');
       }
+    }
 
-      if (updates.report_date) {
-        DBG('EMPLOYEE: set report_date', { report_date: updates.report_date });
-        pvReport.report_date = updates.report_date;
+    if (updates.report_date) {
+      pvReport.report_date = updates.report_date;
+    }
+
+    if (aktualChanged) {
+      if (prevStatus === 'Disetujui') {
+        const rbBag = {};
+        for (const item of pvReport.items) {
+          const expenseType = item.expense_type || pvReport.expense_type;
+          const group = mapExpenseType(expenseType);
+          const category = item.category;
+          if (group && category) {
+            const pathStr = `${group}.${category}.aktual`;
+            addInc(rbBag, pathStr, -toNum(item.aktual)); // negatif
+          }
+        }
+        const safeRbBag = await clampIncBagNegatives(
+          pvReport.project,
+          rbBag,
+          session
+        );
+        if (Object.keys(safeRbBag).length > 0) {
+          await RAP.updateOne(
+            { _id: pvReport.project },
+            { $inc: safeRbBag },
+            { session }
+          );
+        }
+
+        // unset completed_at di ExpenseLog
+        await ExpenseLog.findOneAndUpdate(
+          { voucher_number: pvReport.voucher_number },
+          { $unset: { completed_at: '' } },
+          { session }
+        );
       }
 
-      // karyawan selalu reset ke Diproses
-      pvReport.status = 'Diproses';
-      pvReport.approved_by = null;
-      pvReport.note = null;
-
-      // sinkron ExpenseLog (tanpa completed_at)
-      const logUpd = await ExpenseLog.findOneAndUpdate(
+      // sinkronisasi detail log (tanpa completed_at)
+      await ExpenseLog.findOneAndUpdate(
         { voucher_number: pvReport.voucher_number },
         {
           $set: {
@@ -762,34 +466,195 @@ const updatePVReport = asyncHandler(async (req, res) => {
             }))
           }
         },
-        { session, new: true }
+        { session }
       );
-      DBG('EMPLOYEE: ExpenseLog updated (no completed_at)', {
-        log_found: !!logUpd,
-        details_count: pvReport.items.length
-      });
+
+      // aktifkan kembali ExpenseRequest
+      await ExpenseRequest.findOneAndUpdate(
+        {
+          payment_voucher: pvReport.pv_number,
+          voucher_number: pvReport.voucher_number
+        },
+        { $set: { request_status: 'Aktif' } },
+        { session }
+      );
+
+      pvReport.status = 'Diproses';
+      pvReport.approved_by = null;
+      pvReport.note = null;
+
+      await pvReport.save({ session });
+      await session.commitTransaction();
+      return res.status(200).json(pvReport);
+    }
+    if (
+      userRole === 'admin' &&
+      updates.status &&
+      updates.status !== prevStatus
+    ) {
+      if (updates.status === 'Disetujui') {
+        if (!updates.approved_by) throwError('approved_by wajib diisi', 400);
+        pvReport.approved_by = updates.approved_by;
+        pvReport.recipient = updates.recipient || pvReport.recipient;
+
+        // validasi & update RAP (full inc)
+        for (const item of pvReport.items) {
+          const incVal = toNum(item.aktual);
+          const amount = toNum(item.amount);
+          if (incVal > amount) {
+            throwError(
+              `Aktual untuk "${item.purpose}" melebihi pengajuan (${amount})`,
+              400
+            );
+          }
+          const expenseType = item.expense_type || pvReport.expense_type;
+          const group = mapExpenseType(expenseType);
+          const category = item.category;
+          if (group && category) {
+            const pathStr = `${group}.${category}.aktual`;
+            await RAP.updateOne(
+              { _id: pvReport.project },
+              { $inc: { [pathStr]: incVal } },
+              { session }
+            );
+          }
+        }
+
+        // set log + completed_at
+        await ExpenseLog.findOneAndUpdate(
+          { voucher_number: pvReport.voucher_number },
+          {
+            $set: {
+              details: pvReport.items.map((it) => ({
+                purpose: it.purpose,
+                category: it.category,
+                quantity: it.quantity,
+                unit_price: it.unit_price,
+                amount: toNum(it.amount),
+                aktual: toNum(it.aktual),
+                nota: it.nota
+              })),
+              completed_at: new Date()
+            }
+          },
+          { session }
+        );
+
+        // ExpenseRequest -> Selesai
+        await ExpenseRequest.findOneAndUpdate(
+          {
+            payment_voucher: pvReport.pv_number,
+            voucher_number: pvReport.voucher_number
+          },
+          { $set: { request_status: 'Selesai' } },
+          { session }
+        );
+      }
+
+      if (updates.status === 'Ditolak') {
+        if (!updates.note)
+          throwError('Catatan wajib diisi jika laporan ditolak', 400);
+        pvReport.note = updates.note;
+        pvReport.approved_by = null;
+
+        // bila sebelumnya approved → rollback RAP (clamp)
+        if (prevStatus === 'Disetujui') {
+          const rbBag = {};
+          for (const item of pvReport.items) {
+            const expenseType = item.expense_type || pvReport.expense_type;
+            const group = mapExpenseType(expenseType);
+            const category = item.category;
+            if (group && category) {
+              const pathStr = `${group}.${category}.aktual`;
+              addInc(rbBag, pathStr, -toNum(item.aktual));
+            }
+          }
+          const safeRbBag = await clampIncBagNegatives(
+            pvReport.project,
+            rbBag,
+            session
+          );
+          if (Object.keys(safeRbBag).length > 0) {
+            await RAP.updateOne(
+              { _id: pvReport.project },
+              { $inc: safeRbBag },
+              { session }
+            );
+          }
+
+          await ExpenseLog.findOneAndUpdate(
+            { voucher_number: pvReport.voucher_number },
+            { $unset: { completed_at: '' } },
+            { session }
+          );
+        }
+
+        // ExpenseRequest -> Pending
+        await ExpenseRequest.findOneAndUpdate(
+          {
+            payment_voucher: pvReport.pv_number,
+            voucher_number: pvReport.voucher_number
+          },
+          { $set: { request_status: 'Pending' } },
+          { session }
+        );
+      }
+
+      if (updates.status === 'Diproses') {
+        // bila sebelumnya approved → rollback RAP (clamp)
+        if (prevStatus === 'Disetujui') {
+          const rbBag = {};
+          for (const item of pvReport.items) {
+            const expenseType = item.expense_type || pvReport.expense_type;
+            const group = mapExpenseType(expenseType);
+            const category = item.category;
+            if (group && category) {
+              const pathStr = `${group}.${category}.aktual`;
+              addInc(rbBag, pathStr, -toNum(item.aktual));
+            }
+          }
+          const safeRbBag = await clampIncBagNegatives(
+            pvReport.project,
+            rbBag,
+            session
+          );
+          if (Object.keys(safeRbBag).length > 0) {
+            await RAP.updateOne(
+              { _id: pvReport.project },
+              { $inc: safeRbBag },
+              { session }
+            );
+          }
+
+          await ExpenseLog.findOneAndUpdate(
+            { voucher_number: pvReport.voucher_number },
+            { $unset: { completed_at: '' } },
+            { session }
+          );
+        }
+
+        // ExpenseRequest -> Aktif
+        await ExpenseRequest.findOneAndUpdate(
+          {
+            payment_voucher: pvReport.pv_number,
+            voucher_number: pvReport.voucher_number
+          },
+          { $set: { request_status: 'Aktif' } },
+          { session }
+        );
+      }
+
+      pvReport.status = updates.status;
     }
 
     await pvReport.save({ session });
-    DBG('SAVE OK', { newStatus: pvReport.status });
-
     await session.commitTransaction();
-    DBG('COMMIT OK');
-
-    return res.status(200).json(pvReport);
+    res.status(200).json(pvReport);
   } catch (err) {
-    DBG('ERROR', err?.message);
-    DBG('STACK', err?.stack);
-    try {
-      await session.abortTransaction();
-      DBG('ABORT OK');
-    } catch (e) {
-      DBG('ABORT FAILED', e?.message);
-    }
+    await session.abortTransaction();
     throw err;
   } finally {
     session.endSession();
-    DBG('SESSION ENDED');
   }
 });
 
