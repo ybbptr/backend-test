@@ -38,8 +38,8 @@ const pvItemSchema = Joi.object({
   }),
   aktual: nonNeg.default(0).required().messages({
     'number.base': 'Aktual harus berupa angka',
-    'any.required': 'Aktual wajib diisi'
-    'number.min': 'Aktual minimal 0',
+    'any.required': 'Aktual wajib diisi',
+    'number.min': 'Aktual minimal 0'
   }),
   nota: Joi.any().optional()
 }).custom((val, helpers) => {
