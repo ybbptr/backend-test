@@ -1,6 +1,7 @@
 const asyncHandler = require('express-async-handler');
 const mongoose = require('mongoose');
 const path = require('path');
+
 const throwError = require('../utils/throwError');
 const PVReport = require('../model/pvReportModel');
 const Employee = require('../model/employeeModel');
@@ -10,30 +11,22 @@ const RAP = require('../model/rapModel');
 const { uploadBuffer, deleteFile, getFileUrl } = require('../utils/wasabi');
 const formatDate = require('../utils/formatDate');
 
-/* ================= Helper ================= */
+/* ================= Helpers ================= */
 function parseItems(raw) {
   if (!raw) return [];
   let parsed = raw;
-
   if (typeof raw === 'string') {
     try {
       parsed = JSON.parse(raw);
-    } catch (e) {
+    } catch {
       throwError('Format items bukan JSON valid', 400);
     }
   }
-
-  if (!Array.isArray(parsed) && typeof parsed === 'object') {
+  if (!Array.isArray(parsed) && typeof parsed === 'object')
     parsed = Object.values(parsed);
-  }
-
-  if (!Array.isArray(parsed)) {
-    throwError('items harus berupa array', 400);
-  }
-
+  if (!Array.isArray(parsed)) throwError('items harus berupa array', 400);
   return parsed;
 }
-
 function mapExpenseType(expenseType) {
   switch (expenseType) {
     case 'Persiapan Pekerjaan':
@@ -55,72 +48,7 @@ function mapExpenseType(expenseType) {
   }
 }
 
-function mapCategory(expenseType, category) {
-  const mappings = {
-    'Persiapan Pekerjaan': {
-      'Biaya Survey Awal Lapangan': 'biaya_survey_awal_lapangan',
-      'Uang Saku Survey OSA': 'uang_saku_survey_osa',
-      'Biaya Perizinan / Koordinasi Lokasi':
-        'biaya_perizinan_koordinasi_lokasi',
-      'Akomodasi Surveyor': 'akomodasi_surveyor',
-      'Mobilisasi/Demobilisasi Alat': 'mobilisasi_demobilisasi_alat',
-      'Mobilisasi/Demobilisasi Tim': 'mobilisasi_demobilisasi_tim',
-      'Akomodasi Tim': 'akomodasi_tim',
-      'Penginapan / Mess': 'penginapan_mess',
-      'Biaya Kalibrasi Alat/Mesin': 'biaya_kalibrasi_alat_mesin',
-      'Biaya Accessories Alat/Mesin': 'biaya_accessories_alat_mesin',
-      'Biaya Asuransi Tim': 'biaya_asuransi_tim',
-      'Biaya APD': 'biaya_apd',
-      'Biaya ATK': 'biaya_atk'
-    },
-    'Operasional Lapangan': {
-      Gaji: 'gaji',
-      'Gaji Tenaga Lokal': 'gaji_tenaga_lokal',
-      'Uang Makan': 'uang_makan',
-      'Uang Wakar': 'uang_wakar',
-      'Akomodasi Transport': 'akomodasi_transport',
-      'Mobilisasi/Demobilisasi Titik': 'mobilisasi_demobilisasi_titik',
-      'Biaya RTK Tak Terduga': 'biaya_rtk_tak_terduga'
-    },
-    'Operasional Tenaga Ahli': {
-      Penginapan: 'penginapan',
-      'Transportasi / Akomodasi Lokal': 'transportasi_akomodasi_lokal',
-      'Transportasi / Akomodasi Site': 'transportasi_akomodasi_site',
-      'Uang Makan': 'uang_makan',
-      OSA: 'osa',
-      'Fee Tenaga Ahli': 'fee_tenaga_ahli'
-    },
-    'Sewa Alat': {
-      'Alat Sondir': 'alat_sondir',
-      'Alat Bor': 'alat_bor',
-      'Alat CPTU': 'alat_cptu',
-      'Alat Topography': 'alat_topography',
-      'Alat Geolistrik': 'alat_geolistrik'
-    },
-    'Operasional Lab': {
-      'Ambil Sample': 'ambil_sample',
-      'Packaging Sample': 'packaging_sample',
-      'Kirim Sample': 'kirim_sample',
-      'Uji Lab Vendor Luar': 'uji_lab_vendor_luar',
-      'Biaya Perlengkapan Lab': 'biaya_perlengkapan_lab',
-      'Alat Uji Lab': 'alat_uji_lab'
-    },
-    Pajak: {
-      'Pajak Tenaga Ahli': 'pajak_tenaga_ahli',
-      'Pajak Sewa': 'pajak_sewa',
-      'Pajak PPh Final': 'pajak_pph_final',
-      'Pajak Lapangan': 'pajak_lapangan',
-      'Pajak PPN': 'pajak_ppn'
-    },
-    'Biaya Lain': {
-      SCF: 'scf',
-      'Admin Bank': 'admin_bank'
-    }
-  };
-
-  return mappings[expenseType]?.[category] || null;
-}
-
+/* ================= Create ================= */
 const createPVReport = asyncHandler(async (req, res) => {
   const {
     pv_number,
@@ -137,9 +65,9 @@ const createPVReport = asyncHandler(async (req, res) => {
     throwError('Field wajib belum lengkap', 400);
   }
 
-  // validasi aktual & flag overbudget
+  // validasi aktual non-negatif
   for (const it of items) {
-    if (it.aktual < 0) {
+    if ((it.aktual ?? 0) < 0) {
       throwError(
         `Aktual untuk "${it.purpose}" (kategori: ${it.category}) tidak boleh negatif`,
         400
@@ -153,6 +81,19 @@ const createPVReport = asyncHandler(async (req, res) => {
     voucher_number
   }).select('name project expense_type request_status details');
   if (!expenseReq) throwError('Pengajuan biaya tidak ditemukan', 404);
+
+  // Tentukan created_by berdasar role
+  let createdById = null;
+  if (req.user?.role === 'admin' && req.body.created_by) {
+    if (!mongoose.Types.ObjectId.isValid(req.body.created_by))
+      throwError('created_by tidak valid', 400);
+    const chosen = await Employee.findById(req.body.created_by).select('_id');
+    if (!chosen) throwError('Karyawan (created_by) tidak ditemukan', 404);
+    createdById = chosen._id;
+  } else {
+    const me = await Employee.findOne({ user: req.user.id }).select('_id');
+    createdById = me?._id || expenseReq.name; // fallback ke pemohon ER
+  }
 
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -169,7 +110,7 @@ const createPVReport = asyncHandler(async (req, res) => {
           pv_number,
           voucher_number,
           project: expenseReq.project,
-          created_by: expenseReq.name,
+          created_by: createdById,
           report_date: report_date || new Date(),
           status: req.user.role === 'admin' ? status || 'Diproses' : 'Diproses',
           approved_by: req.user.role === 'admin' ? approved_by || null : null,
@@ -205,7 +146,7 @@ const createPVReport = asyncHandler(async (req, res) => {
         ...it,
         expense_type: expenseReq.expense_type,
         nota: notaObj,
-        overbudget: it.aktual > it.amount
+        overbudget: (it.aktual ?? 0) > it.amount
       });
     }
 
@@ -213,18 +154,19 @@ const createPVReport = asyncHandler(async (req, res) => {
 
     if (req.user.role === 'admin' && status === 'Disetujui') {
       for (const item of pvReport.items) {
-        if (item.aktual > item.amount) {
+        if ((item.aktual ?? 0) > item.amount) {
           throwError(
             `Aktual untuk "${item.purpose}" melebihi pengajuan (${item.amount})`,
             400
           );
         }
-
         const group = mapExpenseType(item.expense_type);
         if (group && item.category) {
           await RAP.updateOne(
             { _id: pvReport.project },
-            { $inc: { [`${group}.${item.category}.aktual`]: item.aktual } },
+            {
+              $inc: { [`${group}.${item.category}.aktual`]: item.aktual || 0 }
+            },
             { session }
           );
         }
@@ -273,6 +215,7 @@ const createPVReport = asyncHandler(async (req, res) => {
   }
 });
 
+/* ================= Read ================= */
 const getAllPVReports = asyncHandler(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 10;
@@ -317,7 +260,9 @@ const getPVReport = asyncHandler(async (req, res) => {
     report.items.map(async (item) => {
       let nota_url = null;
       if (item.nota?.key) {
-        nota_url = await getFileUrl(item.nota.key);
+        try {
+          nota_url = await getFileUrl(item.nota.key);
+        } catch {}
       }
       return { ...item, nota_url };
     })
@@ -326,6 +271,7 @@ const getPVReport = asyncHandler(async (req, res) => {
   res.status(200).json(report);
 });
 
+/* ================= Update ================= */
 const updatePVReport = asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!mongoose.Types.ObjectId.isValid(id)) throwError('ID tidak valid', 400);
@@ -341,17 +287,15 @@ const updatePVReport = asyncHandler(async (req, res) => {
     const prevStatus = pvReport.status;
     const userRole = req.user?.role;
 
-    // ADMIN
     if (userRole === 'admin') {
       if (updates.status && updates.status !== prevStatus) {
         if (updates.status === 'Disetujui') {
           if (!updates.approved_by) throwError('approved_by wajib diisi', 400);
-
           pvReport.approved_by = updates.approved_by;
           pvReport.recipient = updates.recipient || pvReport.recipient;
 
           for (const item of pvReport.items) {
-            if (item.aktual > item.amount) {
+            if ((item.aktual ?? 0) > item.amount) {
               throwError(
                 `Aktual untuk "${item.purpose}" melebihi pengajuan (${item.amount})`,
                 400
@@ -361,7 +305,11 @@ const updatePVReport = asyncHandler(async (req, res) => {
             if (group && item.category) {
               await RAP.updateOne(
                 { _id: pvReport.project },
-                { $inc: { [`${group}.${item.category}.aktual`]: item.aktual } },
+                {
+                  $inc: {
+                    [`${group}.${item.category}.aktual`]: item.aktual || 0
+                  }
+                },
                 { session }
               );
             }
@@ -397,9 +345,8 @@ const updatePVReport = asyncHandler(async (req, res) => {
         }
 
         if (updates.status === 'Ditolak') {
-          if (!updates.note) {
+          if (!updates.note)
             throwError('Catatan wajib diisi jika laporan ditolak', 400);
-          }
           pvReport.note = updates.note;
           pvReport.approved_by = null;
 
@@ -421,7 +368,9 @@ const updatePVReport = asyncHandler(async (req, res) => {
               await RAP.updateOne(
                 { _id: pvReport.project },
                 {
-                  $inc: { [`${group}.${item.category}.aktual`]: -item.aktual }
+                  $inc: {
+                    [`${group}.${item.category}.aktual`]: -(item.aktual || 0)
+                  }
                 },
                 { session }
               );
@@ -437,21 +386,17 @@ const updatePVReport = asyncHandler(async (req, res) => {
 
         pvReport.status = updates.status;
       }
-    }
-
-    // KARYAWAN
-    else {
+    } else {
+      // Karyawan: boleh update items & report_date, reset status ke Diproses
       if (updates.items && Array.isArray(updates.items)) {
         for (const it of updates.items) {
-          if (it.aktual < 0) {
+          if ((it.aktual ?? 0) < 0)
             throwError(`Aktual untuk "${it.purpose}" tidak boleh negatif`, 400);
-          }
         }
-
         pvReport.items = updates.items.map((it) => ({
           ...it,
           expense_type: it.expense_type || pvReport.expense_type,
-          overbudget: it.aktual > it.amount
+          overbudget: (it.aktual ?? 0) > it.amount
         }));
       }
 
@@ -491,6 +436,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
   }
 });
 
+/* ================= Delete ================= */
 const deletePVReport = asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!mongoose.Types.ObjectId.isValid(id)) throwError('ID tidak valid', 400);
@@ -508,7 +454,11 @@ const deletePVReport = asyncHandler(async (req, res) => {
         if (group && item.category) {
           await RAP.updateOne(
             { _id: pvReport.project },
-            { $inc: { [`${group}.${item.category}.aktual`]: -item.aktual } },
+            {
+              $inc: {
+                [`${group}.${item.category}.aktual`]: -(item.aktual || 0)
+              }
+            },
             { session }
           );
         }
@@ -516,7 +466,7 @@ const deletePVReport = asyncHandler(async (req, res) => {
     }
 
     for (const item of pvReport.items) {
-      if (item.nota?.key) {
+      if (item?.nota?.key) {
         await deleteFile(item.nota.key);
       }
     }
@@ -532,10 +482,10 @@ const deletePVReport = asyncHandler(async (req, res) => {
   }
 });
 
+/* ================= Helpers for FE ================= */
 const getAllEmployee = asyncHandler(async (req, res) => {
   const employee = await Employee.find().select('name');
   if (!employee) throwError('Karyawan tidak ada', 404);
-
   res.status(200).json(employee);
 });
 
@@ -547,25 +497,21 @@ const getMyPVNumbers = asyncHandler(async (req, res) => {
       '_id name'
     );
     if (!employee) throwError('Karyawan tidak ditemukan', 404);
-    filter.name = employee._id; // hanya expense request milik karyawan
+    filter.name = employee._id; // hanya milik karyawan tsb
   }
 
-  // cari expense request yg sudah disetujui
   const expenseRequests = await ExpenseRequest.find(filter)
     .select('payment_voucher voucher_number project name')
     .populate('project', 'project_name')
-    .populate('name', 'name') // biar keliatan siapa yg buat
+    .populate('name', 'name')
     .sort({ createdAt: -1 })
     .lean();
 
-  // ambil semua pv_number yang sudah ada di PVReport
   const usedReports = await PVReport.find({
     pv_number: { $in: expenseRequests.map((exp) => exp.payment_voucher) }
   }).select('pv_number');
 
   const usedPV = new Set(usedReports.map((r) => r.pv_number));
-
-  // filter yg belum dipakai di PVReport
   const available = expenseRequests.filter(
     (exp) => !usedPV.has(exp.payment_voucher)
   );
@@ -575,7 +521,7 @@ const getMyPVNumbers = asyncHandler(async (req, res) => {
       id: exp._id,
       pv_number: exp.payment_voucher,
       voucher_number: exp.voucher_number,
-      employee: exp.name?.name || null // buat admin bisa liat siapa yang ajukan
+      employee: exp.name?.name || null
     }))
   });
 });
@@ -583,13 +529,12 @@ const getMyPVNumbers = asyncHandler(async (req, res) => {
 const getPVForm = asyncHandler(async (req, res) => {
   const { pv_number } = req.params;
 
-  // cari expense request yg sudah disetujui berdasarkan PV number
   const expense = await ExpenseRequest.findOne({
     payment_voucher: pv_number,
     status: 'Disetujui'
   })
     .populate('project', 'project_name')
-    .populate('name', 'name position') // pemohon
+    .populate('name', 'name position')
     .lean();
 
   if (!expense) throwError('Payment Voucher tidak ditemukan!', 404);

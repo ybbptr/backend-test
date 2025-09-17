@@ -1,3 +1,4 @@
+// models/expenseLogModel.js
 const mongoose = require('mongoose');
 
 const expenseLogSchema = new mongoose.Schema(
@@ -10,7 +11,6 @@ const expenseLogSchema = new mongoose.Schema(
       ref: 'Employee',
       required: true
     },
-
     project: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'RAP',
@@ -35,10 +35,14 @@ const expenseLogSchema = new mongoose.Schema(
         }
       }
     ],
+
     request_date: { type: Date, default: Date.now },
     completed_at: { type: Date, default: null }
   },
   { timestamps: true }
 );
+
+// OPSIONAL: uncomment kalau memang ingin satu ExpenseLog per voucher_number
+// expenseLogSchema.index({ voucher_number: 1 }, { unique: true });
 
 module.exports = mongoose.model('ExpenseLog', expenseLogSchema);

@@ -1,9 +1,7 @@
 const mongoose = require('mongoose');
 
 const biayaSchema = new mongoose.Schema(
-  {
-    aktual: { type: Number, default: 0 }
-  },
+  { aktual: { type: Number, default: 0 } },
   { _id: false }
 );
 
@@ -19,17 +17,16 @@ const profitReportSchema = new mongoose.Schema(
     },
 
     nilai_pekerjaan: { type: Number, required: true },
-    nilai_pekerjaan_addendum: { type: Number, default: 0 },
+    nilai_pekerjaan_addendum: { type: Number, default: null },
     nilai_fix_pekerjaan: { type: Number, required: true },
 
     nomor_kontrak: { type: String, required: true },
-    nomor_kontrak_addendum: { type: String },
+    nomor_kontrak_addendum: { type: String, default: null },
 
     client_name: { type: String, required: true },
-    address: { type: String },
-    npwp: { type: String },
+    address: { type: String, alias: 'client_address' },
+    npwp: { type: String, alias: 'client_npwp' },
 
-    // ----- DETAIL AKTUAL BIAYA -----
     persiapan_pekerjaan: {
       biaya_survey_awal_lapangan: biayaSchema,
       uang_saku_survey_osa: biayaSchema,
@@ -45,7 +42,6 @@ const profitReportSchema = new mongoose.Schema(
       biaya_apd: biayaSchema,
       biaya_atk: biayaSchema
     },
-
     operasional_lapangan: {
       gaji: biayaSchema,
       gaji_tenaga_lokal: biayaSchema,
@@ -55,7 +51,6 @@ const profitReportSchema = new mongoose.Schema(
       mobilisasi_demobilisasi_titik: biayaSchema,
       biaya_rtk_tak_terduga: biayaSchema
     },
-
     operasional_tenaga_ahli: {
       penginapan: biayaSchema,
       transportasi_akomodasi_lokal: biayaSchema,
@@ -64,7 +59,6 @@ const profitReportSchema = new mongoose.Schema(
       osa: biayaSchema,
       fee_tenaga_ahli: biayaSchema
     },
-
     sewa_alat: {
       alat_sondir: biayaSchema,
       alat_bor: biayaSchema,
@@ -72,7 +66,6 @@ const profitReportSchema = new mongoose.Schema(
       alat_topography: biayaSchema,
       alat_geolistrik: biayaSchema
     },
-
     operasional_lab: {
       ambil_sample: biayaSchema,
       packaging_sample: biayaSchema,
@@ -81,7 +74,6 @@ const profitReportSchema = new mongoose.Schema(
       biaya_perlengkapan_lab: biayaSchema,
       alat_uji_lab: biayaSchema
     },
-
     pajak: {
       pajak_tenaga_ahli: biayaSchema,
       pajak_sewa: biayaSchema,
@@ -89,13 +81,16 @@ const profitReportSchema = new mongoose.Schema(
       pajak_lapangan: biayaSchema,
       pajak_ppn: biayaSchema
     },
-
     biaya_lain_lain: {
       scf: biayaSchema,
       admin_bank: biayaSchema
     }
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
+  }
 );
 
 profitReportSchema.index({ project_name: 'text' });

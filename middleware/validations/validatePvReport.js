@@ -1,113 +1,201 @@
 const Joi = require('joi');
 const mongoose = require('mongoose');
 
-// validator untuk ObjectId
-const objectIdValidator = (value, helpers) => {
-  if (!mongoose.Types.ObjectId.isValid(value)) {
+const objectId = Joi.string().custom((value, helpers) => {
+  if (!mongoose.Types.ObjectId.isValid(value))
     return helpers.error('any.invalid');
-  }
   return value;
-};
+}, 'ObjectId validator');
 
-// schema untuk item
+const nonNeg = Joi.number().min(0);
+
 const pvItemSchema = Joi.object({
-  purpose: Joi.string().messages({
-    'any.required': 'Tujuan wajib diisi',
+  purpose: Joi.string().required().messages({
     'string.base': 'Tujuan harus berupa teks',
-    'string.empty': 'Tujuan tidak boleh kosong'
+    'string.empty': 'Tujuan tidak boleh kosong',
+    'any.required': 'Tujuan wajib diisi'
   }),
-  category: Joi.string().messages({
-    'any.required': 'Kategori wajib diisi',
+  category: Joi.string().required().messages({
     'string.base': 'Kategori harus berupa teks',
-    'string.empty': 'Kategori tidak boleh kosong'
+    'string.empty': 'Kategori tidak boleh kosong',
+    'any.required': 'Kategori wajib diisi'
   }),
-  quantity: Joi.number().min(1).messages({
-    'any.required': 'Jumlah wajib diisi',
+  quantity: Joi.number().integer().min(1).required().messages({
     'number.base': 'Jumlah harus berupa angka',
-    'number.min': 'Jumlah minimal 1'
+    'number.integer': 'Jumlah harus bilangan bulat',
+    'number.min': 'Jumlah minimal 1',
+    'any.required': 'Jumlah wajib diisi'
   }),
-  unit_price: Joi.number().min(0).messages({
-    'any.required': 'Harga satuan wajib diisi',
+  unit_price: nonNeg.required().messages({
     'number.base': 'Harga satuan harus berupa angka',
-    'number.min': 'Harga satuan minimal 0'
+    'number.min': 'Harga satuan minimal 0',
+    'any.required': 'Harga satuan wajib diisi'
   }),
-  amount: Joi.number().min(0).messages({
-    'any.required': 'Jumlah total wajib diisi',
+  // diambil dari ER → wajib ada, dan dicek konsistensi
+  amount: nonNeg.required().messages({
     'number.base': 'Jumlah total harus berupa angka',
-    'number.min': 'Jumlah total minimal 0'
+    'number.min': 'Jumlah total minimal 0',
+    'any.required': 'Jumlah total wajib diisi'
   }),
-  aktual: Joi.number().min(0).default(0).messages({
+  aktual: nonNeg.default(0).messages({
     'number.base': 'Aktual harus berupa angka',
     'number.min': 'Aktual minimal 0'
   }),
-  nota: Joi.object({
-    key: Joi.string().allow(null, ''),
-    contentType: Joi.string().allow(null, ''),
-    size: Joi.number().allow(null),
-    uploadedAt: Joi.date().allow(null)
-  }).optional()
+  // file nota datang via multipart, bukan JSON → strip kalau ada
+  nota: Joi.any().strip()
+}).custom((val, helpers) => {
+  const q = Number(val.quantity);
+  const p = Number(val.unit_price);
+  const a = Number(val.amount);
+  if (Number.isFinite(q) && Number.isFinite(p) && Number.isFinite(a)) {
+    const calc = Math.round(q * p * 100) / 100;
+    if (Math.abs(calc - a) > 0.01) {
+      return helpers.error('any.custom', {
+        message: 'amount harus = quantity × unit_price'
+      });
+    }
+  }
+  return val;
+}, 'PV item consistency');
+
+// Terima array items atau string JSON
+function itemsParser() {
+  return Joi.any().custom((value, helpers) => {
+    let arr = value;
+    if (typeof value === 'string') {
+      try {
+        arr = JSON.parse(value);
+      } catch {
+        return helpers.error('any.invalid', {
+          message: 'items harus JSON array yang valid'
+        });
+      }
+    }
+    if (!Array.isArray(arr))
+      return helpers.error('array.base', {
+        message: 'items harus berupa array'
+      });
+    if (arr.length < 1)
+      return helpers.error('array.min', {
+        message: 'Minimal 1 item harus diisi'
+      });
+
+    const { error, value: validated } = Joi.array()
+      .items(pvItemSchema)
+      .validate(arr, {
+        abortEarly: false,
+        stripUnknown: true
+      });
+    if (error) return helpers.error('any.invalid', { message: error.message });
+    return validated;
+  }, 'items parser + validator');
+}
+
+// Admin boleh supply "created_by". Non-admin: strip.
+const createdByField = Joi.alternatives().conditional('$role', {
+  is: 'admin',
+  then: objectId
+    .optional()
+    .messages({ 'any.invalid': 'ID pembuat tidak valid' }),
+  otherwise: Joi.any().strip()
 });
 
-// schema untuk header + items
-const pvReportSchema = Joi.object({
+const createPVReportSchema = Joi.object({
   pv_number: Joi.string().required().messages({
-    'any.required': 'Nomor PV wajib diisi',
-    'string.empty': 'Nomor PV tidak boleh kosong'
+    'string.base': 'Nomor PV harus berupa teks',
+    'string.empty': 'Nomor PV tidak boleh kosong',
+    'any.required': 'Nomor PV wajib diisi'
   }),
   voucher_number: Joi.string().required().messages({
-    'any.required': 'Nomor voucher wajib diisi',
-    'string.empty': 'Nomor voucher tidak boleh kosong'
+    'string.base': 'Nomor voucher harus berupa teks',
+    'string.empty': 'Nomor voucher tidak boleh kosong',
+    'any.required': 'Nomor voucher wajib diisi'
   }),
-  report_date: Joi.date().required().messages({
-    'any.required': 'Tanggal laporan wajib diisi',
+  report_date: Joi.date().default(Date.now).messages({
     'date.base': 'Tanggal laporan tidak valid'
   }),
-  project: Joi.string().custom(objectIdValidator).messages({
-    'any.invalid': 'ID proyek tidak valid',
-    'string.empty': 'Proyek tidak boleh kosong'
-  }),
 
-  created_by: Joi.string().custom(objectIdValidator).messages({
-    'any.invalid': 'ID pembuat laporan tidak valid',
-    'string.empty': 'Pembuat laporan tidak boleh kosong'
-  }),
-  approved_by: Joi.string().custom(objectIdValidator).allow(null, '').messages({
-    'any.invalid': 'ID penyetuju tidak valid'
-  }),
-  recipient: Joi.string().custom(objectIdValidator).allow(null, '').messages({
-    'any.invalid': 'ID penerima tidak valid'
-  }),
+  created_by: createdByField,
+  approved_by: objectId
+    .when('status', {
+      is: 'Disetujui',
+      then: Joi.required().messages({
+        'any.required': 'approved_by wajib diisi saat Disetujui'
+      }),
+      otherwise: Joi.optional()
+    })
+    .messages({ 'any.invalid': 'ID penyetuju tidak valid' }),
+  recipient: objectId
+    .allow(null, '')
+    .messages({ 'any.invalid': 'ID penerima tidak valid' }),
 
   status: Joi.string()
     .valid('Diproses', 'Ditolak', 'Disetujui')
     .default('Diproses')
-    .messages({
-      'any.only':
-        'Status harus salah satu dari: Diproses, Ditolak, atau Disetujui'
+    .messages({ 'any.only': 'Status harus Diproses/Ditolak/Disetujui' }),
+  note: Joi.string()
+    .allow('', null)
+    .when('status', {
+      is: 'Ditolak',
+      then: Joi.required().messages({
+        'any.required': 'Catatan wajib diisi saat Ditolak'
+      }),
+      otherwise: Joi.optional()
     }),
-  note: Joi.string().allow('', null).messages({
-    'string.base': 'Catatan harus berupa teks'
-  }),
-  items: Joi.alternatives()
-    .try(
-      Joi.array().items(pvItemSchema).min(1),
-      Joi.string().custom((value, helpers) => {
-        try {
-          const parsed = JSON.parse(value);
-          if (!Array.isArray(parsed)) throw new Error();
-          return parsed;
-        } catch (err) {
-          return helpers.error('any.invalid');
-        }
-      })
-    )
-    .required()
-    .messages({
-      'any.required': 'Daftar item wajib diisi',
-      'any.invalid': 'Format items harus berupa array JSON yang valid',
-      'array.base': 'Daftar item harus berupa array',
-      'array.min': 'Minimal 1 item harus diisi'
-    })
+
+  items: itemsParser().required(),
+
+  // Dikontrol backend
+  project: Joi.any().strip(),
+  total_amount: Joi.any().strip(),
+  total_aktual: Joi.any().strip(),
+  remaining: Joi.any().strip(),
+  has_overbudget: Joi.any().strip()
 });
 
-module.exports = { pvReportSchema };
+const updatePVReportSchema = Joi.object({
+  report_date: Joi.date().messages({
+    'date.base': 'Tanggal laporan tidak valid'
+  }),
+  status: Joi.string()
+    .valid('Diproses', 'Ditolak', 'Disetujui')
+    .messages({ 'any.only': 'Status harus Diproses/Ditolak/Disetujui' }),
+  approved_by: objectId
+    .when('status', {
+      is: 'Disetujui',
+      then: Joi.required().messages({
+        'any.required': 'approved_by wajib diisi saat Disetujui'
+      }),
+      otherwise: Joi.optional()
+    })
+    .messages({ 'any.invalid': 'ID penyetuju tidak valid' }),
+  recipient: objectId
+    .allow(null, '')
+    .messages({ 'any.invalid': 'ID penerima tidak valid' }),
+  note: Joi.string()
+    .allow('', null)
+    .when('status', {
+      is: 'Ditolak',
+      then: Joi.required().messages({
+        'any.required': 'Catatan wajib diisi saat Ditolak'
+      }),
+      otherwise: Joi.optional()
+    }),
+
+  items: itemsParser(),
+
+  // tidak boleh diubah langsung
+  pv_number: Joi.any().strip(),
+  voucher_number: Joi.any().strip(),
+  project: Joi.any().strip(),
+  created_by: Joi.any().strip(),
+  total_amount: Joi.any().strip(),
+  total_aktual: Joi.any().strip(),
+  remaining: Joi.any().strip(),
+  has_overbudget: Joi.any().strip()
+});
+
+module.exports = {
+  createPVReportSchema,
+  updatePVReportSchema
+};

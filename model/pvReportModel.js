@@ -8,7 +8,20 @@ const pvItemSchema = new mongoose.Schema(
     unit_price: { type: Number, required: true },
     amount: { type: Number, required: true }, // dari ExpenseRequest
     aktual: { type: Number, default: 0 }, // realisasi
-    overbudget: { type: Boolean, default: false }, // flag otomatis
+    overbudget: { type: Boolean, default: false },
+    expense_type: {
+      type: String,
+      enum: [
+        'Persiapan Pekerjaan',
+        'Operasional Lapangan',
+        'Operasional Tenaga Ahli',
+        'Sewa Alat',
+        'Operasional Lab',
+        'Pajak',
+        'Biaya Lain'
+      ],
+      required: true
+    },
     nota: {
       key: String,
       contentType: String,
@@ -19,16 +32,15 @@ const pvItemSchema = new mongoose.Schema(
   { _id: true }
 );
 
-// Flag per item
 pvItemSchema.pre('save', function (next) {
-  this.overbudget = this.aktual > this.amount;
+  this.overbudget = (Number(this.aktual) || 0) > (Number(this.amount) || 0);
   next();
 });
 
 const pvReportSchema = new mongoose.Schema(
   {
-    pv_number: { type: String, required: true }, // dari ExpenseRequest.payment_voucher
-    voucher_number: { type: String, required: true }, // dari ExpenseRequest.voucher_number
+    pv_number: { type: String, required: true }, // ExpenseRequest.payment_voucher
+    voucher_number: { type: String, required: true }, // ExpenseRequest.voucher_number
     report_date: { type: Date, default: Date.now },
 
     project: {
@@ -36,12 +48,11 @@ const pvReportSchema = new mongoose.Schema(
       ref: 'RAP',
       required: true
     },
-
     created_by: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Employee',
       required: true
-    }, // pembuat laporan
+    },
     approved_by: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Employee',
@@ -51,18 +62,14 @@ const pvReportSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Employee',
       default: null
-    }, // finance penerima sisa dana
+    },
 
     status: {
       type: String,
       enum: ['Diproses', 'Ditolak', 'Disetujui'],
       default: 'Diproses'
     },
-
-    note: {
-      type: String,
-      default: null
-    }, // hanya dipakai kalau Ditolak
+    note: { type: String, default: null },
 
     items: [pvItemSchema],
 
@@ -74,21 +81,23 @@ const pvReportSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Auto hitung total + flag global
 pvReportSchema.pre('save', function (next) {
-  this.total_amount = this.items.reduce((sum, it) => sum + (it.amount || 0), 0);
-  this.total_aktual = this.items.reduce((sum, it) => sum + (it.aktual || 0), 0);
+  this.total_amount = this.items.reduce(
+    (sum, it) => sum + (Number(it.amount) || 0),
+    0
+  );
+  this.total_aktual = this.items.reduce(
+    (sum, it) => sum + (Number(it.aktual) || 0),
+    0
+  );
   this.remaining = this.total_amount - this.total_aktual;
-
-  // global flag overbudget
-  this.has_overbudget = this.items.some((it) => it.aktual > it.amount);
-
-  // kalau status bukan Ditolak → reset note biar ga nyangkut
-  if (this.status !== 'Ditolak') {
-    this.note = null;
-  }
-
+  this.has_overbudget = this.items.some(
+    (it) => (Number(it.aktual) || 0) > (Number(it.amount) || 0)
+  );
+  if (this.status !== 'Ditolak') this.note = null;
   next();
 });
+
+pvReportSchema.index({ pv_number: 1, voucher_number: 1 }, { unique: true });
 
 module.exports = mongoose.model('PVReport', pvReportSchema);

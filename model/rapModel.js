@@ -3,12 +3,14 @@ const mongoose = require('mongoose');
 const biayaSchema = new mongoose.Schema(
   {
     jumlah: { type: Number, default: 0 }, // budget awal
-    biaya_pengajuan: { type: Number, default: 0 }, // total pengajuan approved
+    biaya_pengajuan: { type: Number, default: 0 }, // total pengajuan
     aktual: { type: Number, default: 0 }, // realisasi
-    is_overbudget: { type: Boolean, default: false } // flag overbudget
+    is_overbudget: { type: Boolean, default: false }
   },
   { _id: false }
 );
+
+const withDefault = { type: biayaSchema, default: () => ({}) };
 
 const rapSchema = new mongoose.Schema(
   {
@@ -20,15 +22,18 @@ const rapSchema = new mongoose.Schema(
       size: Number,
       uploadedAt: Date
     },
+
     date_start: { type: Date, required: true },
     date_end: { type: Date, default: null },
-    nilai_pekerjaan: { type: Number, required: true },
-    nomor_kontrak: { type: String, required: true },
-    location: { type: String, required: true },
 
+    nilai_pekerjaan: { type: Number, required: true },
     nilai_pekerjaan_addendum: { type: Number, default: null },
-    nomor_kontrak_addendum: { type: String, default: null },
     nilai_fix_pekerjaan: { type: Number, default: null },
+
+    nomor_kontrak: { type: String, required: true },
+    nomor_kontrak_addendum: { type: String, default: null },
+
+    location: { type: String, required: true },
 
     client: {
       type: mongoose.Schema.Types.ObjectId,
@@ -41,77 +46,77 @@ const rapSchema = new mongoose.Schema(
     phone: { type: String, required: true },
 
     persiapan_pekerjaan: {
-      biaya_survey_awal_lapangan: biayaSchema,
-      uang_saku_survey_osa: biayaSchema,
-      biaya_perizinan_koordinasi_lokasi: biayaSchema,
-      akomodasi_surveyor: biayaSchema,
-      mobilisasi_demobilisasi_alat: biayaSchema,
-      mobilisasi_demobilisasi_tim: biayaSchema,
-      akomodasi_tim: biayaSchema,
-      penginapan_mess: biayaSchema,
-      biaya_kalibrasi_alat_mesin: biayaSchema,
-      biaya_accessories_alat_mesin: biayaSchema,
-      biaya_asuransi_tim: biayaSchema,
-      biaya_apd: biayaSchema,
-      biaya_atk: biayaSchema
+      biaya_survey_awal_lapangan: withDefault,
+      uang_saku_survey_osa: withDefault,
+      biaya_perizinan_koordinasi_lokasi: withDefault,
+      akomodasi_surveyor: withDefault,
+      mobilisasi_demobilisasi_alat: withDefault,
+      mobilisasi_demobilisasi_tim: withDefault,
+      akomodasi_tim: withDefault,
+      penginapan_mess: withDefault,
+      biaya_kalibrasi_alat_mesin: withDefault,
+      biaya_accessories_alat_mesin: withDefault,
+      biaya_asuransi_tim: withDefault,
+      biaya_apd: withDefault,
+      biaya_atk: withDefault
     },
 
     operasional_lapangan: {
-      gaji: biayaSchema,
-      gaji_tenaga_lokal: biayaSchema,
-      uang_makan: biayaSchema,
-      uang_wakar: biayaSchema,
-      akomodasi_transport: biayaSchema,
-      mobilisasi_demobilisasi_titik: biayaSchema,
-      biaya_rtk_tak_terduga: biayaSchema
+      gaji: withDefault,
+      gaji_tenaga_lokal: withDefault,
+      uang_makan: withDefault,
+      uang_wakar: withDefault,
+      akomodasi_transport: withDefault,
+      mobilisasi_demobilisasi_titik: withDefault,
+      biaya_rtk_tak_terduga: withDefault
     },
 
     operasional_tenaga_ahli: {
-      penginapan: biayaSchema,
-      transportasi_akomodasi_lokal: biayaSchema,
-      transportasi_akomodasi_site: biayaSchema,
-      uang_makan: biayaSchema,
-      osa: biayaSchema,
-      fee_tenaga_ahli: biayaSchema
+      penginapan: withDefault,
+      transportasi_akomodasi_lokal: withDefault,
+      transportasi_akomodasi_site: withDefault,
+      uang_makan: withDefault,
+      osa: withDefault,
+      fee_tenaga_ahli: withDefault
     },
 
     sewa_alat: {
-      alat_sondir: biayaSchema,
-      alat_bor: biayaSchema,
-      alat_cptu: biayaSchema,
-      alat_topography: biayaSchema,
-      alat_geolistrik: biayaSchema
+      alat_sondir: withDefault,
+      alat_bor: withDefault,
+      alat_cptu: withDefault,
+      alat_topography: withDefault,
+      alat_geolistrik: withDefault
     },
 
     operasional_lab: {
-      ambil_sample: biayaSchema,
-      packaging_sample: biayaSchema,
-      kirim_sample: biayaSchema,
-      uji_lab_vendor_luar: biayaSchema,
-      biaya_perlengkapan_lab: biayaSchema,
-      alat_uji_lab: biayaSchema
+      ambil_sample: withDefault,
+      packaging_sample: withDefault,
+      kirim_sample: withDefault,
+      uji_lab_vendor_luar: withDefault,
+      biaya_perlengkapan_lab: withDefault,
+      alat_uji_lab: withDefault
     },
 
     pajak: {
-      pajak_tenaga_ahli: biayaSchema,
-      pajak_sewa: biayaSchema,
-      pajak_pph_final: biayaSchema,
-      pajak_lapangan: biayaSchema,
-      pajak_ppn: biayaSchema
+      pajak_tenaga_ahli: withDefault,
+      pajak_sewa: withDefault,
+      pajak_pph_final: withDefault,
+      pajak_lapangan: withDefault,
+      pajak_ppn: withDefault
     },
 
     biaya_lain_lain: {
-      scf: biayaSchema,
-      admin_bank: biayaSchema
+      scf: withDefault,
+      admin_bank: withDefault
     }
   },
   { timestamps: true }
 );
 
-// === Hook otomatis bikin ProgressProject saat RAP dibuat ===
 rapSchema.post('save', async function (doc, next) {
   try {
-    const ProgressProject = mongoose.model('Progress');
+    // pastikan nama model bener
+    const ProgressProject = mongoose.model('ProgressProject');
 
     const existing = await ProgressProject.findOne({ rap: doc._id });
     if (!existing) {
@@ -126,7 +131,6 @@ rapSchema.post('save', async function (doc, next) {
         progress: {}
       });
     }
-
     next();
   } catch (err) {
     next(err);

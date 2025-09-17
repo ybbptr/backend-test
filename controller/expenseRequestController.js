@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const asyncHandler = require('express-async-handler');
+
 const throwError = require('../utils/throwError');
 const generateVoucherNumber = require('../utils/generateVoucher');
 const ExpenseRequest = require('../model/expenseRequestModel');
@@ -7,15 +8,11 @@ const ExpenseLog = require('../model/expenseLogModel');
 const Employee = require('../model/employeeModel');
 const RAP = require('../model/rapModel');
 
+/* ================= Helpers ================= */
 function mapPaymentPrefix(voucherPrefix) {
-  const mappings = {
-    PDLAP: 'PVLAP',
-    PDOFC: 'PVOFC',
-    PDPYR: 'PVPYR'
-  };
+  const mappings = { PDLAP: 'PVLAP', PDOFC: 'PVOFC', PDPYR: 'PVPYR' };
   return mappings[voucherPrefix] || null;
 }
-
 function mapExpenseType(expenseType) {
   const mappings = {
     'Persiapan Pekerjaan': 'persiapan_pekerjaan',
@@ -28,14 +25,16 @@ function mapExpenseType(expenseType) {
   };
   return mappings[expenseType] || null;
 }
+const num = (x) => Number(x) || 0;
 
+/* ================= Create ================= */
 const addExpenseRequest = asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
     const {
-      name,
+      // name: requester (Employee) — akan dioverride sesuai role
       project,
       voucher_prefix,
       expense_type,
@@ -53,8 +52,31 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
       note
     } = req.body || {};
 
+    // Tentukan requester (field "name") berdasar role
+    let requesterId = null;
+    if (req.user?.role === 'admin') {
+      // admin boleh pilih dari dropdown
+      if (!req.body.name) {
+        // fallback ke employee dari token jika ada
+        const me = await Employee.findOne({ user: req.user.id }).select('_id');
+        if (me) requesterId = me._id;
+        else throwError('Requester (name) wajib dipilih oleh admin', 400);
+      } else {
+        if (!mongoose.Types.ObjectId.isValid(req.body.name))
+          throwError('ID requester tidak valid', 400);
+        const emp = await Employee.findById(req.body.name).select('_id');
+        if (!emp) throwError('Requester tidak ditemukan', 404);
+        requesterId = emp._id;
+      }
+    } else {
+      // karyawan: selalu ambil dari token user
+      const me = await Employee.findOne({ user: req.user.id }).select('_id');
+      if (!me) throwError('Data karyawan tidak ditemukan', 404);
+      requesterId = me._id;
+    }
+
     if (
-      !name ||
+      !requesterId ||
       !project ||
       !voucher_prefix ||
       !expense_type ||
@@ -75,7 +97,7 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
             ? item.category.value
             : item.category,
         amount: qty * unitPrice,
-        is_overbudget: false // default
+        is_overbudget: false
       };
     });
     const total_amount = normalizedDetails.reduce(
@@ -125,11 +147,10 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
 
       for (const item of normalizedDetails) {
         const group = mapExpenseType(expense_type);
-        if (group && item.category) {
+        if (group && item.category && rap[group]?.[item.category]) {
           const biaya = rap[group][item.category];
-          biaya.biaya_pengajuan += item.amount;
-
-          if (biaya.biaya_pengajuan > biaya.jumlah) {
+          biaya.biaya_pengajuan = num(biaya.biaya_pengajuan) + item.amount;
+          if (biaya.biaya_pengajuan > num(biaya.jumlah)) {
             biaya.is_overbudget = true;
             item.is_overbudget = true;
           }
@@ -148,7 +169,7 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
     const [expenseRequest] = await ExpenseRequest.create(
       [
         {
-          name,
+          name: requesterId,
           project,
           voucher_prefix,
           voucher_number,
@@ -181,7 +202,7 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
         {
           voucher_number,
           payment_voucher,
-          requester: name,
+          requester: requesterId,
           project,
           expense_type,
           details: normalizedDetails
@@ -203,6 +224,7 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
   }
 });
 
+/* ================= Read ================= */
 const getExpenseRequests = asyncHandler(async (req, res) => {
   const { status, voucher_prefix, expense_type, search } = req.query;
   const page = parseInt(req.query.page) || 1;
@@ -252,6 +274,7 @@ const getExpenseRequest = asyncHandler(async (req, res) => {
   res.status(200).json(expenseRequest);
 });
 
+/* ================= Update ================= */
 const updateExpenseRequest = asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -266,8 +289,26 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
     const userRole = req.user?.role;
     const updates = req.body;
 
+    // Admin boleh ganti requester (name)
+    if (userRole === 'admin' && updates.name) {
+      if (!mongoose.Types.ObjectId.isValid(updates.name))
+        throwError('ID requester tidak valid', 400);
+      const emp = await Employee.findById(updates.name).select('_id');
+      if (!emp) throwError('Requester tidak ditemukan', 404);
+      expenseRequest.name = emp._id;
+
+      // sinkronkan log requester
+      await ExpenseLog.updateOne(
+        { voucher_number: expenseRequest.voucher_number },
+        { $set: { requester: emp._id } },
+        { session }
+      );
+    } else if (userRole !== 'admin') {
+      // Non-admin tidak boleh ganti requester dari body
+      delete updates.name;
+    }
+
     if (userRole === 'admin') {
-      /* ================== Voucher Prefix ================== */
       if (
         updates.voucher_prefix &&
         updates.voucher_prefix !== expenseRequest.voucher_prefix
@@ -278,7 +319,6 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
         );
       }
 
-      /* ================== Expense Type Change ================== */
       if (
         updates.expense_type &&
         updates.expense_type !== expenseRequest.expense_type
@@ -300,7 +340,6 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
         }
       }
 
-      /* ================== Update Details ================== */
       if (updates.details && Array.isArray(updates.details)) {
         const newDetails = updates.details.map((item) => {
           const qty = Number(item.quantity) || 0;
@@ -317,7 +356,6 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
         });
         const newTotal = newDetails.reduce((acc, curr) => acc + curr.amount, 0);
 
-        // ⚠️ Jika status sudah Disetujui → rollback biaya lama dan apply baru ke RAP
         if (expenseRequest.status === 'Disetujui') {
           const rap = await RAP.findById(expenseRequest.project).session(
             session
@@ -328,24 +366,24 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
 
           // rollback biaya lama
           for (const old of expenseRequest.details) {
-            if (group && old.category) {
-              rap[group][old.category].biaya_pengajuan -= old.amount;
-              if (
-                rap[group][old.category].biaya_pengajuan <=
-                rap[group][old.category].jumlah
-              ) {
-                rap[group][old.category].is_overbudget = false;
+            if (group && old.category && rap[group]?.[old.category]) {
+              const b = rap[group][old.category];
+              b.biaya_pengajuan = Math.max(
+                0,
+                num(b.biaya_pengajuan) - old.amount
+              );
+              if (num(b.biaya_pengajuan) <= num(b.jumlah)) {
+                b.is_overbudget = false;
               }
             }
           }
 
           // apply biaya baru
           for (const item of newDetails) {
-            if (group && item.category) {
+            if (group && item.category && rap[group]?.[item.category]) {
               const biaya = rap[group][item.category];
-              biaya.biaya_pengajuan += item.amount;
-
-              if (biaya.biaya_pengajuan > biaya.jumlah) {
+              biaya.biaya_pengajuan = num(biaya.biaya_pengajuan) + item.amount;
+              if (biaya.biaya_pengajuan > num(biaya.jumlah)) {
                 biaya.is_overbudget = true;
                 item.is_overbudget = true;
               }
@@ -366,7 +404,7 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
         );
       }
 
-      /* ================== Update Lain ================== */
+      // Update biasa
       if (updates.description !== undefined)
         expenseRequest.description = updates.description;
       if (updates.method !== undefined) expenseRequest.method = updates.method;
@@ -387,7 +425,7 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
           updates.bank_account_holder ?? expenseRequest.bank_account_holder;
       }
 
-      /* ================== Status Change ================== */
+      // Status change
       const newStatus = updates.status;
       if (newStatus && prevStatus !== newStatus) {
         if (newStatus === 'Disetujui') {
@@ -410,7 +448,7 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
             paymentPrefix
           );
 
-          // cek RAP dan flag overbudget (apply kalau baru disetujui)
+          // apply ke RAP
           const rap = await RAP.findById(expenseRequest.project).session(
             session
           );
@@ -418,11 +456,10 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
 
           for (const item of expenseRequest.details) {
             const group = mapExpenseType(expenseRequest.expense_type);
-            if (group && item.category) {
+            if (group && item.category && rap[group]?.[item.category]) {
               const biaya = rap[group][item.category];
-              biaya.biaya_pengajuan += item.amount;
-
-              if (biaya.biaya_pengajuan > biaya.jumlah) {
+              biaya.biaya_pengajuan = num(biaya.biaya_pengajuan) + item.amount;
+              if (biaya.biaya_pengajuan > num(biaya.jumlah)) {
                 biaya.is_overbudget = true;
                 item.is_overbudget = true;
               }
@@ -470,13 +507,14 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
           if (rap) {
             for (const item of expenseRequest.details) {
               const group = mapExpenseType(expenseRequest.expense_type);
-              if (group && item.category) {
-                rap[group][item.category].biaya_pengajuan -= item.amount;
-                if (
-                  rap[group][item.category].biaya_pengajuan <=
-                  rap[group][item.category].jumlah
-                ) {
-                  rap[group][item.category].is_overbudget = false;
+              if (group && item.category && rap[group]?.[item.category]) {
+                const bucket = rap[group][item.category];
+                bucket.biaya_pengajuan = Math.max(
+                  0,
+                  num(bucket.biaya_pengajuan) - item.amount
+                );
+                if (num(bucket.biaya_pengajuan) <= num(bucket.jumlah)) {
+                  bucket.is_overbudget = false;
                 }
               }
             }
@@ -487,9 +525,8 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
           expenseRequest.approved_by = null;
           expenseRequest.paid_by = null;
 
-          if (newStatus === 'Diproses') {
+          if (newStatus === 'Diproses')
             expenseRequest.request_status = 'Pending';
-          }
 
           await ExpenseLog.deleteOne(
             { voucher_number: expenseRequest.voucher_number },
@@ -500,8 +537,9 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
         expenseRequest.status = newStatus;
       }
     } else {
-      /* ================== Role selain Admin ================== */
-      const { status, approved_by, paid_by, note, ...allowedUpdates } = updates;
+      // ================= Non-Admin =================
+      const { status, approved_by, paid_by, note, name, ...allowedUpdates } =
+        updates;
 
       if (allowedUpdates.description !== undefined)
         expenseRequest.description = allowedUpdates.description;
@@ -551,6 +589,7 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
           expenseRequest.bank_account_holder;
       }
 
+      // bila karyawan ubah konten, reset status → Diproses/Pending
       if (
         allowedUpdates.details ||
         allowedUpdates.total_amount ||
@@ -586,6 +625,7 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
   }
 });
 
+/* ================= Delete ================= */
 const deleteExpenseRequest = asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id))
     throwError('ID tidak valid', 400);
@@ -606,22 +646,11 @@ const deleteExpenseRequest = asyncHandler(async (req, res) => {
       );
     }
 
-    // rollback RAP kalau status sudah disetujui
     if (expenseRequest.status === 'Disetujui') {
-      const rap = await RAP.findById(expenseRequest.project).session(session);
-      for (const item of expenseRequest.details) {
-        const group = mapExpenseType(expenseRequest.expense_type);
-        if (group && item.category) {
-          rap[group][item.category].biaya_pengajuan -= item.amount;
-          if (
-            rap[group][item.category].biaya_pengajuan <=
-            rap[group][item.category].jumlah
-          ) {
-            rap[group][item.category].is_overbudget = false;
-          }
-        }
-      }
-      await rap.save({ session });
+      throwError(
+        'Pengajuan biaya yang sudah disetujui tidak bisa dihapus, silakan batalkan status dulu',
+        400
+      );
     }
 
     await expenseRequest.deleteOne({ session });
@@ -636,8 +665,8 @@ const deleteExpenseRequest = asyncHandler(async (req, res) => {
   }
 });
 
+/* ================= Misc endpoints (tetap) ================= */
 const categoryLabels = {
-  // PERSIAPAN PEKERJAAN
   biaya_survey_awal_lapangan: 'Biaya Survey Awal Lapangan',
   uang_saku_survey_osa: 'Uang Saku Survey / OSA',
   biaya_perizinan_koordinasi_lokasi: 'Biaya Perizinan / Koordinasi @Lokasi',
@@ -651,8 +680,6 @@ const categoryLabels = {
   biaya_asuransi_tim: 'Biaya Asuransi Tim',
   biaya_apd: 'Biaya APD',
   biaya_atk: 'Biaya ATK',
-
-  // OPERASIONAL LAPANGAN
   gaji: 'Gaji',
   gaji_tenaga_lokal: 'Gaji Tenaga Lokal',
   uang_makan: 'Uang Makan',
@@ -660,38 +687,28 @@ const categoryLabels = {
   akomodasi_transport: 'Akomodasi Transport',
   mobilisasi_demobilisasi_titik: 'Mobilisasi + Demobilisasi / Titik',
   biaya_rtk_takterduga: 'Biaya RTK / Tak Terduga',
-
-  // OPERASIONAL TENAGA AHLI
   penginapan: 'Penginapan',
   transportasi_akomodasi_lokal: 'Transportasi & Akomodasi Lokal',
   transportasi_akomodasi_site: 'Transportasi & Akomodasi Site',
   uang_makan_ta: 'Uang Makan',
   osa: 'Osa',
   fee_tenaga_ahli: 'Fee Tenaga Ahli',
-
-  // SEWA ALAT
   alat_sondir: 'Alat Sondir',
   alat_bor: 'Alat Bor',
   alat_cptu: 'Alat CPTu',
   alat_topography: 'Alat Topography',
   alat_geolistrik: 'Alat Geolistrik',
-
-  // OPERASIONAL LAB
   ambil_sample: 'Ambil Sample',
   packaging_sample: 'Packaging Sample',
   kirim_sample: 'Kirim Sample',
   uji_lab_vendor_luar: 'Uji Lab Vendor Luar',
   biaya_perlengkapan_lab: 'Biaya Perlengkapan Lab',
   alat_uji_lab: 'Alat Uji Lab',
-
-  // PAJAK
   pajak_tenaga_ahli: 'Pajak Tenaga Ahli',
   pajak_sewa: 'Pajak Sewa',
   pajak_pph_final: 'Pajak PPh Final',
   pajak_lapangan: 'Pajak Lapangan',
   pajak_ppn: 'Pajak PPN',
-
-  // BIAYA LAIN-LAIN
   scf: 'SCF',
   admin_bank: 'Admin Bank'
 };
@@ -704,7 +721,6 @@ const getCategoriesByExpenseType = asyncHandler(async (req, res) => {
   if (!rap) throwError('RAP tidak ditemukan', 404);
 
   let keys = [];
-
   switch (expense_type) {
     case 'Persiapan Pekerjaan':
       keys = Object.keys(rap.persiapan_pekerjaan || {});
@@ -732,8 +748,8 @@ const getCategoriesByExpenseType = asyncHandler(async (req, res) => {
   }
 
   const categories = keys.map((key) => ({
-    value: key, // untuk disimpan di DB
-    label: categoryLabels[key] || key // untuk ditampilkan di FE
+    value: key,
+    label: categoryLabels[key] || key
   }));
 
   res.status(200).json({ expense_type, categories });
@@ -742,15 +758,12 @@ const getCategoriesByExpenseType = asyncHandler(async (req, res) => {
 const getAllEmployee = asyncHandler(async (req, res) => {
   const employee = await Employee.find().select('name');
   if (!employee) throwError('Karyawan tidak ada', 404);
-
   res.status(200).json(employee);
 });
 
 const getEmployee = asyncHandler(async (req, res) => {
   const employee = await Employee.findOne({ user: req.user.id }).select('name');
-
   if (!employee) throwError('Data karyawan tidak ditemukan', 404);
-
   res.status(200).json(employee);
 });
 
@@ -759,10 +772,9 @@ const getMyExpenseRequests = asyncHandler(async (req, res) => {
   const limit = parseInt(req.query.limit) || 10;
   const skip = (page - 1) * limit;
 
-  const employee = await Employee.findOne({ user: req.user.id }).select('name');
-  console.log(req.user.id);
-  console.log(employee);
-
+  const employee = await Employee.findOne({ user: req.user.id }).select(
+    '_id name'
+  );
   if (!employee) throwError('Karyawan tidak ditemukan', 404);
 
   const filter = { name: employee._id };
@@ -789,7 +801,6 @@ const getMyExpenseRequests = asyncHandler(async (req, res) => {
 
 const getAllProject = asyncHandler(async (req, res) => {
   const project = await RAP.find().select('project_name');
-
   res.json(project);
 });
 
