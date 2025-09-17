@@ -286,8 +286,8 @@ const getPVReport = asyncHandler(async (req, res) => {
 const updatePVReport = asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!mongoose.Types.ObjectId.isValid(id)) throwError('ID tidak valid', 400);
-
   const updates = req.body || {};
+  console.log(req.body.items);
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -322,7 +322,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
           if (!updates.approved_by) throwError('approved_by wajib diisi', 400);
           pvReport.approved_by = updates.approved_by;
           pvReport.recipient = updates.recipient || pvReport.recipient;
-
+          console.log('updates.items:', updates.items);
           // validasi max aktual & apply ke RAP
           for (const item of pvReport.items) {
             if (toNum(item.aktual) > toNum(item.amount)) {
