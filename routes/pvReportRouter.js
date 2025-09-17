@@ -2,7 +2,8 @@ const express = require('express');
 const Router = express.Router();
 const validate = require('../middleware/validations/validate');
 const {
-  pvReportSchema
+  createPVReportSchema,
+  updatePVReportSchema
 } = require('../middleware/validations/validatePvReport');
 
 const {
@@ -38,7 +39,7 @@ Router.post(
   '/add-report',
   uploadNota,
   filterNotaFiles,
-  validate(pvReportSchema),
+  validate(createPVReportSchema),
   createPVReport
 );
 
@@ -48,7 +49,7 @@ Router.put(
   '/update/:id',
   uploadNota,
   filterNotaFiles,
-  validate(pvReportSchema),
+  validate(updatePVReportSchema),
   updatePVReport
 );
 

@@ -526,6 +526,53 @@ const getMyPVNumbers = asyncHandler(async (req, res) => {
   });
 });
 
+// (opsional) taruh di utils/shared supaya DRY, tapi boleh inline di file ini juga
+const categoryLabels = {
+  biaya_survey_awal_lapangan: 'Biaya Survey Awal Lapangan',
+  uang_saku_survey_osa: 'Uang Saku Survey / OSA',
+  biaya_perizinan_koordinasi_lokasi: 'Biaya Perizinan / Koordinasi @Lokasi',
+  akomodasi_surveyor: 'Akomodasi Surveyor',
+  mobilisasi_demobilisasi_alat: 'Mobilisasi dan Demobilisasi Alat',
+  mobilisasi_demobilisasi_tim: 'Mobilisasi dan Demobilisasi Tim',
+  akomodasi_tim: 'Akomodasi Tim',
+  penginapan_mess: 'Penginapan / Mess',
+  biaya_kalibrasi_alat_mesin: 'Biaya Kalibrasi Alat / Mesin',
+  biaya_accessories_alat_mesin: 'Biaya Accessories Alat / Mesin',
+  biaya_asuransi_tim: 'Biaya Asuransi Tim',
+  biaya_apd: 'Biaya APD',
+  biaya_atk: 'Biaya ATK',
+  gaji: 'Gaji',
+  gaji_tenaga_lokal: 'Gaji Tenaga Lokal',
+  uang_makan: 'Uang Makan',
+  uang_wakar: 'Uang Wakar',
+  akomodasi_transport: 'Akomodasi Transport',
+  mobilisasi_demobilisasi_titik: 'Mobilisasi + Demobilisasi / Titik',
+  biaya_rtk_tak_terduga: 'Biaya RTK / Tak Terduga',
+  penginapan: 'Penginapan',
+  transportasi_akomodasi_lokal: 'Transportasi & Akomodasi Lokal',
+  transportasi_akomodasi_site: 'Transportasi & Akomodasi Site',
+  osa: 'Osa',
+  fee_tenaga_ahli: 'Fee Tenaga Ahli',
+  alat_sondir: 'Alat Sondir',
+  alat_bor: 'Alat Bor',
+  alat_cptu: 'Alat CPTu',
+  alat_topography: 'Alat Topography',
+  alat_geolistrik: 'Alat Geolistrik',
+  ambil_sample: 'Ambil Sample',
+  packaging_sample: 'Packaging Sample',
+  kirim_sample: 'Kirim Sample',
+  uji_lab_vendor_luar: 'Uji Lab Vendor Luar',
+  biaya_perlengkapan_lab: 'Biaya Perlengkapan Lab',
+  alat_uji_lab: 'Alat Uji Lab',
+  pajak_tenaga_ahli: 'Pajak Tenaga Ahli',
+  pajak_sewa: 'Pajak Sewa',
+  pajak_pph_final: 'Pajak PPh Final',
+  pajak_lapangan: 'Pajak Lapangan',
+  pajak_ppn: 'Pajak PPN',
+  scf: 'SCF',
+  admin_bank: 'Admin Bank'
+};
+
 const getPVForm = asyncHandler(async (req, res) => {
   const { pv_number } = req.params;
 
@@ -546,13 +593,18 @@ const getPVForm = asyncHandler(async (req, res) => {
     project_name: expense.project?.project_name,
     name: expense.name?.name,
     position: expense.name?.position || null,
-    items: expense.details.map((it) => ({
-      purpose: it.purpose,
-      category: it.category,
-      quantity: it.quantity,
-      unit_price: it.unit_price,
-      amount: it.amount
-    })),
+    items: expense.details.map((it) => {
+      const key = it.category;
+      const label = categoryLabels[key] ?? key;
+      return {
+        purpose: it.purpose,
+        category: key, // raw key tetap dikirim (kompatibel)
+        category_label: label, // label untuk ditampilkan di FE
+        quantity: it.quantity,
+        unit_price: it.unit_price,
+        amount: it.amount
+      };
+    }),
     total_amount: expense.total_amount
   });
 });
