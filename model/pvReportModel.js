@@ -2,9 +2,9 @@ const mongoose = require('mongoose');
 
 const NotaSchema = new mongoose.Schema(
   {
-    key: { type: String },
-    contentType: { type: String },
-    size: { type: Number },
+    key: { type: String, required: true },
+    contentType: { type: String, required: true },
+    size: { type: Number, required: true },
     uploadedAt: { type: Date, default: Date.now }
   },
   { _id: false }
@@ -12,13 +12,18 @@ const NotaSchema = new mongoose.Schema(
 
 const pvItemSchema = new mongoose.Schema(
   {
+    source_detail_id: { type: mongoose.Schema.Types.ObjectId, required: true },
+
     purpose: { type: String, required: true },
     category: { type: String, required: true },
-    quantity: { type: Number, required: true },
-    unit_price: { type: Number, required: true },
-    amount: { type: Number, required: true }, // dari ExpenseRequest
-    aktual: { type: Number, default: 0 }, // realisasi
+
+    quantity: { type: Number, required: true, min: 0 },
+    unit_price: { type: Number, required: true, min: 0 },
+    amount: { type: Number, required: true, min: 0 }, // dari ExpenseRequest
+
+    aktual: { type: Number, default: 0, min: 0 }, // realisasi
     overbudget: { type: Boolean, default: false },
+
     expense_type: {
       type: String,
       enum: [
@@ -32,7 +37,7 @@ const pvItemSchema = new mongoose.Schema(
       ],
       required: true
     },
-    // ⬇️ Wajib ada & bertipe sub-schema
+
     nota: { type: NotaSchema, required: true }
   },
   { _id: true }
@@ -89,14 +94,8 @@ const pvReportSchema = new mongoose.Schema(
 
 pvReportSchema.pre('save', function (next) {
   const items = Array.isArray(this.items) ? this.items : [];
-  this.total_amount = items.reduce(
-    (sum, it) => sum + (Number(it.amount) || 0),
-    0
-  );
-  this.total_aktual = items.reduce(
-    (sum, it) => sum + (Number(it.aktual) || 0),
-    0
-  );
+  this.total_amount = items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
+  this.total_aktual = items.reduce((s, it) => s + (Number(it.aktual) || 0), 0);
   this.remaining = this.total_amount - this.total_aktual;
   this.has_overbudget = items.some(
     (it) => (Number(it.aktual) || 0) > (Number(it.amount) || 0)
@@ -105,6 +104,11 @@ pvReportSchema.pre('save', function (next) {
   next();
 });
 
-pvReportSchema.index({ pv_number: 1, voucher_number: 1 }, { unique: true });
+pvReportSchema.index({
+  pv_number: 1,
+  voucher_number: 1,
+  status: 1,
+  'items.source_detail_id': 1
+});
 
 module.exports = mongoose.model('PVReport', pvReportSchema);
