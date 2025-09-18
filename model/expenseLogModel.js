@@ -39,7 +39,7 @@ const ExpenseLogDetailSchema = new mongoose.Schema(
 
 const expenseLogSchema = new mongoose.Schema(
   {
-    voucher_number: { type: String, required: true, unique: true }, // PDxxx (1 log per voucher)
+    voucher_number: { type: String, required: true }, // PDxxx (1 log per voucher)
     payment_voucher: { type: String, default: null }, // PVxxx
 
     requester: {
