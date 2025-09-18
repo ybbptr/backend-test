@@ -22,11 +22,39 @@ const addShelf = asyncHandler(async (req, res) => {
 });
 
 const getShelfs = asyncHandler(async (req, res) => {
-  const shelfs = await Shelf.find()
-    .populate('warehouse', 'warehouse_name warehouse_code')
-    .exec();
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
 
-  res.status(200).json(shelfs);
+  const search = req.query.search || '';
+  const filter = search
+    ? {
+        $or: [
+          { shelf_name: { $regex: search, $options: 'i' } },
+          { shelf_code: { $regex: search, $options: 'i' } }
+        ]
+      }
+    : {};
+
+  if (req.query.warehouse) {
+    filter.warehouse = req.query.warehouse;
+  }
+
+  const totalItems = await Shelf.countDocuments(filter);
+  const data = await Shelf.find(filter)
+    .populate('warehouse', 'warehouse_name warehouse_code')
+    .skip(skip)
+    .limit(limit)
+    .sort({ createdAt: -1 })
+    .lean();
+
+  res.status(200).json({
+    page,
+    limit,
+    totalItems,
+    totalPages: Math.ceil(totalItems / limit),
+    data
+  });
 });
 
 const getShelf = asyncHandler(async (req, res) => {

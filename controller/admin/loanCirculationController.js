@@ -37,17 +37,47 @@ async function attachImageUrls(circulation) {
 
 /* ================= Controller ================= */
 const getLoanCirculations = asyncHandler(async (req, res) => {
-  const loanCirculations = await loanCirculationModel
-    .find()
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
+
+  const filter = search
+    ? {
+        $or: [
+          { loan_number: { $regex: search, $options: 'i' } },
+          { inventory_manager: { $regex: search, $options: 'i' } }
+        ]
+      }
+    : {};
+
+  if (req.query.borrower) {
+    filter.borrower = req.query.borrower;
+  }
+  if (req.query.project) {
+    filter['borrowed_items.project'] = req.query.project;
+  }
+
+  const totalItems = await loanCirculationModel.countDocuments(filter);
+  const data = await loanCirculationModel
+    .find(filter)
     .populate('borrowed_items.warehouse_from', 'warehouse_name warehouse_code')
     .populate('borrowed_items.shelf_from', 'shelf_name')
     .populate('borrowed_items.project', 'project_name')
     .populate('warehouse_to', 'warehouse_name warehouse_code')
     .populate('shelf_to', 'shelf_name')
     .populate('borrower', 'name')
+    .skip(skip)
+    .limit(limit)
+    .sort({ createdAt: -1 })
     .lean();
 
-  res.status(200).json(loanCirculations);
+  res.status(200).json({
+    page,
+    limit,
+    totalItems,
+    totalPages: Math.ceil(totalItems / limit),
+    data
+  });
 });
 
 const getLoanCirculation = asyncHandler(async (req, res) => {

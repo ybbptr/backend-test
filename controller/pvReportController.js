@@ -233,7 +233,20 @@ const getAllPVReports = asyncHandler(async (req, res) => {
   const limit = parseInt(req.query.limit) || 10;
   const skip = (page - 1) * limit;
 
-  const filter = {};
+  const search = req.query.search || '';
+  const filter = search
+    ? {
+        $or: [
+          { voucher_number: { $regex: search, $options: 'i' } },
+          { payment_voucher: { $regex: search, $options: 'i' } }
+        ]
+      }
+    : {};
+
+  if (req.query.project) {
+    filter.project = req.query.project;
+  }
+
   const totalItems = await PVReport.countDocuments(filter);
   const data = await PVReport.find(filter)
     .populate('created_by', 'name')

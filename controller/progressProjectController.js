@@ -45,12 +45,40 @@ function calculateRAPTotals(rapDoc) {
 }
 
 const getProjects = asyncHandler(async (req, res) => {
-  const projects = await ProgressProject.find()
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
+
+  const search = req.query.search || '';
+  const filter = search
+    ? {
+        $or: [
+          { project_name: { $regex: search, $options: 'i' } },
+          { location: { $regex: search, $options: 'i' } }
+        ]
+      }
+    : {};
+
+  if (req.query.client) {
+    filter.client = req.query.client;
+  }
+
+  const totalItems = await ProgressProject.countDocuments(filter);
+  const data = await ProgressProject.find(filter)
     .populate('client', 'name')
     .populate('rap', 'nilai_pekerjaan nilai_fix_pekerjaan project_name')
+    .skip(skip)
+    .limit(limit)
+    .sort({ createdAt: -1 })
     .lean();
 
-  res.status(200).json(projects);
+  res.status(200).json({
+    page,
+    limit,
+    totalItems,
+    totalPages: Math.ceil(totalItems / limit),
+    data
+  });
 });
 
 const getProject = asyncHandler(async (req, res) => {

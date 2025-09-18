@@ -37,8 +37,34 @@ const addClient = asyncHandler(async (req, res) => {
 });
 
 const getClients = asyncHandler(async (req, res) => {
-  const clients = await Client.find();
-  res.status(200).json(clients);
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
+
+  const search = req.query.search || '';
+  const filter = search
+    ? {
+        $or: [
+          { name: { $regex: search, $options: 'i' } },
+          { email: { $regex: search, $options: 'i' } }
+        ]
+      }
+    : {};
+
+  const totalItems = await Client.countDocuments(filter);
+  const data = await Client.find(filter)
+    .skip(skip)
+    .limit(limit)
+    .sort({ createdAt: -1 })
+    .lean();
+
+  res.status(200).json({
+    page,
+    limit,
+    totalItems,
+    totalPages: Math.ceil(totalItems / limit),
+    data
+  });
 });
 
 const getClient = asyncHandler(async (req, res) => {

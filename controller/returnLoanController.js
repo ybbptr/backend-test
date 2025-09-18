@@ -206,12 +206,50 @@ const getAllReturnLoan = asyncHandler(async (req, res) => {
   const skip = (page - 1) * limit;
 
   let filter = {};
+
   if (req.user.role === 'karyawan') {
     const employee = await Employee.findOne({ user: req.user.id }).select(
       'name'
     );
     if (!employee) throwError('Karyawan tidak ditemukan', 404);
-    filter = { borrower: employee._id };
+    filter.borrower = employee._id;
+  }
+
+  // project filter
+  if (req.query.project) {
+    filter['returned_items.project'] = req.query.project;
+  }
+
+  // kalau ada search → bikin $and agar $or tetap dibatasi borrower
+  if (req.query.search) {
+    filter.$and = [
+      { borrower: filter.borrower },
+      {
+        $or: [
+          { loan_number: { $regex: req.query.search, $options: 'i' } },
+          {
+            'returned_items.product_code': {
+              $regex: req.query.search,
+              $options: 'i'
+            }
+          },
+          {
+            'returned_items.brand': { $regex: req.query.search, $options: 'i' }
+          },
+          {
+            'returned_items.type': { $regex: req.query.search, $options: 'i' }
+          },
+          {
+            'returned_items.condition_new': {
+              $regex: req.query.search,
+              $options: 'i'
+            }
+          }
+        ]
+      }
+    ];
+    delete filter.borrower;
+    delete filter['returned_items.project'];
   }
 
   const totalItems = await ReturnLoan.countDocuments(filter);
