@@ -13,17 +13,6 @@ const NotaSchema = new mongoose.Schema(
 
 const ExpenseLogDetailSchema = new mongoose.Schema(
   {
-    // Penting untuk pull/push per-batch
-    pv_report_id: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'PVReport',
-      required: false // biar data lama aman; controller baru akan selalu mengisi
-    },
-    source_detail_id: {
-      type: mongoose.Schema.Types.ObjectId,
-      required: false // sama, bisa dibuat required setelah data lama dibersihkan
-    },
-
     purpose: { type: String, required: true },
     category: { type: String, required: true },
 
@@ -65,7 +54,5 @@ const expenseLogSchema = new mongoose.Schema(
 
 // Index penting untuk performa & operasi batch
 expenseLogSchema.index({ voucher_number: 1 }, { unique: true });
-expenseLogSchema.index({ 'details.pv_report_id': 1 });
-expenseLogSchema.index({ 'details.source_detail_id': 1 });
 
 module.exports = mongoose.model('ExpenseLog', expenseLogSchema);

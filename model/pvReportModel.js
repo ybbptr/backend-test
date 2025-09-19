@@ -12,8 +12,6 @@ const NotaSchema = new mongoose.Schema(
 
 const pvItemSchema = new mongoose.Schema(
   {
-    source_detail_id: { type: mongoose.Schema.Types.ObjectId, required: true },
-
     purpose: { type: String, required: true },
     category: { type: String, required: true },
 
@@ -107,8 +105,7 @@ pvReportSchema.pre('save', function (next) {
 pvReportSchema.index({
   pv_number: 1,
   voucher_number: 1,
-  status: 1,
-  'items.source_detail_id': 1
+  status: 1
 });
 
 module.exports = mongoose.model('PVReport', pvReportSchema);
