@@ -1,3 +1,4 @@
+// controllers/expenseRequestController.js
 const mongoose = require('mongoose');
 const asyncHandler = require('express-async-handler');
 
@@ -63,11 +64,7 @@ function applyBagToRAP(rapDoc, bag, sign = +1) {
       const delta = num(bag[group][cat]) * sign;
       const bucket = grp[cat];
       bucket.biaya_pengajuan = num(bucket.biaya_pengajuan) + delta;
-      if (num(bucket.biaya_pengajuan) > num(bucket.jumlah)) {
-        bucket.is_overbudget = true;
-      } else {
-        bucket.is_overbudget = false;
-      }
+      bucket.is_overbudget = num(bucket.biaya_pengajuan) > num(bucket.jumlah);
     }
   }
 }
@@ -238,19 +235,22 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
       { session }
     );
 
-    // log awal (tanpa payment_voucher)
-    await ExpenseLog.create(
-      [
-        {
+    // Upsert ExpenseLog (TANPA menulis ke "details", karena "details" = hanya approved items dari PV)
+    await ExpenseLog.updateOne(
+      { voucher_number },
+      {
+        $setOnInsert: {
           voucher_number,
           payment_voucher: null,
           requester: requesterId,
           project,
           expense_type,
-          details: detailsForSave
+          request_date: submission_date || new Date()
+          // details: []    // biarkan default
+          // batches: []    // biarkan default
         }
-      ],
-      { session }
+      },
+      { session, upsert: true }
     );
 
     await session.commitTransaction();
@@ -348,6 +348,7 @@ const getMyExpenseRequests = asyncHandler(async (req, res) => {
   });
 });
 
+/* ================= Update ================= */
 const updateExpenseRequest = asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -364,12 +365,15 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
     if (er.status === 'Diproses') {
       await assertOwnerOrAdmin(req, er);
 
+      // Admin boleh ganti requester
       if (req.user?.role === 'admin' && updates.name) {
         if (!mongoose.Types.ObjectId.isValid(updates.name))
           throwError('ID requester tidak valid', 400);
         const emp = await Employee.findById(updates.name).select('_id');
         if (!emp) throwError('Requester tidak ditemukan', 404);
         er.name = emp._id;
+
+        // Log: update requester (tanpa mengganggu details/batches)
         await ExpenseLog.updateOne(
           { voucher_number: er.voucher_number },
           { $set: { requester: emp._id } },
@@ -377,6 +381,7 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
         );
       }
 
+      // Jika jenis biaya berganti → wajib kirim details baru
       if (updates.expense_type && updates.expense_type !== er.expense_type) {
         er.expense_type = updates.expense_type;
         if (
@@ -391,6 +396,7 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
         }
       }
 
+      // Edit details (tambah/kurang item ER) — ini *boleh* di Diproses
       if (updates.details && Array.isArray(updates.details)) {
         let newDetails = updates.details.map((item) => {
           const qty = num(item.quantity);
@@ -418,9 +424,10 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
         er.total_amount = newDetails.reduce((a, c) => a + num(c.amount), 0);
         er.over_budget = newDetails.some((d) => d.is_overbudget);
 
+        // ExpenseLog: HANYA meta (jangan sentuh "details" karena itu untuk item APPROVED PV)
         await ExpenseLog.updateOne(
           { voucher_number: er.voucher_number },
-          { $set: { details: newDetails, expense_type: er.expense_type } },
+          { $set: { expense_type: er.expense_type } },
           { session }
         );
       }
@@ -457,7 +464,7 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
     }
 
     if (er.status === 'Disetujui') {
-      // ==== (BARU) — BOLEH EDIT NON-FINANSIAL SAJA ====
+      // ==== BOLEH EDIT NON-FINANSIAL SAJA ====
       await assertOwnerOrAdmin(req, er);
 
       const forbidden = [
@@ -506,8 +513,10 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
         .json({ message: 'Pengajuan diperbarui (non-finansial)', data: er });
     }
 
+    // ==== Perubahan: Ditolak sekarang TIDAK di-block edit langsung,
+    // tapi ikuti pola konsisten: user harus Reopen (self-reopen) dulu ====
     throwError(
-      'Tidak bisa edit karena status Ditolak. Buka ulang data jika ingin mengubah.',
+      'Pengajuan Ditolak. Gunakan Reopen untuk membuka kembali ke Diproses, lalu perbaiki.',
       409
     );
   } catch (err) {
@@ -546,6 +555,7 @@ const approveExpenseRequest = asyncHandler(async (req, res) => {
     er.payment_voucher = await generateVoucherNumber(pvPrefix);
 
     er.status = 'Disetujui';
+    // Dengan partial PV, ER setelah approve = "Aktif" (masih bisa ada batch PV)
     er.request_status = 'Aktif';
     er.applied_bag_snapshot = bag;
 
@@ -566,18 +576,18 @@ const approveExpenseRequest = asyncHandler(async (req, res) => {
 
     await er.save({ session });
 
-    await ExpenseLog.findOneAndUpdate(
+    // ExpenseLog: set meta dan payment_voucher SAJA (jangan sentuh "details")
+    await ExpenseLog.updateOne(
       { voucher_number: er.voucher_number },
       {
         $set: {
           payment_voucher: er.payment_voucher,
           requester: er.name,
           project: er.project,
-          expense_type: er.expense_type,
-          details: er.details
+          expense_type: er.expense_type
         }
       },
-      { session, upsert: true, new: true }
+      { session, upsert: true }
     );
 
     await session.commitTransaction();
@@ -613,8 +623,12 @@ const rejectExpenseRequest = asyncHandler(async (req, res) => {
     er.applied_bag_snapshot = null;
 
     await er.save({ session });
-    await ExpenseLog.deleteOne(
+
+    // ExpenseLog: TIDAK dihapus (biarkan dokumennya; batches & details masih kosong)
+    // Optionally set payment_voucher null untuk kejelasan
+    await ExpenseLog.updateOne(
       { voucher_number: er.voucher_number },
+      { $set: { payment_voucher: null } },
       { session }
     );
 
@@ -628,10 +642,12 @@ const rejectExpenseRequest = asyncHandler(async (req, res) => {
   }
 });
 
-/* ================= Aksi: REOPEN (admin) ================= */
+/* ================= Aksi: REOPEN ================= */
+/** Reopen rules:
+ * - Dari Ditolak: **owner atau admin** boleh self-reopen → kembali ke Diproses (tanpa sentuh RAP).
+ * - Dari Disetujui: **admin only** → rollback RAP snapshot → kembali ke Diproses.
+ */
 const reopenExpenseRequest = asyncHandler(async (req, res) => {
-  requireAdmin(req);
-
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -647,48 +663,74 @@ const reopenExpenseRequest = asyncHandler(async (req, res) => {
     if (er.status === 'Diproses')
       throwError('Dokumen sudah berstatus Diproses', 409);
 
-    // kalau asalnya Disetujui → rollback RAP pakai snapshot
-    if (er.status === 'Disetujui') {
-      const rap = await RAP.findById(er.project).session(session);
-      if (!rap) throwError('RAP tidak ditemukan', 404);
+    if (er.status === 'Ditolak') {
+      // self-reopen (owner/admin)
+      await assertOwnerOrAdmin(req, er);
 
-      const bag =
-        er.applied_bag_snapshot && Object.keys(er.applied_bag_snapshot).length
-          ? er.applied_bag_snapshot
-          : buildBagFromER(er);
+      er.status = 'Diproses';
+      er.request_status = 'Pending';
+      er.note = null;
 
-      applyBagToRAP(rap, bag, -1);
-      await rap.save({ session });
+      // Log: pastikan tetap ada; tidak perlu dihapus
+      await ExpenseLog.updateOne(
+        { voucher_number: er.voucher_number },
+        { $set: { payment_voucher: null } },
+        { session, upsert: true }
+      );
 
-      er.payment_voucher = null;
-      er.applied_bag_snapshot = null;
+      await er.save({ session });
+      await session.commitTransaction();
 
-      // refresh proyeksi flag overbudget setelah rollback
-      const recalced = await markOverbudgetFlags({
-        projectId: er.project,
-        expenseType: er.expense_type,
-        details: er.details,
-        session,
-        excludeId: er._id
-      });
-      er.details = recalced;
-      er.over_budget = recalced.some((d) => d.is_overbudget);
+      return res
+        .status(200)
+        .json({ message: 'Pengajuan dibuka ulang (Diproses)', data: er });
     }
+
+    // Dari Disetujui → admin only + rollback RAP
+    requireAdmin(req);
+
+    const rap = await RAP.findById(er.project).session(session);
+    if (!rap) throwError('RAP tidak ditemukan', 404);
+
+    const bag =
+      er.applied_bag_snapshot && Object.keys(er.applied_bag_snapshot).length
+        ? er.applied_bag_snapshot
+        : buildBagFromER(er);
+
+    applyBagToRAP(rap, bag, -1);
+    await rap.save({ session });
+
+    er.payment_voucher = null;
+    er.applied_bag_snapshot = null;
+
+    // refresh proyeksi flag overbudget setelah rollback
+    const recalced = await markOverbudgetFlags({
+      projectId: er.project,
+      expenseType: er.expense_type,
+      details: er.details,
+      session,
+      excludeId: er._id
+    });
+    er.details = recalced;
+    er.over_budget = recalced.some((d) => d.is_overbudget);
 
     er.status = 'Diproses';
     er.request_status = 'Pending';
 
-    await ExpenseLog.deleteOne(
+    // ExpenseLog: jangan dihapus; reset PV number
+    await ExpenseLog.updateOne(
       { voucher_number: er.voucher_number },
-      { session }
+      { $set: { payment_voucher: null } },
+      { session, upsert: true }
     );
 
     await er.save({ session });
     await session.commitTransaction();
 
-    res
-      .status(200)
-      .json({ message: 'Pengajuan dibuka ulang (status Diproses)', data: er });
+    res.status(200).json({
+      message: 'Pengajuan dibuka ulang dari Disetujui (Diproses)',
+      data: er
+    });
   } catch (err) {
     await session.abortTransaction();
     throw err;
@@ -842,7 +884,7 @@ const getEmployee = asyncHandler(async (req, res) => {
   res.status(200).json(employee);
 });
 
-const getAllProject = asyncHandler(async (req, res) => {
+const getAllProject = asyncHandler(async (_req, res) => {
   const project = await RAP.find().select('project_name');
   res.json(project);
 });

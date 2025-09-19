@@ -1,3 +1,4 @@
+// model/pvReportModel.js
 const mongoose = require('mongoose');
 
 const NotaSchema = new mongoose.Schema(
@@ -12,14 +13,17 @@ const NotaSchema = new mongoose.Schema(
 
 const pvItemSchema = new mongoose.Schema(
   {
+    // Penanda item sumber di ER agar anti double-claim
+    er_detail_id: { type: mongoose.Schema.Types.ObjectId, required: true },
+
     purpose: { type: String, required: true },
     category: { type: String, required: true },
 
     quantity: { type: Number, required: true, min: 0 },
     unit_price: { type: Number, required: true, min: 0 },
-    amount: { type: Number, required: true, min: 0 }, // dari ER
+    amount: { type: Number, required: true, min: 0 }, // nilai dari ER
 
-    aktual: { type: Number, default: 0, min: 0 }, // realisasi
+    aktual: { type: Number, default: 0, min: 0 }, // realisasi per batch
     overbudget: { type: Boolean, default: false },
 
     expense_type: {
@@ -48,8 +52,9 @@ pvItemSchema.pre('save', function (next) {
 
 const pvReportSchema = new mongoose.Schema(
   {
+    // Satu PV (payment voucher) bisa punya banyak PVReport (batch)
     pv_number: { type: String, required: true }, // ExpenseRequest.payment_voucher
-    voucher_number: { type: String, required: true }, // ExpenseRequest.voucher_number
+    voucher_number: { type: String, required: true }, // ExpenseRequest.voucher_number (PDxxx)
     report_date: { type: Date, default: Date.now },
 
     project: {
@@ -72,11 +77,12 @@ const pvReportSchema = new mongoose.Schema(
 
     items: { type: [pvItemSchema], default: [] },
 
-    total_amount: { type: Number, default: 0 },
-    total_aktual: { type: Number, default: 0 },
+    total_amount: { type: Number, default: 0 }, // sum amount (referensi dari ER untuk items batch)
+    total_aktual: { type: Number, default: 0 }, // sum aktual batch
     remaining: { type: Number, default: 0 },
     has_overbudget: { type: Boolean, default: false },
 
+    // final lock: jika true, PVReport ini tidak bisa diubah/approve/reject/reopen
     pv_locked: { type: Boolean, default: false }
   },
   { timestamps: true }
@@ -90,12 +96,12 @@ pvReportSchema.pre('save', function (next) {
   this.has_overbudget = items.some(
     (it) => (Number(it.aktual) || 0) > (Number(it.amount) || 0)
   );
-
   if (this.status !== 'Ditolak') this.note = null;
-
   next();
 });
 
-pvReportSchema.index({ pv_number: 1, voucher_number: 1, status: 1 });
+// Index untuk query cepat
+pvReportSchema.index({ voucher_number: 1, pv_number: 1, status: 1 });
+pvReportSchema.index({ voucher_number: 1, 'items.er_detail_id': 1 }); // membantu anti double-claim
 
 module.exports = mongoose.model('PVReport', pvReportSchema);

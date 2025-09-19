@@ -6,7 +6,13 @@ const throwError = require('../../utils/throwError');
 const ExpenseLog = require('../../model/expenseLogModel');
 const { getFileUrl } = require('../../utils/wasabi');
 
-/* =============== Helper =============== */
+/* =============== Helpers =============== */
+const isObjectId = (v) => mongoose.Types.ObjectId.isValid(v);
+
+function requireAdmin(req) {
+  if (req.user?.role !== 'admin') throwError('Hanya admin yang diizinkan', 403);
+}
+
 async function attachNotaUrls(doc) {
   if (!doc?.details?.length) return doc;
 
@@ -27,9 +33,12 @@ async function attachNotaUrls(doc) {
   return { ...doc, details };
 }
 
-/* =============== Controller =============== */
+/* =============== Controllers =============== */
 
+// LIST (admin only)
 const getExpenseLogs = asyncHandler(async (req, res) => {
+  requireAdmin(req);
+
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 20;
   const skip = (page - 1) * limit;
@@ -39,18 +48,15 @@ const getExpenseLogs = asyncHandler(async (req, res) => {
     filter.voucher_number = req.query.voucher_number;
   if (req.query.payment_voucher)
     filter.payment_voucher = req.query.payment_voucher;
-  if (req.query.project && mongoose.Types.ObjectId.isValid(req.query.project))
+  if (req.query.project && isObjectId(req.query.project))
     filter.project = req.query.project;
-  if (
-    req.query.requester &&
-    mongoose.Types.ObjectId.isValid(req.query.requester)
-  )
+  if (req.query.requester && isObjectId(req.query.requester))
     filter.requester = req.query.requester;
 
   const [totalItems, logs] = await Promise.all([
     ExpenseLog.countDocuments(filter),
     ExpenseLog.find(filter)
-      .select('-details.nota')
+      .select('-details.nota') // biar ringan di list
       .populate('requester', 'name')
       .populate('project', 'project_name -_id')
       .skip(skip)
@@ -69,8 +75,10 @@ const getExpenseLogs = asyncHandler(async (req, res) => {
 });
 
 const getExpenseLog = asyncHandler(async (req, res) => {
+  requireAdmin(req);
+
   const { id } = req.params;
-  if (!mongoose.Types.ObjectId.isValid(id)) throwError('ID tidak valid', 400);
+  if (!isObjectId(id)) throwError('ID tidak valid', 400);
 
   const log = await ExpenseLog.findById(id)
     .populate('requester', 'name')
@@ -84,8 +92,10 @@ const getExpenseLog = asyncHandler(async (req, res) => {
 });
 
 const refreshExpenseLogUrls = asyncHandler(async (req, res) => {
+  requireAdmin(req);
+
   const { id } = req.params;
-  if (!mongoose.Types.ObjectId.isValid(id)) throwError('ID tidak valid', 400);
+  if (!isObjectId(id)) throwError('ID tidak valid', 400);
 
   const log = await ExpenseLog.findById(id, { 'details.nota': 1 }).lean();
   if (!log) throwError('Log laporan biaya tidak ditemukan!', 404);
@@ -100,8 +110,10 @@ const refreshExpenseLogUrls = asyncHandler(async (req, res) => {
 });
 
 const removeExpenseLog = asyncHandler(async (req, res) => {
+  requireAdmin(req);
+
   const { id } = req.params;
-  if (!mongoose.Types.ObjectId.isValid(id)) throwError('ID tidak valid', 400);
+  if (!isObjectId(id)) throwError('ID tidak valid', 400);
 
   const log = await ExpenseLog.findById(id);
   if (!log) throwError('Log laporan biaya tidak ditemukan!', 404);
