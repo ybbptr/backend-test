@@ -33,12 +33,12 @@ Router.post(
 
 Router.get('/all-expense', getExpenseRequests);
 Router.get('/my-expense-request', getMyExpenseRequests);
-Router.get('/:id', getExpenseRequest);
 
-Router.get('/:id/categories', getCategoriesByExpenseType);
 Router.get('/all-employee', getAllEmployee);
 Router.get('/employee', getEmployee);
 Router.get('/all-project', getAllProject);
+Router.get('/:id', getExpenseRequest);
+Router.get('/:id/categories', getCategoriesByExpenseType);
 
 Router.put(
   '/update/:id',

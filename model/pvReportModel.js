@@ -17,7 +17,7 @@ const pvItemSchema = new mongoose.Schema(
 
     quantity: { type: Number, required: true, min: 0 },
     unit_price: { type: Number, required: true, min: 0 },
-    amount: { type: Number, required: true, min: 0 }, // dari ExpenseRequest
+    amount: { type: Number, required: true, min: 0 }, // dari ER
 
     aktual: { type: Number, default: 0, min: 0 }, // realisasi
     overbudget: { type: Boolean, default: false },
@@ -62,20 +62,10 @@ const pvReportSchema = new mongoose.Schema(
       ref: 'Employee',
       required: true
     },
-    approved_by: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Employee',
-      default: null
-    },
-    recipient: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Employee',
-      default: null
-    },
 
     status: {
       type: String,
-      enum: ['Diproses', 'Ditolak', 'Disetujui'],
+      enum: ['Diproses', 'Disetujui', 'Ditolak'],
       default: 'Diproses'
     },
     note: { type: String, default: null },
@@ -85,7 +75,9 @@ const pvReportSchema = new mongoose.Schema(
     total_amount: { type: Number, default: 0 },
     total_aktual: { type: Number, default: 0 },
     remaining: { type: Number, default: 0 },
-    has_overbudget: { type: Boolean, default: false }
+    has_overbudget: { type: Boolean, default: false },
+
+    pv_locked: { type: Boolean, default: false }
   },
   { timestamps: true }
 );
@@ -98,14 +90,12 @@ pvReportSchema.pre('save', function (next) {
   this.has_overbudget = items.some(
     (it) => (Number(it.aktual) || 0) > (Number(it.amount) || 0)
   );
+
   if (this.status !== 'Ditolak') this.note = null;
+
   next();
 });
 
-pvReportSchema.index({
-  pv_number: 1,
-  voucher_number: 1,
-  status: 1
-});
+pvReportSchema.index({ pv_number: 1, voucher_number: 1, status: 1 });
 
 module.exports = mongoose.model('PVReport', pvReportSchema);
