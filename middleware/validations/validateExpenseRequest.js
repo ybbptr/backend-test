@@ -1,11 +1,10 @@
 const Joi = require('joi');
 const mongoose = require('mongoose');
 
-const objectId = Joi.string().custom((value, helpers) => {
-  if (!mongoose.Types.ObjectId.isValid(value))
-    return helpers.error('any.invalid');
-  return value;
-}, 'ObjectId validator');
+const objectId = Joi.string().custom((v, h) => {
+  if (!mongoose.Types.ObjectId.isValid(v)) return h.error('any.invalid');
+  return v;
+}, 'ObjectId');
 
 const ER_PREFIXES = ['PDLAP', 'PDOFC', 'PDPYR'];
 const ER_TYPES = [
@@ -17,15 +16,6 @@ const ER_TYPES = [
   'Pajak',
   'Biaya Lain'
 ];
-
-// Admin boleh supply "name" (requester). Non-admin: strip.
-const requesterField = Joi.alternatives().conditional('$role', {
-  is: 'admin',
-  then: objectId
-    .optional()
-    .messages({ 'any.invalid': 'ID karyawan (name) tidak valid' }),
-  otherwise: Joi.any().strip()
-});
 
 const detailSchema = Joi.object({
   purpose: Joi.string().required().messages({
@@ -49,14 +39,19 @@ const detailSchema = Joi.object({
     'number.min': 'Harga satuan tidak boleh negatif',
     'any.required': 'Harga satuan wajib diisi'
   }),
-  // dihitung backend → strip agar tidak bisa disuntik FE
-  amount: Joi.any().strip(),
-  is_overbudget: Joi.any().strip()
+  amount: Joi.forbidden().messages({
+    'any.unknown': 'Field amount dihitung otomatis'
+  }),
+  is_overbudget: Joi.forbidden().messages({
+    'any.unknown': 'Field is_overbudget ditentukan sistem'
+  })
 });
 
+/* ============ CREATE ============ */
 const createExpenseRequestSchema = Joi.object({
-  // role-aware
-  name: requesterField,
+  name: objectId
+    .optional()
+    .messages({ 'any.invalid': 'ID karyawan (name) tidak valid' }),
 
   project: objectId.required().messages({
     'any.invalid': 'ID proyek tidak valid',
@@ -79,9 +74,9 @@ const createExpenseRequestSchema = Joi.object({
       'any.required': 'Jenis biaya wajib diisi'
     }),
 
-  submission_date: Joi.date()
-    .optional()
-    .messages({ 'date.base': 'Tanggal pengajuan tidak valid' }),
+  submission_date: Joi.date().optional().messages({
+    'date.base': 'Tanggal pengajuan tidak valid'
+  }),
 
   method: Joi.string().valid('Transfer', 'Tunai').required().messages({
     'any.only': 'Metode pembayaran hanya boleh Transfer atau Tunai',
@@ -92,146 +87,147 @@ const createExpenseRequestSchema = Joi.object({
     then: Joi.required().messages({
       'any.required': 'Nomor rekening wajib diisi (Transfer)'
     }),
-    otherwise: Joi.optional().allow(null, '')
+    otherwise: Joi.allow(null, '')
   }),
   bank: Joi.string().when('method', {
     is: 'Transfer',
     then: Joi.required().messages({
       'any.required': 'Bank wajib diisi (Transfer)'
     }),
-    otherwise: Joi.optional().allow(null, '')
+    otherwise: Joi.allow(null, '')
   }),
   bank_branch: Joi.string().when('method', {
     is: 'Transfer',
     then: Joi.required().messages({
       'any.required': 'Cabang bank wajib diisi (Transfer)'
     }),
-    otherwise: Joi.optional().allow(null, '')
+    otherwise: Joi.allow(null, '')
   }),
   bank_account_holder: Joi.string().when('method', {
     is: 'Transfer',
     then: Joi.required().messages({
       'any.required': 'Pemilik rekening wajib diisi (Transfer)'
     }),
-    otherwise: Joi.optional().allow(null, '')
+    otherwise: Joi.allow(null, '')
   }),
 
-  description: Joi.string().allow('', null),
-  note: Joi.string()
-    .allow('', null)
-    .when('status', {
-      is: 'Ditolak',
-      then: Joi.required().messages({
-        'any.required': 'Alasan penolakan wajib diisi'
-      }),
-      otherwise: Joi.optional()
-    }),
-
-  status: Joi.string().valid('Diproses', 'Disetujui', 'Ditolak').messages({
-    'any.only': 'Status tidak valid'
+  description: Joi.string().allow('', null).messages({
+    'string.base': 'Deskripsi harus berupa teks'
   }),
-  approved_by: objectId
-    .when('status', {
-      is: 'Disetujui',
-      then: Joi.required().messages({
-        'any.required': 'approved_by wajib diisi saat Disetujui'
-      }),
-      otherwise: Joi.optional()
-    })
-    .messages({ 'any.invalid': 'ID approved_by tidak valid' }),
-  paid_by: objectId
-    .when('status', {
-      is: 'Disetujui',
-      then: Joi.required().messages({
-        'any.required': 'paid_by wajib diisi saat Disetujui'
-      }),
-      otherwise: Joi.optional()
-    })
-    .messages({ 'any.invalid': 'ID paid_by tidak valid' }),
 
   details: Joi.array().items(detailSchema).min(1).required().messages({
     'array.base': 'Detail harus berupa array',
-    'array.min': 'Minimal 1 detail keperluan',
+    'array.min': 'Minimal 1 item detail keperluan',
     'any.required': 'Detail wajib diisi'
   }),
 
-  // dikontrol backend → strip
-  total_amount: Joi.any().strip(),
-  request_status: Joi.any().strip(),
-  voucher_number: Joi.any().strip(),
-  payment_voucher: Joi.any().strip()
-});
-
-const updateExpenseRequestSchema = Joi.object({
-  name: requesterField,
-
-  project: objectId.messages({ 'any.invalid': 'ID proyek tidak valid' }),
-  voucher_prefix: Joi.string().valid(...ER_PREFIXES),
-  expense_type: Joi.string().valid(...ER_TYPES),
-  submission_date: Joi.date().messages({
-    'date.base': 'Tanggal pengajuan tidak valid'
+  // dikontrol backend → dilarang dari FE
+  status: Joi.forbidden().messages({
+    'any.unknown': 'Status tidak boleh diisi dari klien'
   }),
+  note: Joi.forbidden().messages({
+    'any.unknown': 'Catatan penolakan hanya di endpoint Tolak'
+  }),
+  total_amount: Joi.forbidden().messages({
+    'any.unknown': 'Total dihitung otomatis'
+  }),
+  request_status: Joi.forbidden().messages({
+    'any.unknown': 'Request status ditentukan sistem'
+  }),
+  voucher_number: Joi.forbidden().messages({
+    'any.unknown': 'Nomor voucher dibuat otomatis'
+  }),
+  payment_voucher: Joi.forbidden().messages({
+    'any.unknown': 'Payment voucher dibuat otomatis'
+  }),
+  pv_locked: Joi.forbidden(),
+  applied_bag_snapshot: Joi.forbidden(),
+  over_budget: Joi.forbidden()
+})
+  .unknown(false)
+  .messages({
+    'object.unknown': 'Field {{#label}} tidak diperbolehkan'
+  });
 
-  method: Joi.string().valid('Transfer', 'Tunai'),
+/* ============ UPDATE (edit saat Diproses / non-finansial saat Disetujui) ============ */
+const updateExpenseRequestSchema = Joi.object({
+  name: objectId
+    .optional()
+    .messages({ 'any.invalid': 'ID karyawan (name) tidak valid' }),
+
+  expense_type: Joi.string()
+    .valid(...ER_TYPES)
+    .messages({
+      'any.only': 'Jenis biaya tidak valid'
+    }),
+
+  method: Joi.string().valid('Transfer', 'Tunai').messages({
+    'any.only': 'Metode pembayaran hanya boleh Transfer atau Tunai'
+  }),
   bank_account_number: Joi.string().when('method', {
     is: 'Transfer',
     then: Joi.required().messages({
       'any.required': 'Nomor rekening wajib diisi (Transfer)'
     }),
-    otherwise: Joi.optional().allow(null, '')
+    otherwise: Joi.allow(null, '')
   }),
   bank: Joi.string().when('method', {
     is: 'Transfer',
     then: Joi.required().messages({
       'any.required': 'Bank wajib diisi (Transfer)'
     }),
-    otherwise: Joi.optional().allow(null, '')
+    otherwise: Joi.allow(null, '')
   }),
   bank_branch: Joi.string().when('method', {
     is: 'Transfer',
     then: Joi.required().messages({
       'any.required': 'Cabang bank wajib diisi (Transfer)'
     }),
-    otherwise: Joi.optional().allow(null, '')
+    otherwise: Joi.allow(null, '')
   }),
   bank_account_holder: Joi.string().when('method', {
     is: 'Transfer',
     then: Joi.required().messages({
       'any.required': 'Pemilik rekening wajib diisi (Transfer)'
     }),
-    otherwise: Joi.optional().allow(null, '')
+    otherwise: Joi.allow(null, '')
   }),
 
-  description: Joi.string().allow('', null),
-  note: Joi.string()
-    .allow('', null)
-    .when('status', {
-      is: 'Ditolak',
-      then: Joi.required().messages({
-        'any.required': 'Alasan penolakan wajib diisi'
-      }),
-      otherwise: Joi.optional()
-    }),
+  description: Joi.string().allow('', null).messages({
+    'string.base': 'Deskripsi harus berupa teks'
+  }),
 
-  status: Joi.string().valid('Diproses', 'Disetujui', 'Ditolak'),
-  approved_by: objectId
-    .when('status', {
-      is: 'Disetujui',
-      then: Joi.required().messages({
-        'any.required': 'approved_by wajib diisi saat Disetujui'
-      }),
-      otherwise: Joi.optional()
-    })
-    .messages({ 'any.invalid': 'ID approved_by tidak valid' }),
-  paid_by: objectId.messages({ 'any.invalid': 'ID paid_by tidak valid' }),
+  details: Joi.array().items(detailSchema).min(1).messages({
+    'array.base': 'Detail harus berupa array',
+    'array.min': 'Minimal 1 item detail keperluan'
+  }),
 
-  details: Joi.array().items(detailSchema).min(1),
-
-  total_amount: Joi.any().strip(),
-  request_status: Joi.any().strip(),
-  voucher_number: Joi.any().strip(),
-  payment_voucher: Joi.any().strip()
-});
+  // field yang dikunci
+  project: Joi.forbidden().messages({
+    'any.unknown': 'Project tidak boleh diubah'
+  }),
+  voucher_prefix: Joi.forbidden().messages({
+    'any.unknown': 'Prefix voucher tidak boleh diubah'
+  }),
+  submission_date: Joi.forbidden(),
+  status: Joi.forbidden().messages({
+    'any.unknown': 'Status tidak boleh diubah lewat endpoint ini'
+  }),
+  note: Joi.forbidden().messages({
+    'any.unknown': 'Catatan penolakan tidak diedit di sini'
+  }),
+  total_amount: Joi.forbidden(),
+  request_status: Joi.forbidden(),
+  voucher_number: Joi.forbidden(),
+  payment_voucher: Joi.forbidden(),
+  pv_locked: Joi.forbidden(),
+  applied_bag_snapshot: Joi.forbidden(),
+  over_budget: Joi.forbidden()
+})
+  .unknown(false)
+  .messages({
+    'object.unknown': 'Field {{#label}} tidak diperbolehkan'
+  });
 
 module.exports = {
   createExpenseRequestSchema,

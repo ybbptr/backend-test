@@ -27,6 +27,52 @@ function mapExpenseType(expenseType) {
 }
 const num = (x) => Number(x) || 0;
 
+/* ===== Auth Guards ===== */
+function requireAdmin(req) {
+  if (req.user?.role !== 'admin') throwError('Hanya admin yang diizinkan', 403);
+}
+async function assertOwnerOrAdmin(req, er) {
+  if (req.user?.role === 'admin') return;
+  const me = await Employee.findOne({ user: req.user.id }).select('_id');
+  if (!me) throwError('Data karyawan tidak ditemukan', 404);
+  if (!er.name?.equals(me._id)) {
+    throwError('Tidak boleh mengakses/ubah pengajuan milik orang lain', 403);
+  }
+}
+
+/* ====== Bag & RAP ====== */
+function buildBagFromER(er) {
+  const bag = {};
+  const group = mapExpenseType(er.expense_type);
+  if (!group) return bag;
+  bag[group] = bag[group] || {};
+  for (const d of er.details || []) {
+    const cat = typeof d.category === 'object' ? d.category.value : d.category;
+    const amt = num(d.amount);
+    if (!cat || amt <= 0) continue;
+    bag[group][cat] = num(bag[group][cat]) + amt;
+  }
+  return bag;
+}
+function applyBagToRAP(rapDoc, bag, sign = +1) {
+  for (const group of Object.keys(bag || {})) {
+    const grp = rapDoc[group];
+    if (!grp) throwError(`Grup RAP tidak ditemukan: ${group}`, 422);
+    for (const cat of Object.keys(bag[group])) {
+      if (!grp[cat]) throwError(`Kategori RAP tidak ditemukan: ${cat}`, 422);
+      const delta = num(bag[group][cat]) * sign;
+      const bucket = grp[cat];
+      bucket.biaya_pengajuan = num(bucket.biaya_pengajuan) + delta;
+      if (num(bucket.biaya_pengajuan) > num(bucket.jumlah)) {
+        bucket.is_overbudget = true;
+      } else {
+        bucket.is_overbudget = false;
+      }
+    }
+  }
+}
+
+/** Flag proyeksi overbudget untuk ER status Diproses */
 async function markOverbudgetFlags({
   projectId,
   expenseType,
@@ -40,7 +86,6 @@ async function markOverbudgetFlags({
   const group = mapExpenseType(expenseType);
   if (!group) return details;
 
-  // Agregasi total pengajuan "Diproses" LAIN per kategori
   const match = {
     project: projectId,
     expense_type: expenseType,
@@ -51,33 +96,26 @@ async function markOverbudgetFlags({
   const pending = await ExpenseRequest.aggregate([
     { $match: match },
     { $unwind: '$details' },
-    {
-      $group: {
-        _id: '$details.category',
-        total: { $sum: '$details.amount' }
-      }
-    }
+    { $group: { _id: '$details.category', total: { $sum: '$details.amount' } } }
   ]).session(session);
 
-  const pendingMap = new Map(pending.map((p) => [p._id, Number(p.total) || 0]));
+  const pendingMap = new Map(pending.map((p) => [p._id, num(p.total)]));
 
-  // Tandai item overbudget berdasar proyeksi
   return details.map((raw) => {
-    const qty = Number(raw.quantity) || 0;
-    const unitPrice = Number(raw.unit_price) || 0;
+    const qty = num(raw.quantity);
+    const unitPrice = num(raw.unit_price);
     const cat =
       typeof raw.category === 'object' ? raw.category.value : raw.category;
-    const amount = Number(raw.amount ?? qty * unitPrice) || 0;
+    const amount = num(raw.amount ?? qty * unitPrice);
 
     const bucket = rap[group]?.[cat];
     if (!bucket) {
       return { ...raw, category: cat, amount, is_overbudget: false };
     }
-
-    const approved = Number(bucket.biaya_pengajuan) || 0;
-    const pendingOthers = Number(pendingMap.get(cat)) || 0;
+    const approved = num(bucket.biaya_pengajuan);
+    const pendingOthers = num(pendingMap.get(cat));
     const projected = approved + pendingOthers + amount;
-    const limit = Number(bucket.jumlah) || 0;
+    const limit = num(bucket.jumlah);
     const isOver = projected > limit;
 
     return { ...raw, category: cat, amount, is_overbudget: isOver };
@@ -91,7 +129,6 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
 
   try {
     const {
-      // name: requester (Employee) — akan dioverride sesuai role
       project,
       voucher_prefix,
       expense_type,
@@ -102,31 +139,25 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
       bank_branch,
       bank_account_holder,
       description,
-      details = [],
-      approved_by,
-      paid_by,
-      status: reqStatus,
-      note
+      details = []
     } = req.body || {};
 
-    // Tentukan requester (field "name") berdasar role
+    // requester (field "name") by role
     let requesterId = null;
     if (req.user?.role === 'admin') {
-      // admin boleh pilih dari dropdown
-      if (!req.body.name) {
-        // fallback ke employee dari token jika ada
-        const me = await Employee.findOne({ user: req.user.id }).select('_id');
-        if (me) requesterId = me._id;
-        else throwError('Requester (name) wajib dipilih oleh admin', 400);
-      } else {
+      if (req.body.name) {
         if (!mongoose.Types.ObjectId.isValid(req.body.name))
           throwError('ID requester tidak valid', 400);
         const emp = await Employee.findById(req.body.name).select('_id');
         if (!emp) throwError('Requester tidak ditemukan', 404);
         requesterId = emp._id;
+      } else {
+        const me = await Employee.findOne({ user: req.user.id }).select('_id');
+        if (!me)
+          throwError('Requester (name) wajib dipilih atau tersedia', 400);
+        requesterId = me._id;
       }
     } else {
-      // karyawan: selalu ambil dari token user
       const me = await Employee.findOne({ user: req.user.id }).select('_id');
       if (!me) throwError('Data karyawan tidak ditemukan', 404);
       requesterId = me._id;
@@ -145,8 +176,8 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
 
     // normalize details
     const normalizedDetails = details.map((item) => {
-      const qty = Number(item.quantity) || 0;
-      const unitPrice = Number(item.unit_price) || 0;
+      const qty = num(item.quantity);
+      const unitPrice = num(item.unit_price);
       return {
         ...item,
         category:
@@ -158,83 +189,24 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
       };
     });
 
-    // status & request_status awal
-    let status, request_status;
-    if (req.user?.role === 'karyawan') {
-      status = 'Diproses';
-      request_status = 'Pending';
-    } else if (req.user?.role === 'admin') {
-      status = reqStatus || 'Diproses';
-      if (status === 'Disetujui') request_status = 'Aktif';
-      else if (status === 'Ditolak') request_status = 'Ditolak';
-      else request_status = 'Pending';
-    } else {
-      status = 'Diproses';
-      request_status = 'Pending';
-    }
+    // status awal SELALU Diproses
+    const status = 'Diproses';
+    const request_status = 'Pending';
 
-    // Pasang flag overbudget proyeksi jika status masih Diproses (tidak mengubah RAP)
-    let detailsForSave = normalizedDetails;
-    if (status !== 'Disetujui') {
-      detailsForSave = await markOverbudgetFlags({
-        projectId: project,
-        expenseType: expense_type,
-        details: normalizedDetails,
-        session
-      });
-    }
+    // proyeksi overbudget
+    const detailsForSave = await markOverbudgetFlags({
+      projectId: project,
+      expenseType: expense_type,
+      details: normalizedDetails,
+      session
+    });
 
     const total_amount = detailsForSave.reduce(
-      (acc, curr) => acc + curr.amount,
+      (acc, curr) => acc + num(curr.amount),
       0
     );
     const voucher_number = await generateVoucherNumber(voucher_prefix);
 
-    let payment_voucher = null;
-    let approvedBy = null;
-    let paidBy = null;
-
-    // Jika langsung Disetujui oleh admin → update RAP dan set flag aktual
-    if (status === 'Disetujui' && req.user?.role === 'admin') {
-      const paymentPrefix = mapPaymentPrefix(voucher_prefix);
-      if (!paymentPrefix) throwError('Prefix voucher tidak valid', 400);
-
-      payment_voucher = await generateVoucherNumber(paymentPrefix);
-
-      if (!approved_by || !mongoose.Types.ObjectId.isValid(approved_by)) {
-        throwError('approved_by wajib diisi & valid', 400);
-      }
-      approvedBy = approved_by;
-
-      if (!paid_by || !mongoose.Types.ObjectId.isValid(paid_by)) {
-        throwError('paid_by wajib diisi & valid', 400);
-      }
-      paidBy = paid_by;
-
-      const rap = await RAP.findById(project).session(session);
-      if (!rap) throwError('RAP tidak ditemukan', 404);
-
-      for (const item of detailsForSave) {
-        const group = mapExpenseType(expense_type);
-        if (group && item.category && rap[group]?.[item.category]) {
-          const biaya = rap[group][item.category];
-          biaya.biaya_pengajuan = num(biaya.biaya_pengajuan) + item.amount;
-          if (biaya.biaya_pengajuan > num(biaya.jumlah)) {
-            biaya.is_overbudget = true;
-            item.is_overbudget = true;
-          }
-        }
-      }
-      await rap.save({ session });
-    }
-
-    let finalnote = null;
-    if (status === 'Ditolak') {
-      if (!note) throwError('Alasan penolakan wajib diisi', 400);
-      finalnote = note;
-    }
-
-    // create ExpenseRequest
     const [expenseRequest] = await ExpenseRequest.create(
       [
         {
@@ -242,7 +214,7 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
           project,
           voucher_prefix,
           voucher_number,
-          payment_voucher,
+          payment_voucher: null,
           expense_type,
           submission_date,
           method,
@@ -257,20 +229,21 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
           total_amount,
           status,
           request_status,
-          approved_by: approvedBy,
-          paid_by: paidBy,
-          note: finalnote
+          applied_bag_snapshot: null,
+          pv_locked: false,
+          over_budget: detailsForSave.some((d) => d.is_overbudget),
+          note: null
         }
       ],
       { session }
     );
 
-    // create ExpenseLog
+    // log awal (tanpa payment_voucher)
     await ExpenseLog.create(
       [
         {
           voucher_number,
-          payment_voucher,
+          payment_voucher: null,
           requester: requesterId,
           project,
           expense_type,
@@ -307,9 +280,14 @@ const getExpenseRequests = asyncHandler(async (req, res) => {
   if (search) {
     filter.$or = [
       { voucher_number: { $regex: search, $options: 'i' } },
-      { payment_voucher: { $regex: search, $options: 'i' } },
-      { description: { $regex: search, $options: 'i' } }
+      { payment_voucher: { $regex: search, $options: 'i' } }
     ];
+  }
+
+  if (req.user?.role !== 'admin') {
+    const me = await Employee.findOne({ user: req.user.id }).select('_id');
+    if (!me) throwError('Karyawan tidak ditemukan', 404);
+    filter.name = me._id;
   }
 
   const [totalItems, requests] = await Promise.all([
@@ -332,78 +310,82 @@ const getExpenseRequests = asyncHandler(async (req, res) => {
 });
 
 const getExpenseRequest = asyncHandler(async (req, res) => {
-  const expenseRequest = await ExpenseRequest.findById(req.params.id)
+  const er = await ExpenseRequest.findById(req.params.id)
     .populate('name', 'name')
-    .populate('project', 'project_name')
-    .populate('approved_by', 'name')
-    .populate('paid_by', 'name');
+    .populate('project', 'project_name');
 
-  if (!expenseRequest) throwError('Pengajuan biaya tidak ditemukan', 404);
+  if (!er) throwError('Pengajuan biaya tidak ditemukan', 404);
+  await assertOwnerOrAdmin(req, er);
 
-  res.status(200).json(expenseRequest);
+  res.status(200).json(er);
 });
 
-/* ================= Update ================= */
+const getMyExpenseRequests = asyncHandler(async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
+
+  const me = await Employee.findOne({ user: req.user.id }).select('_id name');
+  if (!me) throwError('Karyawan tidak ditemukan', 404);
+
+  const filter = { name: me._id };
+
+  const [totalItems, requests] = await Promise.all([
+    ExpenseRequest.countDocuments(filter),
+    ExpenseRequest.find(filter)
+      .skip(skip)
+      .limit(limit)
+      .sort({ createdAt: -1 })
+      .populate('project', 'project_name')
+  ]);
+
+  res.status(200).json({
+    page,
+    limit,
+    totalItems,
+    totalPages: Math.ceil(totalItems / limit),
+    data: requests
+  });
+});
+
 const updateExpenseRequest = asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    const expenseRequest = await ExpenseRequest.findById(req.params.id).session(
-      session
-    );
-    if (!expenseRequest) throwError('Pengajuan biaya tidak ditemukan', 404);
+    const er = await ExpenseRequest.findById(req.params.id).session(session);
+    if (!er) throwError('Pengajuan biaya tidak ditemukan', 404);
 
-    const prevStatus = expenseRequest.status;
-    const userRole = req.user?.role;
-    const updates = req.body;
+    const updates = req.body || {};
 
-    // Admin boleh ganti requester (name)
-    if (userRole === 'admin' && updates.name) {
-      if (!mongoose.Types.ObjectId.isValid(updates.name))
-        throwError('ID requester tidak valid', 400);
-      const emp = await Employee.findById(updates.name).select('_id');
-      if (!emp) throwError('Requester tidak ditemukan', 404);
-      expenseRequest.name = emp._id;
+    if (er.pv_locked)
+      throwError('Data terkunci karena sudah dipakai di PV final', 409);
 
-      // sinkronkan log requester
-      await ExpenseLog.updateOne(
-        { voucher_number: expenseRequest.voucher_number },
-        { $set: { requester: emp._id } },
-        { session }
-      );
-    } else if (userRole !== 'admin') {
-      // Non-admin tidak boleh ganti requester dari body
-      delete updates.name;
-    }
+    if (er.status === 'Diproses') {
+      await assertOwnerOrAdmin(req, er);
 
-    if (userRole === 'admin') {
-      if (
-        updates.voucher_prefix &&
-        updates.voucher_prefix !== expenseRequest.voucher_prefix
-      ) {
-        expenseRequest.voucher_prefix = updates.voucher_prefix;
-        expenseRequest.voucher_number = await generateVoucherNumber(
-          updates.voucher_prefix
+      if (req.user?.role === 'admin' && updates.name) {
+        if (!mongoose.Types.ObjectId.isValid(updates.name))
+          throwError('ID requester tidak valid', 400);
+        const emp = await Employee.findById(updates.name).select('_id');
+        if (!emp) throwError('Requester tidak ditemukan', 404);
+        er.name = emp._id;
+        await ExpenseLog.updateOne(
+          { voucher_number: er.voucher_number },
+          { $set: { requester: emp._id } },
+          { session }
         );
       }
 
-      if (
-        updates.expense_type &&
-        updates.expense_type !== expenseRequest.expense_type
-      ) {
-        expenseRequest.expense_type = updates.expense_type;
-        expenseRequest.details = [];
-        expenseRequest.total_amount = 0;
-        expenseRequest.status = 'Diproses';
-        expenseRequest.request_status = 'Pending';
-        expenseRequest.payment_voucher = null;
-        expenseRequest.approved_by = null;
-        expenseRequest.paid_by = null;
-
-        if (!updates.details || !Array.isArray(updates.details)) {
+      if (updates.expense_type && updates.expense_type !== er.expense_type) {
+        er.expense_type = updates.expense_type;
+        if (
+          !updates.details ||
+          !Array.isArray(updates.details) ||
+          !updates.details.length
+        ) {
           throwError(
-            'Jenis biaya diubah, harap isi ulang detail keperluan',
+            'Jenis biaya berubah, harap isi ulang detail keperluan',
             400
           );
         }
@@ -411,8 +393,8 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
 
       if (updates.details && Array.isArray(updates.details)) {
         let newDetails = updates.details.map((item) => {
-          const qty = Number(item.quantity) || 0;
-          const unitPrice = Number(item.unit_price) || 0;
+          const qty = num(item.quantity);
+          const unitPrice = num(item.unit_price);
           return {
             ...item,
             category:
@@ -424,291 +406,289 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
           };
         });
 
-        // Jika BELUM Disetujui → pasang flag proyeksi (exclude dokumen ini)
-        if ((expenseRequest.status || 'Diproses') !== 'Disetujui') {
-          newDetails = await markOverbudgetFlags({
-            projectId: expenseRequest.project,
-            expenseType: expenseRequest.expense_type,
-            details: newDetails,
-            session,
-            excludeId: expenseRequest._id
-          });
-        } else {
-          // Jika sudah Disetujui → rollback lalu apply ke RAP di bawah (flag aktual)
-        }
-
-        const newTotal = newDetails.reduce((acc, curr) => acc + curr.amount, 0);
-
-        if (expenseRequest.status === 'Disetujui') {
-          const rap = await RAP.findById(expenseRequest.project).session(
-            session
-          );
-          if (!rap) throwError('RAP tidak ditemukan', 404);
-          const group = mapExpenseType(expenseRequest.expense_type);
-
-          // rollback biaya lama
-          for (const old of expenseRequest.details) {
-            if (group && old.category && rap[group]?.[old.category]) {
-              const b = rap[group][old.category];
-              b.biaya_pengajuan = Math.max(
-                0,
-                num(b.biaya_pengajuan) - old.amount
-              );
-              if (num(b.biaya_pengajuan) <= num(b.jumlah)) {
-                b.is_overbudget = false;
-              }
-            }
-          }
-
-          // apply biaya baru
-          for (const item of newDetails) {
-            if (group && item.category && rap[group]?.[item.category]) {
-              const biaya = rap[group][item.category];
-              biaya.biaya_pengajuan = num(biaya.biaya_pengajuan) + item.amount;
-              if (biaya.biaya_pengajuan > num(biaya.jumlah)) {
-                biaya.is_overbudget = true;
-                item.is_overbudget = true;
-              }
-            }
-          }
-          await rap.save({ session });
-        }
-
-        // update expense request + log
-        expenseRequest.details = newDetails;
-        expenseRequest.total_amount = newTotal;
-
-        await ExpenseLog.updateOne(
-          { voucher_number: expenseRequest.voucher_number },
-          { $set: { details: newDetails } },
-          { session }
-        );
-      }
-
-      // Update field dasar
-      if (updates.description !== undefined)
-        expenseRequest.description = updates.description;
-      if (updates.method !== undefined) expenseRequest.method = updates.method;
-      if (updates.note !== undefined) expenseRequest.note = updates.note;
-
-      if (updates.method === 'Tunai') {
-        expenseRequest.bank_account_number = null;
-        expenseRequest.bank = null;
-        expenseRequest.bank_branch = null;
-        expenseRequest.bank_account_holder = null;
-      } else if (updates.method === 'Transfer') {
-        expenseRequest.bank_account_number =
-          updates.bank_account_number ?? expenseRequest.bank_account_number;
-        expenseRequest.bank = updates.bank ?? expenseRequest.bank;
-        expenseRequest.bank_branch =
-          updates.bank_branch ?? expenseRequest.bank_branch;
-        expenseRequest.bank_account_holder =
-          updates.bank_account_holder ?? expenseRequest.bank_account_holder;
-      }
-
-      // Status change
-      const newStatus = updates.status;
-      if (newStatus && prevStatus !== newStatus) {
-        if (newStatus === 'Disetujui') {
-          if (!updates.approved_by)
-            throwError('approved_by wajib diisi saat menyetujui', 400);
-          if (!mongoose.Types.ObjectId.isValid(updates.approved_by))
-            throwError('ID approved_by tidak valid', 400);
-
-          expenseRequest.approved_by = updates.approved_by;
-
-          if (updates.paid_by) {
-            if (!mongoose.Types.ObjectId.isValid(updates.paid_by))
-              throwError('ID paid_by tidak valid', 400);
-            expenseRequest.paid_by = updates.paid_by;
-          }
-
-          const paymentPrefix = mapPaymentPrefix(expenseRequest.voucher_prefix);
-          if (!paymentPrefix) throwError('Prefix voucher tidak valid', 400);
-          expenseRequest.payment_voucher = await generateVoucherNumber(
-            paymentPrefix
-          );
-
-          // apply ke RAP (flag aktual)
-          const rap = await RAP.findById(expenseRequest.project).session(
-            session
-          );
-          if (!rap) throwError('RAP tidak ditemukan', 404);
-
-          for (const item of expenseRequest.details) {
-            const group = mapExpenseType(expenseRequest.expense_type);
-            if (group && item.category && rap[group]?.[item.category]) {
-              const biaya = rap[group][item.category];
-              biaya.biaya_pengajuan = num(biaya.biaya_pengajuan) + item.amount;
-              if (biaya.biaya_pengajuan > num(biaya.jumlah)) {
-                biaya.is_overbudget = true;
-                item.is_overbudget = true;
-              }
-            }
-          }
-          await rap.save({ session });
-
-          expenseRequest.request_status = 'Aktif';
-
-          await ExpenseLog.findOneAndUpdate(
-            { voucher_number: expenseRequest.voucher_number },
-            {
-              $set: {
-                payment_voucher: expenseRequest.payment_voucher,
-                requester: expenseRequest.name,
-                project: expenseRequest.project,
-                expense_type: expenseRequest.expense_type,
-                details: expenseRequest.details
-              }
-            },
-            { session, upsert: true }
-          );
-        }
-
-        if (newStatus === 'Ditolak') {
-          if (!updates.note)
-            throwError('Alasan penolakan (note) wajib diisi', 400);
-
-          expenseRequest.payment_voucher = null;
-          expenseRequest.approved_by = null;
-          expenseRequest.paid_by = null;
-          expenseRequest.request_status = 'Ditolak';
-          expenseRequest.note = updates.note;
-
-          await ExpenseLog.deleteOne(
-            { voucher_number: expenseRequest.voucher_number },
-            { session }
-          );
-        }
-
-        if (prevStatus === 'Disetujui' && newStatus !== 'Disetujui') {
-          const rap = await RAP.findById(expenseRequest.project).session(
-            session
-          );
-          if (rap) {
-            for (const item of expenseRequest.details) {
-              const group = mapExpenseType(expenseRequest.expense_type);
-              if (group && item.category && rap[group]?.[item.category]) {
-                const bucket = rap[group][item.category];
-                bucket.biaya_pengajuan = Math.max(
-                  0,
-                  num(bucket.biaya_pengajuan) - item.amount
-                );
-                if (num(bucket.biaya_pengajuan) <= num(bucket.jumlah)) {
-                  bucket.is_overbudget = false;
-                }
-              }
-            }
-            await rap.save({ session });
-          }
-
-          expenseRequest.payment_voucher = null;
-          expenseRequest.approved_by = null;
-          expenseRequest.paid_by = null;
-
-          if (newStatus === 'Diproses')
-            expenseRequest.request_status = 'Pending';
-
-          await ExpenseLog.deleteOne(
-            { voucher_number: expenseRequest.voucher_number },
-            { session }
-          );
-        }
-
-        expenseRequest.status = newStatus;
-      }
-    } else {
-      // ================= Non-Admin =================
-      const { status, approved_by, paid_by, note, name, ...allowedUpdates } =
-        updates;
-
-      if (allowedUpdates.description !== undefined)
-        expenseRequest.description = allowedUpdates.description;
-      if (allowedUpdates.method !== undefined)
-        expenseRequest.method = allowedUpdates.method;
-
-      if (allowedUpdates.details && Array.isArray(allowedUpdates.details)) {
-        let recalced = allowedUpdates.details.map((item) => {
-          const qty = Number(item.quantity) || 0;
-          const unitPrice = Number(item.unit_price) || 0;
-          return {
-            ...item,
-            category:
-              typeof item.category === 'object'
-                ? item.category.value
-                : item.category,
-            amount: qty * unitPrice,
-            is_overbudget: false
-          };
-        });
-
-        // pasang flag proyeksi (exclude dokumen ini)
-        recalced = await markOverbudgetFlags({
-          projectId: expenseRequest.project,
-          expenseType: expenseRequest.expense_type,
-          details: recalced,
+        newDetails = await markOverbudgetFlags({
+          projectId: er.project,
+          expenseType: er.expense_type,
+          details: newDetails,
           session,
-          excludeId: expenseRequest._id
+          excludeId: er._id
         });
 
-        expenseRequest.details = recalced;
-        expenseRequest.total_amount = recalced.reduce(
-          (a, c) => a + c.amount,
-          0
-        );
+        er.details = newDetails;
+        er.total_amount = newDetails.reduce((a, c) => a + num(c.amount), 0);
+        er.over_budget = newDetails.some((d) => d.is_overbudget);
 
         await ExpenseLog.updateOne(
-          { voucher_number: expenseRequest.voucher_number },
-          { $set: { details: recalced } },
+          { voucher_number: er.voucher_number },
+          { $set: { details: newDetails, expense_type: er.expense_type } },
           { session }
         );
       }
 
-      if (allowedUpdates.method === 'Tunai') {
-        expenseRequest.bank_account_number = null;
-        expenseRequest.bank = null;
-        expenseRequest.bank_branch = null;
-        expenseRequest.bank_account_holder = null;
-      } else if (allowedUpdates.method === 'Transfer') {
-        expenseRequest.bank_account_number =
-          allowedUpdates.bank_account_number ??
-          expenseRequest.bank_account_number;
-        expenseRequest.bank = allowedUpdates.bank ?? expenseRequest.bank;
-        expenseRequest.bank_branch =
-          allowedUpdates.bank_branch ?? expenseRequest.bank_branch;
-        expenseRequest.bank_account_holder =
-          allowedUpdates.bank_account_holder ??
-          expenseRequest.bank_account_holder;
+      if (updates.description !== undefined)
+        er.description = updates.description;
+      if (updates.method !== undefined) er.method = updates.method;
+
+      if (er.method === 'Tunai') {
+        er.bank_account_number = null;
+        er.bank = null;
+        er.bank_branch = null;
+        er.bank_account_holder = null;
+      } else if (er.method === 'Transfer') {
+        er.bank_account_number =
+          updates.bank_account_number ?? er.bank_account_number;
+        er.bank = updates.bank ?? er.bank;
+        er.bank_branch = updates.bank_branch ?? er.bank_branch;
+        er.bank_account_holder =
+          updates.bank_account_holder ?? er.bank_account_holder;
       }
 
-      // bila karyawan ubah konten, reset status → Diproses/Pending
-      if (
-        allowedUpdates.details ||
-        allowedUpdates.total_amount ||
-        allowedUpdates.description ||
-        allowedUpdates.method ||
-        allowedUpdates.expense_type
-      ) {
-        expenseRequest.status = 'Diproses';
-        expenseRequest.request_status = 'Pending';
-        expenseRequest.payment_voucher = null;
-        expenseRequest.approved_by = null;
-        expenseRequest.paid_by = null;
+      // tetap Diproses setelah edit
+      er.status = 'Diproses';
+      er.request_status = 'Pending';
+      er.payment_voucher = null;
+      er.applied_bag_snapshot = null;
 
-        await ExpenseLog.deleteOne(
-          { voucher_number: expenseRequest.voucher_number },
-          { session }
-        );
-      }
+      await er.save({ session });
+      await session.commitTransaction();
+      return res
+        .status(200)
+        .json({ message: 'Pengajuan biaya berhasil diperbarui', data: er });
     }
 
-    await expenseRequest.save({ session });
+    if (er.status === 'Disetujui') {
+      // ==== (BARU) — BOLEH EDIT NON-FINANSIAL SAJA ====
+      await assertOwnerOrAdmin(req, er);
+
+      const forbidden = [
+        'details',
+        'expense_type',
+        'project',
+        'voucher_prefix',
+        'status',
+        'note',
+        'total_amount',
+        'request_status',
+        'voucher_number',
+        'payment_voucher',
+        'applied_bag_snapshot',
+        'over_budget'
+      ];
+      if (forbidden.some((k) => updates[k] !== undefined)) {
+        throwError(
+          'Dokumen Disetujui hanya boleh ubah informasi pembayaran & deskripsi',
+          400
+        );
+      }
+
+      if (updates.description !== undefined)
+        er.description = updates.description;
+      if (updates.method !== undefined) er.method = updates.method;
+
+      if (er.method === 'Tunai') {
+        er.bank_account_number = null;
+        er.bank = null;
+        er.bank_branch = null;
+        er.bank_account_holder = null;
+      } else if (er.method === 'Transfer') {
+        er.bank_account_number =
+          updates.bank_account_number ?? er.bank_account_number;
+        er.bank = updates.bank ?? er.bank;
+        er.bank_branch = updates.bank_branch ?? er.bank_branch;
+        er.bank_account_holder =
+          updates.bank_account_holder ?? er.bank_account_holder;
+      }
+
+      await er.save({ session });
+      await session.commitTransaction();
+      return res
+        .status(200)
+        .json({ message: 'Pengajuan diperbarui (non-finansial)', data: er });
+    }
+
+    throwError(
+      'Tidak bisa edit karena status Ditolak. Buka ulang data jika ingin mengubah.',
+      409
+    );
+  } catch (err) {
+    await session.abortTransaction();
+    throw err;
+  } finally {
+    session.endSession();
+  }
+});
+
+/* ================= Aksi: APPROVE (admin) ================= */
+const approveExpenseRequest = asyncHandler(async (req, res) => {
+  requireAdmin(req);
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const er = await ExpenseRequest.findById(req.params.id).session(session);
+    if (!er) throwError('Pengajuan biaya tidak ditemukan', 404);
+
+    if (er.pv_locked)
+      throwError('Tidak bisa disetujui karena sudah dipakai di PV final', 409);
+    if (er.status !== 'Diproses')
+      throwError('Hanya bisa menyetujui dokumen yang Diproses', 409);
+
+    const rap = await RAP.findById(er.project).session(session);
+    if (!rap) throwError('RAP tidak ditemukan', 404);
+
+    const bag = buildBagFromER(er);
+    applyBagToRAP(rap, bag, +1);
+    await rap.save({ session });
+
+    const pvPrefix = mapPaymentPrefix(er.voucher_prefix);
+    if (!pvPrefix) throwError('Prefix voucher tidak valid', 400);
+    er.payment_voucher = await generateVoucherNumber(pvPrefix);
+
+    er.status = 'Disetujui';
+    er.request_status = 'Aktif';
+    er.applied_bag_snapshot = bag;
+
+    // set flag over_budget aktual berdasarkan RAP terkini
+    const group = Object.keys(bag)[0];
+    if (group && rap[group]) {
+      er.details = er.details.map((d) => {
+        const cat =
+          typeof d.category === 'object' ? d.category.value : d.category;
+        const bucket = rap[group]?.[cat];
+        const isOver = bucket
+          ? num(bucket.biaya_pengajuan) > num(bucket.jumlah)
+          : false;
+        return { ...d, category: cat, is_overbudget: !!isOver };
+      });
+      er.over_budget = er.details.some((d) => d.is_overbudget);
+    }
+
+    await er.save({ session });
+
+    await ExpenseLog.findOneAndUpdate(
+      { voucher_number: er.voucher_number },
+      {
+        $set: {
+          payment_voucher: er.payment_voucher,
+          requester: er.name,
+          project: er.project,
+          expense_type: er.expense_type,
+          details: er.details
+        }
+      },
+      { session, upsert: true, new: true }
+    );
+
+    await session.commitTransaction();
+    res.status(200).json({ message: 'Pengajuan disetujui', data: er });
+  } catch (err) {
+    await session.abortTransaction();
+    throw err;
+  } finally {
+    session.endSession();
+  }
+});
+
+/* ================= Aksi: REJECT (admin) ================= */
+const rejectExpenseRequest = asyncHandler(async (req, res) => {
+  requireAdmin(req);
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { note } = req.body || {};
+    const er = await ExpenseRequest.findById(req.params.id).session(session);
+    if (!er) throwError('Pengajuan biaya tidak ditemukan', 404);
+
+    if (er.status !== 'Diproses')
+      throwError('Hanya bisa menolak dokumen yang Diproses', 409);
+    if (!note) throwError('Alasan penolakan (note) wajib diisi', 400);
+
+    er.status = 'Ditolak';
+    er.request_status = 'Ditolak';
+    er.note = note;
+    er.payment_voucher = null;
+    er.applied_bag_snapshot = null;
+
+    await er.save({ session });
+    await ExpenseLog.deleteOne(
+      { voucher_number: er.voucher_number },
+      { session }
+    );
+
+    await session.commitTransaction();
+    res.status(200).json({ message: 'Pengajuan ditolak', data: er });
+  } catch (err) {
+    await session.abortTransaction();
+    throw err;
+  } finally {
+    session.endSession();
+  }
+});
+
+/* ================= Aksi: REOPEN (admin) ================= */
+const reopenExpenseRequest = asyncHandler(async (req, res) => {
+  requireAdmin(req);
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const er = await ExpenseRequest.findById(req.params.id).session(session);
+    if (!er) throwError('Pengajuan biaya tidak ditemukan', 404);
+
+    if (er.pv_locked)
+      throwError(
+        'Tidak bisa dibuka ulang karena sudah dipakai di PV final',
+        409
+      );
+    if (er.status === 'Diproses')
+      throwError('Dokumen sudah berstatus Diproses', 409);
+
+    // kalau asalnya Disetujui → rollback RAP pakai snapshot
+    if (er.status === 'Disetujui') {
+      const rap = await RAP.findById(er.project).session(session);
+      if (!rap) throwError('RAP tidak ditemukan', 404);
+
+      const bag =
+        er.applied_bag_snapshot && Object.keys(er.applied_bag_snapshot).length
+          ? er.applied_bag_snapshot
+          : buildBagFromER(er);
+
+      applyBagToRAP(rap, bag, -1);
+      await rap.save({ session });
+
+      er.payment_voucher = null;
+      er.applied_bag_snapshot = null;
+
+      // refresh proyeksi flag overbudget setelah rollback
+      const recalced = await markOverbudgetFlags({
+        projectId: er.project,
+        expenseType: er.expense_type,
+        details: er.details,
+        session,
+        excludeId: er._id
+      });
+      er.details = recalced;
+      er.over_budget = recalced.some((d) => d.is_overbudget);
+    }
+
+    er.status = 'Diproses';
+    er.request_status = 'Pending';
+
+    await ExpenseLog.deleteOne(
+      { voucher_number: er.voucher_number },
+      { session }
+    );
+
+    await er.save({ session });
     await session.commitTransaction();
 
-    res.status(200).json({
-      message: 'Pengajuan biaya berhasil diperbarui',
-      data: expenseRequest
-    });
+    res
+      .status(200)
+      .json({ message: 'Pengajuan dibuka ulang (status Diproses)', data: er });
   } catch (err) {
     await session.abortTransaction();
     throw err;
@@ -726,26 +706,30 @@ const deleteExpenseRequest = asyncHandler(async (req, res) => {
   session.startTransaction();
 
   try {
-    const expenseRequest = await ExpenseRequest.findById(req.params.id).session(
-      session
-    );
-    if (!expenseRequest) throwError('Pengajuan biaya tidak ditemukan', 404);
+    const er = await ExpenseRequest.findById(req.params.id).session(session);
+    if (!er) throwError('Pengajuan biaya tidak ditemukan', 404);
 
-    if (req.user?.role !== 'admin' && expenseRequest.status !== 'Diproses') {
-      throwError(
-        'Karyawan hanya boleh menghapus pengajuan dengan status Diproses',
-        403
-      );
+    if (req.user?.role !== 'admin') {
+      await assertOwnerOrAdmin(req, er);
+      if (er.status !== 'Diproses') {
+        throwError(
+          'Karyawan hanya boleh menghapus pengajuan dengan status Diproses',
+          403
+        );
+      }
     }
-
-    if (expenseRequest.status === 'Disetujui') {
+    if (er.status === 'Disetujui') {
       throwError(
-        'Pengajuan biaya yang sudah disetujui tidak bisa dihapus, silakan batalkan status dulu',
+        'Sudah Disetujui: tidak bisa dihapus, gunakan Reopen terlebih dahulu',
         400
       );
     }
 
-    await expenseRequest.deleteOne({ session });
+    await ExpenseLog.deleteOne(
+      { voucher_number: er.voucher_number },
+      { session }
+    );
+    await er.deleteOne({ session });
     await session.commitTransaction();
 
     res.status(200).json({ message: 'Pengajuan biaya berhasil dihapus' });
@@ -782,7 +766,6 @@ const categoryLabels = {
   penginapan: 'Penginapan',
   transportasi_akomodasi_lokal: 'Transportasi & Akomodasi Lokal',
   transportasi_akomodasi_site: 'Transportasi & Akomodasi Site',
-  uang_makan: 'Uang Makan',
   osa: 'Osa',
   fee_tenaga_ahli: 'Fee Tenaga Ahli',
   alat_sondir: 'Alat Sondir',
@@ -843,11 +826,11 @@ const getCategoriesByExpenseType = asyncHandler(async (req, res) => {
     value: key,
     label: categoryLabels[key] || key
   }));
-
   res.status(200).json({ expense_type, categories });
 });
 
 const getAllEmployee = asyncHandler(async (req, res) => {
+  requireAdmin(req);
   const employee = await Employee.find().select('name');
   if (!employee) throwError('Karyawan tidak ada', 404);
   res.status(200).json(employee);
@@ -859,49 +842,25 @@ const getEmployee = asyncHandler(async (req, res) => {
   res.status(200).json(employee);
 });
 
-const getMyExpenseRequests = asyncHandler(async (req, res) => {
-  const page = parseInt(req.query.page) || 1;
-  const limit = parseInt(req.query.limit) || 10;
-  const skip = (page - 1) * limit;
-
-  const employee = await Employee.findOne({ user: req.user.id }).select(
-    '_id name'
-  );
-  if (!employee) throwError('Karyawan tidak ditemukan', 404);
-
-  const filter = { name: employee._id };
-
-  const [totalItems, requests] = await Promise.all([
-    ExpenseRequest.countDocuments(filter),
-    ExpenseRequest.find(filter)
-      .skip(skip)
-      .limit(limit)
-      .sort({ createdAt: -1 })
-      .populate('project', 'project_name')
-      .populate('approved_by', 'name')
-      .populate('paid_by', 'name')
-  ]);
-
-  res.status(200).json({
-    page,
-    limit,
-    totalItems,
-    totalPages: Math.ceil(totalItems / limit),
-    data: requests
-  });
-});
-
 const getAllProject = asyncHandler(async (req, res) => {
   const project = await RAP.find().select('project_name');
   res.json(project);
 });
 
 module.exports = {
+  // CRUD
   addExpenseRequest,
   getExpenseRequests,
   getExpenseRequest,
   updateExpenseRequest,
   deleteExpenseRequest,
+
+  // Aksi status
+  approveExpenseRequest,
+  rejectExpenseRequest,
+  reopenExpenseRequest,
+
+  // misc
   getCategoriesByExpenseType,
   getAllEmployee,
   getEmployee,

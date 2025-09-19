@@ -1,3 +1,6 @@
+// controllers/reports/profitReportController.js
+'use strict';
+
 const asyncHandler = require('express-async-handler');
 const mongoose = require('mongoose');
 
@@ -6,8 +9,24 @@ const RAP = require('../../model/rapModel');
 const throwError = require('../../utils/throwError');
 const { getFileUrl } = require('../../utils/wasabi');
 
-const num = (x) => Number(x) || 0;
+/* ============== Helpers ============== */
+// Parser angka yang tahan format string (mis. "1.200.000" / "Rp 1,200,000")
+const numLoose = (x) => {
+  if (typeof x === 'number' && Number.isFinite(x)) return x;
+  if (typeof x !== 'string') return 0;
+  const cleaned = x.replace(/[^0-9]/g, '');
+  return cleaned ? Number(cleaned) : 0;
+};
 
+// Pembaca field kategori RAP (utama: jumlah/biaya_pengajuan/aktual)
+const pickJumlah = (b) => numLoose(b?.jumlah ?? b?.total_jumlah ?? b?.budget);
+const pickPengajuan = (b) =>
+  numLoose(
+    b?.biaya_pengajuan ?? b?.pengajuan_biaya ?? b?.pengajuan ?? b?.biaya
+  );
+const pickAktual = (b) => numLoose(b?.aktual);
+
+// Kunci grup yang dipakai di RAP
 const GROUP_KEYS = [
   'persiapan_pekerjaan',
   'operasional_lapangan',
@@ -22,17 +41,17 @@ function computeMetricsFromRap(rap) {
   let total_budget = 0; // sum(jumlah)
   let total_pengajuan = 0; // sum(biaya_pengajuan)
   let total_aktual = 0; // sum(aktual)
-  let overbudget_count = 0; // count kategori over
-  let overbudget_value = 0; // sum max(0, biaya_pengajuan - jumlah)
+  let overbudget_count = 0; // count(pengajuan > jumlah)
+  let overbudget_value = 0; // sum(pengajuan - jumlah) yang > 0
 
   if (rap) {
     for (const g of GROUP_KEYS) {
       const bag = rap[g] || {};
       for (const b of Object.values(bag)) {
         if (!b) continue;
-        const j = num(b.jumlah);
-        const p = num(b.biaya_pengajuan);
-        const a = num(b.aktual);
+        const j = pickJumlah(b);
+        const p = pickPengajuan(b);
+        const a = pickAktual(b);
 
         total_budget += j;
         total_pengajuan += p;
@@ -49,8 +68,9 @@ function computeMetricsFromRap(rap) {
 
   const max_pengeluaran =
     rap?.nilai_fix_pekerjaan != null
-      ? num(rap.nilai_fix_pekerjaan)
-      : num(rap?.nilai_pekerjaan);
+      ? numLoose(rap.nilai_fix_pekerjaan)
+      : numLoose(rap?.nilai_pekerjaan);
+
   const dana_sisa = max_pengeluaran - total_aktual;
   const sisa_budget = total_budget - total_pengajuan;
 
@@ -66,6 +86,7 @@ function computeMetricsFromRap(rap) {
   };
 }
 
+/* ============== LIST ============== */
 const getAllProfitReports = asyncHandler(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 10;
@@ -98,7 +119,7 @@ const getAllProfitReports = asyncHandler(async (req, res) => {
   const totalItems = await ProfitReport.countDocuments(filter);
   const reports = await ProfitReport.find(filter)
     .select(
-      '_id project_name nilai_fix_pekerjaan nilai_pekerjaan nomor_kontrak client_name'
+      '_id project_name nilai_fix_pekerjaan nilai_pekerjaan nomor_kontrak client_name rap_id'
     )
     .skip(skip)
     .limit(limit)
@@ -107,34 +128,43 @@ const getAllProfitReports = asyncHandler(async (req, res) => {
 
   const data = [];
   for (const report of reports) {
-    // cari RAP pasangan: prioritas nomor_kontrak, fallback project_name
-    const rap =
-      (await RAP.findOne({ nomor_kontrak: report.nomor_kontrak }).lean()) ||
-      (await RAP.findOne({ project_name: report.project_name }).lean());
+    // Pair RAP: prioritas rap_id, lalu nomor_kontrak, fallback project_name
+    let rap = null;
+    if (
+      report.rap_id &&
+      mongoose.Types.ObjectId.isValid(String(report.rap_id))
+    ) {
+      rap = await RAP.findById(report.rap_id).lean();
+    }
+    if (!rap) {
+      rap =
+        (await RAP.findOne({ nomor_kontrak: report.nomor_kontrak }).lean()) ||
+        (await RAP.findOne({ project_name: report.project_name }).lean());
+    }
 
     const kontrak_value =
       report.nilai_fix_pekerjaan ?? report.nilai_pekerjaan ?? 0;
 
-    let rap_total = 0; // total "jumlah" di RAP
-    let total_aktual = 0; // total "aktual" di RAP
-
+    let rap_total = 0; // total "jumlah" RAP
+    let total_aktual = 0; // total "aktual" RAP
     if (rap) {
       const m = computeMetricsFromRap(rap);
       rap_total = m.total_budget;
       total_aktual = m.total_aktual;
     }
 
-    const profit = kontrak_value - total_aktual;
+    // PROFIT (RAP): total_jumlah_budget - total_aktual
+    const profit = rap_total - total_aktual;
 
     data.push({
       _id: report._id,
       project_name: report.project_name,
       nomor_kontrak: report.nomor_kontrak,
       client_name: report.client_name,
-      nilai_fix_pekerjaan: kontrak_value,
-      rap_total,
-      total_aktual,
-      profit
+      nilai_fix_pekerjaan: kontrak_value, // tetap kirim kalau FE butuh
+      rap_total, // total jumlah (budget)
+      total_aktual, // total aktual
+      profit // = rap_total - total_aktual
     });
   }
 
@@ -147,6 +177,7 @@ const getAllProfitReports = asyncHandler(async (req, res) => {
   });
 });
 
+/* ============== DETAIL ============== */
 const getProfitReportDetail = asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!mongoose.Types.ObjectId.isValid(id)) throwError('ID tidak valid', 400);
@@ -154,16 +185,21 @@ const getProfitReportDetail = asyncHandler(async (req, res) => {
   const report = await ProfitReport.findById(id).lean();
   if (!report) throwError('Profit Report tidak ditemukan', 404);
 
-  const rap =
-    (await RAP.findOne({ nomor_kontrak: report.nomor_kontrak }).lean()) ||
-    (await RAP.findOne({ project_name: report.project_name }).lean());
+  // Pair RAP: prioritas rap_id, lalu nomor_kontrak, fallback project_name
+  let rap = null;
+  if (report.rap_id && mongoose.Types.ObjectId.isValid(String(report.rap_id))) {
+    rap = await RAP.findById(report.rap_id).lean();
+  }
+  if (!rap) {
+    rap =
+      (await RAP.findOne({ nomor_kontrak: report.nomor_kontrak }).lean()) ||
+      (await RAP.findOne({ project_name: report.project_name }).lean());
+  }
 
   const metrics = computeMetricsFromRap(rap);
-  const kontrak_value =
-    report.nilai_fix_pekerjaan ?? report.nilai_pekerjaan ?? 0;
-  const profit = kontrak_value - metrics.total_aktual;
+  const profit = metrics.total_budget - metrics.total_aktual; // profit RAP
 
-  // detail aktual per kategori (buat breakdown UI)
+  // Breakdown per kategori (jumlah, biaya_pengajuan, aktual, over)
   const detail = {
     persiapan_pekerjaan: {},
     operasional_lapangan: {},
@@ -177,11 +213,14 @@ const getProfitReportDetail = asyncHandler(async (req, res) => {
     for (const g of GROUP_KEYS) {
       const bag = rap[g] || {};
       for (const [key, val] of Object.entries(bag)) {
+        const jumlah = pickJumlah(val);
+        const pengajuan = pickPengajuan(val);
+        const aktual = pickAktual(val);
         detail[g][key] = {
-          jumlah: num(val?.jumlah),
-          biaya_pengajuan: num(val?.biaya_pengajuan),
-          aktual: num(val?.aktual),
-          over: Math.max(0, num(val?.biaya_pengajuan) - num(val?.jumlah))
+          jumlah,
+          biaya_pengajuan: pengajuan, // konsisten di API
+          aktual,
+          over: Math.max(0, pengajuan - jumlah)
         };
       }
     }
@@ -213,7 +252,7 @@ const getProfitReportDetail = asyncHandler(async (req, res) => {
       },
       summary: {
         ...metrics,
-        profit
+        profit // = total_budget - total_aktual
       },
       detail
     }

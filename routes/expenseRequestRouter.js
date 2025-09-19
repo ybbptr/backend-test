@@ -1,8 +1,8 @@
+// routes/expenseRequestRoutes.js
 const express = require('express');
 const Router = express.Router();
 
 const validate = require('../middleware/validations/validate');
-const validateToken = require('../middleware/validations/validateTokenHandler');
 const {
   createExpenseRequestSchema,
   updateExpenseRequestSchema
@@ -18,33 +18,37 @@ const {
   getAllProject,
   getAllEmployee,
   getMyExpenseRequests,
-  getEmployee
+  getEmployee,
+  // aksi status
+  approveExpenseRequest,
+  rejectExpenseRequest,
+  reopenExpenseRequest
 } = require('../controller/expenseRequestController');
 
 Router.post(
   '/add-expense',
-  validateToken,
   validate(createExpenseRequestSchema),
   addExpenseRequest
 );
 
 Router.get('/all-expense', getExpenseRequests);
+Router.get('/my-expense-request', getMyExpenseRequests);
+Router.get('/:id', getExpenseRequest);
+
+Router.get('/:id/categories', getCategoriesByExpenseType);
 Router.get('/all-employee', getAllEmployee);
 Router.get('/employee', getEmployee);
 Router.get('/all-project', getAllProject);
-Router.get('/my-expense-request', getMyExpenseRequests);
-
-Router.get('/:id/categories', getCategoriesByExpenseType);
-
-Router.get('/:id', getExpenseRequest);
 
 Router.put(
   '/update/:id',
-  validateToken,
   validate(updateExpenseRequestSchema),
   updateExpenseRequest
 );
 
-Router.delete('/remove/:id', validateToken, deleteExpenseRequest);
+Router.post('/approve/:id', approveExpenseRequest);
+Router.post('/reject/:id', rejectExpenseRequest);
+Router.post('/reopen/:id', reopenExpenseRequest);
+Router.delete('/remove/:id', deleteExpenseRequest);
 
 module.exports = Router;

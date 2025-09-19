@@ -1,4 +1,3 @@
-// models/expenseRequestModel.js
 const mongoose = require('mongoose');
 
 const detailSchema = new mongoose.Schema(
@@ -58,30 +57,21 @@ const expenseRequestSchema = new mongoose.Schema(
     description: { type: String, trim: true },
     details: { type: [detailSchema], default: [] },
     total_amount: { type: Number, required: true },
-
     status: {
       type: String,
       enum: ['Diproses', 'Disetujui', 'Ditolak'],
       default: 'Diproses'
     },
-    approved_by: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Employee',
-      default: null
-    },
-    paid_by: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Employee',
-      default: null
-    },
-
+    applied_bag_snapshot: { type: Object, default: null },
+    pv_locked: { type: Boolean, default: false },
+    pv_links: [{ type: mongoose.Schema.Types.ObjectId, ref: 'PVReport' }],
+    over_budget: { type: Boolean, default: false },
     request_status: {
       type: String,
       enum: ['Aktif', 'Selesai', 'Pending', 'Ditolak'],
       default: 'Pending'
     },
     payment_voucher: { type: String, default: null },
-
     note: { type: String, trim: true, default: null }
   },
   { timestamps: true }
