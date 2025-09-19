@@ -19,7 +19,7 @@ const GROUP_KEYS = [
 ];
 
 function computeMetricsFromRap(rap) {
-  let total_budget = 0; // sum(jumlah)
+  let total_budget = 0; // sum(jumlah)           <-- dasar profit
   let total_pengajuan = 0; // sum(biaya_pengajuan)
   let total_aktual = 0; // sum(aktual)
   let overbudget_count = 0; // count kategori over
@@ -115,16 +115,17 @@ const getAllProfitReports = asyncHandler(async (req, res) => {
     const kontrak_value =
       report.nilai_fix_pekerjaan ?? report.nilai_pekerjaan ?? 0;
 
-    let rap_total = 0; // total "jumlah" di RAP
+    let rap_total = 0; // total "jumlah" di RAP (budget)
     let total_aktual = 0; // total "aktual" di RAP
 
     if (rap) {
       const m = computeMetricsFromRap(rap);
-      rap_total = m.total_budget;
+      rap_total = m.total_budget; // <-- gunakan jumlah
       total_aktual = m.total_aktual;
     }
 
-    const profit = kontrak_value - total_aktual;
+    // FIX: profit dihitung dari kontrak - total_budget (jumlah), bukan biaya_pengajuan/aktual
+    const profit = kontrak_value - rap_total;
 
     data.push({
       _id: report._id,
@@ -132,9 +133,9 @@ const getAllProfitReports = asyncHandler(async (req, res) => {
       nomor_kontrak: report.nomor_kontrak,
       client_name: report.client_name,
       nilai_fix_pekerjaan: kontrak_value,
-      rap_total,
-      total_aktual,
-      profit
+      rap_total, // total jumlah (budget)
+      total_aktual, // tetap kirim buat referensi UI
+      profit // profit vs budget (jumlah)
     });
   }
 
@@ -161,7 +162,9 @@ const getProfitReportDetail = asyncHandler(async (req, res) => {
   const metrics = computeMetricsFromRap(rap);
   const kontrak_value =
     report.nilai_fix_pekerjaan ?? report.nilai_pekerjaan ?? 0;
-  const profit = kontrak_value - metrics.total_aktual;
+
+  // FIX: profit vs budget (jumlah)
+  const profit = kontrak_value - metrics.total_budget;
 
   // detail aktual per kategori (buat breakdown UI)
   const detail = {
