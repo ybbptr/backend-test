@@ -846,8 +846,6 @@ const reopenPVReport = asyncHandler(async (req, res) => {
   }
 });
 
-/* ========================= Delete (hapus batch) ========================= */
-
 const deletePVReport = asyncHandler(async (req, res) => {
   const { id } = req.params;
   ensureObjectId(id);
@@ -861,11 +859,48 @@ const deletePVReport = asyncHandler(async (req, res) => {
 
     await ensureOwnershipOrAdmin(req, pv);
     ensureNotLocked(pv);
-    if (pv.status === 'Disetujui')
+
+    if (pv.status === 'Disetujui') {
       throwError(
         'PV Disetujui tidak boleh dihapus. Reopen dulu jika perlu.',
         403
       );
+    }
+
+    const erIds = (pv.items || [])
+      .map((it) => it?.er_detail_id)
+      .filter(Boolean)
+      .map(String);
+
+    if (erIds.length) {
+      const leak = await ExpenseLog.findOne({
+        voucher_number: pv.voucher_number,
+        'details.er_detail_id': { $in: erIds }
+      }).session(session);
+
+      if (leak) {
+        // 1) Rollback RAP (pakai clamp agar tidak minus)
+        const negBag = buildRapIncBagFromItems(pv.items);
+        for (const k of Object.keys(negBag)) negBag[k] = -Math.abs(negBag[k]);
+        const safeDec = await clampNegativesWithSnapshot(
+          pv.project,
+          negBag,
+          session
+        );
+        if (Object.keys(safeDec).length) {
+          await applyRapBag(pv.project, safeDec, session);
+        }
+
+        // 2) Cabut dari ExpenseLog.details
+        await ExpenseLog.updateOne(
+          { voucher_number: pv.voucher_number },
+          { $pull: { details: { er_detail_id: { $in: erIds } } } },
+          { session }
+        );
+
+        await recomputeCompletionFlag(pv.voucher_number, session);
+      }
+    }
 
     for (const item of pv.items || []) {
       if (item?.nota?.key) {

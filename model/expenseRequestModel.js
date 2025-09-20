@@ -9,7 +9,7 @@ const detailSchema = new mongoose.Schema(
     amount: { type: Number, required: true, min: 0 },
     is_overbudget: { type: Boolean, default: false }
   },
-  { _id: false }
+  { _id: true }
 );
 
 const expenseRequestSchema = new mongoose.Schema(
