@@ -10,7 +10,7 @@ const throwError = require('../../utils/throwError');
 const { getFileUrl } = require('../../utils/wasabi');
 
 /* ============== Helpers ============== */
-// Parser angka yang tahan format string (mis. "1.200.000" / "Rp 1,200,000")
+// Parser angka longgar (mis. "Rp 1.200.000")
 const numLoose = (x) => {
   if (typeof x === 'number' && Number.isFinite(x)) return x;
   if (typeof x !== 'string') return 0;
@@ -18,7 +18,7 @@ const numLoose = (x) => {
   return cleaned ? Number(cleaned) : 0;
 };
 
-// Pembaca field kategori RAP (utama: jumlah/biaya_pengajuan/aktual)
+// Reader field kategori RAP
 const pickJumlah = (b) => numLoose(b?.jumlah ?? b?.total_jumlah ?? b?.budget);
 const pickPengajuan = (b) =>
   numLoose(
@@ -26,7 +26,7 @@ const pickPengajuan = (b) =>
   );
 const pickAktual = (b) => numLoose(b?.aktual);
 
-// Kunci grup yang dipakai di RAP
+// Kunci grup di RAP
 const GROUP_KEYS = [
   'persiapan_pekerjaan',
   'operasional_lapangan',
@@ -37,12 +37,13 @@ const GROUP_KEYS = [
   'biaya_lain_lain'
 ];
 
+/* ---------- Hitung metrics dari RAP ---------- */
 function computeMetricsFromRap(rap) {
-  let total_budget = 0; // sum(jumlah)
-  let total_pengajuan = 0; // sum(biaya_pengajuan)
-  let total_aktual = 0; // sum(aktual)
-  let overbudget_count = 0; // count(pengajuan > jumlah)
-  let overbudget_value = 0; // sum(pengajuan - jumlah) yang > 0
+  let total_budget = 0;
+  let total_pengajuan = 0;
+  let total_aktual = 0;
+  let overbudget_count = 0;
+  let overbudget_value = 0;
 
   if (rap) {
     for (const g of GROUP_KEYS) {
@@ -66,13 +67,17 @@ function computeMetricsFromRap(rap) {
     }
   }
 
-  const max_pengeluaran =
+  // Nilai kontrak fix sebagai acuan profit
+  const kontrak_value =
     rap?.nilai_fix_pekerjaan != null
       ? numLoose(rap.nilai_fix_pekerjaan)
       : numLoose(rap?.nilai_pekerjaan);
 
-  const dana_sisa = max_pengeluaran - total_aktual;
+  const dana_sisa = kontrak_value - total_aktual;
   const sisa_budget = total_budget - total_pengajuan;
+
+  // 🔥 Perubahan inti → profit dari kontrak - aktual - overbudget
+  const profit = kontrak_value - total_aktual - overbudget_value;
 
   return {
     total_budget,
@@ -80,9 +85,10 @@ function computeMetricsFromRap(rap) {
     total_aktual,
     overbudget_count,
     overbudget_value,
-    max_pengeluaran,
+    max_pengeluaran: kontrak_value,
     dana_sisa,
-    sisa_budget
+    sisa_budget,
+    profit
   };
 }
 
@@ -128,7 +134,6 @@ const getAllProfitReports = asyncHandler(async (req, res) => {
 
   const data = [];
   for (const report of reports) {
-    // Pair RAP: prioritas rap_id, lalu nomor_kontrak, fallback project_name
     let rap = null;
     if (
       report.rap_id &&
@@ -145,26 +150,26 @@ const getAllProfitReports = asyncHandler(async (req, res) => {
     const kontrak_value =
       report.nilai_fix_pekerjaan ?? report.nilai_pekerjaan ?? 0;
 
-    let rap_total = 0; // total "jumlah" RAP
-    let total_aktual = 0; // total "aktual" RAP
+    let rap_total = 0;
+    let total_aktual = 0;
+    let profit = 0;
+
     if (rap) {
       const m = computeMetricsFromRap(rap);
       rap_total = m.total_budget;
       total_aktual = m.total_aktual;
+      profit = m.profit; // 🔥 ambil profit dari helper
     }
-
-    // PROFIT (RAP): total_jumlah_budget - total_aktual
-    const profit = rap_total - total_aktual;
 
     data.push({
       _id: report._id,
       project_name: report.project_name,
       nomor_kontrak: report.nomor_kontrak,
       client_name: report.client_name,
-      nilai_fix_pekerjaan: kontrak_value, // tetap kirim kalau FE butuh
-      rap_total, // total jumlah (budget)
-      total_aktual, // total aktual
-      profit // = rap_total - total_aktual
+      nilai_fix_pekerjaan: kontrak_value,
+      rap_total,
+      total_aktual,
+      profit
     });
   }
 
@@ -185,7 +190,6 @@ const getProfitReportDetail = asyncHandler(async (req, res) => {
   const report = await ProfitReport.findById(id).lean();
   if (!report) throwError('Profit Report tidak ditemukan', 404);
 
-  // Pair RAP: prioritas rap_id, lalu nomor_kontrak, fallback project_name
   let rap = null;
   if (report.rap_id && mongoose.Types.ObjectId.isValid(String(report.rap_id))) {
     rap = await RAP.findById(report.rap_id).lean();
@@ -196,10 +200,9 @@ const getProfitReportDetail = asyncHandler(async (req, res) => {
       (await RAP.findOne({ project_name: report.project_name }).lean());
   }
 
-  const metrics = computeMetricsFromRap(rap);
-  const profit = metrics.total_budget - metrics.total_aktual; // profit RAP
+  const metrics = computeMetricsFromRap(rap); // 🔥 profit udah dihitung di sini
 
-  // Breakdown per kategori (jumlah, biaya_pengajuan, aktual, over)
+  // Breakdown kategori tetap sama
   const detail = {
     persiapan_pekerjaan: {},
     operasional_lapangan: {},
@@ -218,7 +221,7 @@ const getProfitReportDetail = asyncHandler(async (req, res) => {
         const aktual = pickAktual(val);
         detail[g][key] = {
           jumlah,
-          biaya_pengajuan: pengajuan, // konsisten di API
+          biaya_pengajuan: pengajuan,
           aktual,
           over: Math.max(0, pengajuan - jumlah)
         };
@@ -251,8 +254,7 @@ const getProfitReportDetail = asyncHandler(async (req, res) => {
         npwp: report.npwp
       },
       summary: {
-        ...metrics,
-        profit // = total_budget - total_aktual
+        ...metrics
       },
       detail
     }
