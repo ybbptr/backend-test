@@ -318,19 +318,30 @@ const recomputeCompletionFlag = async (voucher_number, session) => {
 
   const totalER = (er.details || []).length;
   const totalApproved = (log.details || []).length;
-  const done = totalApproved >= totalER && totalER > 0;
+  const done = totalER > 0 && totalApproved >= totalER;
 
-  await ExpenseLog.updateOne(
-    { voucher_number },
-    { $set: { completed_at: done ? new Date() : null } },
-    { session }
-  );
+  const updates = [
+    ExpenseLog.updateOne(
+      { voucher_number },
+      { $set: { completed_at: done ? new Date() : null } },
+      { session }
+    ),
+    ExpenseRequest.updateOne(
+      { voucher_number },
+      {
+        $set: { request_status: done ? 'Selesai' : 'Aktif', pv_locked: !!done }
+      },
+      { session }
+    ),
+    // kunci/lepaskan semua PVReport pada voucher ini sesuai status final
+    PVReport.updateMany(
+      { voucher_number },
+      { $set: { pv_locked: !!done } },
+      { session }
+    )
+  ];
 
-  await ExpenseRequest.updateOne(
-    { voucher_number },
-    { $set: { request_status: done ? 'Selesai' : 'Aktif' } },
-    { session }
-  );
+  await Promise.all(updates);
 };
 
 const ensureNoDoubleClaim = async (

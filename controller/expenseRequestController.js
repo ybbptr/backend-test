@@ -26,7 +26,42 @@ function mapExpenseType(expenseType) {
   };
   return mappings[expenseType] || null;
 }
-const num = (x) => Number(x) || 0;
+
+// GANTI semua const num = (x) => Number(x) || 0;
+const num = (x) => {
+  if (x === null || x === undefined) return 0;
+  if (typeof x === 'number') return Number.isFinite(x) ? x : 0;
+
+  // buang simbol selain digit, koma, titik, minus (handle "Rp 2.500.000", "2,000,000", dll)
+  let s = String(x)
+    .trim()
+    .replace(/[^\d.,-]/g, '');
+  if (!s) return 0;
+
+  const lastComma = s.lastIndexOf(',');
+  const lastDot = s.lastIndexOf('.');
+
+  // tentukan pemisah desimal (jika ada kedua-duanya, ambil yang terakhir muncul)
+  let decimalSep = null;
+  if (lastComma !== -1 && lastDot !== -1) {
+    decimalSep = lastComma > lastDot ? ',' : '.';
+  } else if (lastComma !== -1) {
+    decimalSep = ',';
+  } else if (lastDot !== -1) {
+    decimalSep = '.';
+  }
+
+  if (decimalSep) {
+    const thousandsSep = decimalSep === ',' ? '.' : ',';
+    // hapus pemisah ribuan
+    s = s.split(thousandsSep).join('');
+    // ganti desimal ke titik (format JS)
+    s = s.replace(decimalSep, '.');
+  }
+
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+};
 
 /* ===== Auth Guards ===== */
 function requireAdmin(req) {
