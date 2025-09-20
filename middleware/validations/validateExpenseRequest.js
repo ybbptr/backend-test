@@ -25,20 +25,11 @@ const detailSchema = Joi.object({
     'string.empty': 'Keperluan tidak boleh kosong',
     'any.required': 'Keperluan wajib diisi'
   }),
-  // bisa string atau object { value, label }
-  category: Joi.alternatives()
-    .try(
-      Joi.string(),
-      Joi.object({
-        value: Joi.string().required(),
-        label: Joi.string().optional()
-      })
-    )
-    .required()
-    .messages({
-      'alternatives.match': 'Kategori harus teks atau objek {value,label}',
-      'any.required': 'Kategori wajib diisi'
-    }),
+  category: Joi.string().required().messages({
+    'string.base': 'Kategori harus berupa teks',
+    'string.empty': 'Kategori tidak boleh kosong',
+    'any.required': 'Kategori wajib diisi'
+  }),
   quantity: Joi.number().integer().min(1).required().messages({
     'number.base': 'Quantity harus berupa angka',
     'number.integer': 'Quantity harus bilangan bulat',
@@ -56,9 +47,7 @@ const detailSchema = Joi.object({
   is_overbudget: Joi.forbidden().messages({
     'any.unknown': 'Field is_overbudget ditentukan sistem'
   })
-})
-  // izinkan key tambahan dari FE (mis. id/_temp), yang penting amount & is_overbudget tetap ketahan
-  .unknown(true);
+}).unknown(true);
 
 /* ============ CREATE ============ */
 const createExpenseRequestSchema = Joi.object({
