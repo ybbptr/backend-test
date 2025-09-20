@@ -1,3 +1,4 @@
+// middleware/validations/validateExpenseRequest.js
 const Joi = require('joi');
 const mongoose = require('mongoose');
 
@@ -17,17 +18,27 @@ const ER_TYPES = [
   'Biaya Lain'
 ];
 
+// ===== detail item =====
 const detailSchema = Joi.object({
   purpose: Joi.string().required().messages({
     'string.base': 'Keperluan harus berupa teks',
     'string.empty': 'Keperluan tidak boleh kosong',
     'any.required': 'Keperluan wajib diisi'
   }),
-  category: Joi.string().required().messages({
-    'string.base': 'Kategori harus berupa teks',
-    'string.empty': 'Kategori tidak boleh kosong',
-    'any.required': 'Kategori wajib diisi'
-  }),
+  // bisa string atau object { value, label }
+  category: Joi.alternatives()
+    .try(
+      Joi.string(),
+      Joi.object({
+        value: Joi.string().required(),
+        label: Joi.string().optional()
+      })
+    )
+    .required()
+    .messages({
+      'alternatives.match': 'Kategori harus teks atau objek {value,label}',
+      'any.required': 'Kategori wajib diisi'
+    }),
   quantity: Joi.number().integer().min(1).required().messages({
     'number.base': 'Quantity harus berupa angka',
     'number.integer': 'Quantity harus bilangan bulat',
@@ -45,13 +56,16 @@ const detailSchema = Joi.object({
   is_overbudget: Joi.forbidden().messages({
     'any.unknown': 'Field is_overbudget ditentukan sistem'
   })
-});
+})
+  // izinkan key tambahan dari FE (mis. id/_temp), yang penting amount & is_overbudget tetap ketahan
+  .unknown(true);
 
 /* ============ CREATE ============ */
 const createExpenseRequestSchema = Joi.object({
-  name: objectId
-    .optional()
-    .messages({ 'any.invalid': 'ID karyawan (name) tidak valid' }),
+  // admin boleh isi, non-admin boleh kirim kosong
+  name: objectId.allow(null, '').optional().messages({
+    'any.invalid': 'ID karyawan (name) tidak valid'
+  }),
 
   project: objectId.required().messages({
     'any.invalid': 'ID proyek tidak valid',
@@ -149,17 +163,17 @@ const createExpenseRequestSchema = Joi.object({
     'object.unknown': 'Field {{#label}} tidak diperbolehkan'
   });
 
-/* ============ UPDATE (edit saat Diproses / non-finansial saat Disetujui) ============ */
+/* ============ UPDATE (edit HANYA saat Diproses) ============ */
 const updateExpenseRequestSchema = Joi.object({
-  name: objectId
-    .optional()
-    .messages({ 'any.invalid': 'ID karyawan (name) tidak valid' }),
+  // admin only (controller yang jaga), FE boleh kirim kosong/null
+  name: objectId.allow(null, '').optional().messages({
+    'any.invalid': 'ID karyawan (name) tidak valid'
+  }),
 
+  // Diproses: boleh ganti type (kategori reset/harus isi ulang via controller)
   expense_type: Joi.string()
     .valid(...ER_TYPES)
-    .messages({
-      'any.only': 'Jenis biaya tidak valid'
-    }),
+    .messages({ 'any.only': 'Jenis biaya tidak valid' }),
 
   method: Joi.string().valid('Transfer', 'Tunai').messages({
     'any.only': 'Metode pembayaran hanya boleh Transfer atau Tunai'
@@ -197,6 +211,7 @@ const updateExpenseRequestSchema = Joi.object({
     'string.base': 'Deskripsi harus berupa teks'
   }),
 
+  // optional (controller yang wajibkan saat ganti type)
   details: Joi.array().items(detailSchema).min(1).messages({
     'array.base': 'Detail harus berupa array',
     'array.min': 'Minimal 1 item detail keperluan'
