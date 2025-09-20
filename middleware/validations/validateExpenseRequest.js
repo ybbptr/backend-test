@@ -207,13 +207,13 @@ const updateExpenseRequestSchema = Joi.object({
   }),
 
   // field yang dikunci
-  project: Joi.forbidden().messages({
-    'any.unknown': 'Project tidak boleh diubah'
+  project: objectId.optional().messages({
+    'any.invalid': 'ID project tidak valid'
   }),
-  voucher_prefix: Joi.forbidden().messages({
-    'any.unknown': 'Prefix voucher tidak boleh diubah'
+  voucher_prefix: Joi.string().optional().messages({
+    'string.base': 'Voucher harus berupa teks'
   }),
-  submission_date: Joi.forbidden(),
+  submission_date: Joi.date(),
   status: Joi.forbidden().messages({
     'any.unknown': 'Status tidak boleh diubah lewat endpoint ini'
   }),
