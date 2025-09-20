@@ -100,8 +100,11 @@ pvReportSchema.pre('save', function (next) {
   next();
 });
 
-// Index untuk query cepat
 pvReportSchema.index({ voucher_number: 1, pv_number: 1, status: 1 });
-pvReportSchema.index({ voucher_number: 1, 'items.er_detail_id': 1 }); // membantu anti double-claim
+
+pvReportSchema.index(
+  { voucher_number: 1, 'items.er_detail_id': 1 },
+  { unique: true, sparse: true }
+);
 
 module.exports = mongoose.model('PVReport', pvReportSchema);
