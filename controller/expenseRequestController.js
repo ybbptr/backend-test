@@ -359,166 +359,119 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
 
     const updates = req.body || {};
 
-    if (er.pv_locked)
+    if (er.pv_locked) {
       throwError('Data terkunci karena sudah dipakai di PV final', 409);
-
-    if (er.status === 'Diproses') {
-      await assertOwnerOrAdmin(req, er);
-
-      // Admin boleh ganti requester
-      if (req.user?.role === 'admin' && updates.name) {
-        if (!mongoose.Types.ObjectId.isValid(updates.name))
-          throwError('ID requester tidak valid', 400);
-        const emp = await Employee.findById(updates.name).select('_id');
-        if (!emp) throwError('Requester tidak ditemukan', 404);
-        er.name = emp._id;
-
-        // Log: update requester (tanpa mengganggu details/batches)
-        await ExpenseLog.updateOne(
-          { voucher_number: er.voucher_number },
-          { $set: { requester: emp._id } },
-          { session }
-        );
-      }
-
-      // Jika jenis biaya berganti → wajib kirim details baru
-      if (updates.expense_type && updates.expense_type !== er.expense_type) {
-        er.expense_type = updates.expense_type;
-        if (
-          !updates.details ||
-          !Array.isArray(updates.details) ||
-          !updates.details.length
-        ) {
-          throwError(
-            'Jenis biaya berubah, harap isi ulang detail keperluan',
-            400
-          );
-        }
-      }
-
-      // Edit details (tambah/kurang item ER) — ini *boleh* di Diproses
-      if (updates.details && Array.isArray(updates.details)) {
-        let newDetails = updates.details.map((item) => {
-          const qty = num(item.quantity);
-          const unitPrice = num(item.unit_price);
-          return {
-            ...item,
-            category:
-              typeof item.category === 'object'
-                ? item.category.value
-                : item.category,
-            amount: qty * unitPrice,
-            is_overbudget: false
-          };
-        });
-
-        newDetails = await markOverbudgetFlags({
-          projectId: er.project,
-          expenseType: er.expense_type,
-          details: newDetails,
-          session,
-          excludeId: er._id
-        });
-
-        er.details = newDetails;
-        er.total_amount = newDetails.reduce((a, c) => a + num(c.amount), 0);
-        er.over_budget = newDetails.some((d) => d.is_overbudget);
-
-        // ExpenseLog: HANYA meta (jangan sentuh "details" karena itu untuk item APPROVED PV)
-        await ExpenseLog.updateOne(
-          { voucher_number: er.voucher_number },
-          { $set: { expense_type: er.expense_type } },
-          { session }
-        );
-      }
-
-      if (updates.description !== undefined)
-        er.description = updates.description;
-      if (updates.method !== undefined) er.method = updates.method;
-
-      if (er.method === 'Tunai') {
-        er.bank_account_number = null;
-        er.bank = null;
-        er.bank_branch = null;
-        er.bank_account_holder = null;
-      } else if (er.method === 'Transfer') {
-        er.bank_account_number =
-          updates.bank_account_number ?? er.bank_account_number;
-        er.bank = updates.bank ?? er.bank;
-        er.bank_branch = updates.bank_branch ?? er.bank_branch;
-        er.bank_account_holder =
-          updates.bank_account_holder ?? er.bank_account_holder;
-      }
-
-      // tetap Diproses setelah edit
-      er.status = 'Diproses';
-      er.request_status = 'Pending';
-      er.payment_voucher = null;
-      er.applied_bag_snapshot = null;
-
-      await er.save({ session });
-      await session.commitTransaction();
-      return res
-        .status(200)
-        .json({ message: 'Pengajuan biaya berhasil diperbarui', data: er });
     }
 
-    if (er.status === 'Disetujui') {
-      // ==== BOLEH EDIT NON-FINANSIAL SAJA ====
-      await assertOwnerOrAdmin(req, er);
+    if (er.status !== 'Diproses') {
+      throwError(
+        'Tidak bisa edit karena status bukan Diproses. Gunakan Reopen.',
+        409
+      );
+    }
 
-      const forbidden = [
-        'details',
-        'expense_type',
-        'project',
-        'voucher_prefix',
-        'status',
-        'note',
-        'total_amount',
-        'request_status',
-        'voucher_number',
-        'payment_voucher',
-        'applied_bag_snapshot',
-        'over_budget'
-      ];
-      if (forbidden.some((k) => updates[k] !== undefined)) {
+    await assertOwnerOrAdmin(req, er);
+
+    if (req.user?.role === 'admin' && updates.name) {
+      if (!mongoose.Types.ObjectId.isValid(updates.name))
+        throwError('ID karyawan tidak valid', 400);
+      const emp = await Employee.findById(updates.name).select('_id');
+      if (!emp) throwError('Karyawan tidak ditemukan', 404);
+      er.name = emp._id;
+
+      // Sinkron log: hanya meta requester
+      await ExpenseLog.updateOne(
+        { voucher_number: er.voucher_number },
+        { $set: { requester: emp._id } },
+        { session }
+      );
+    }
+
+    // ===== Jika jenis biaya berganti → details wajib diisi ulang =====
+    if (updates.expense_type && updates.expense_type !== er.expense_type) {
+      er.expense_type = updates.expense_type;
+      if (
+        !updates.details ||
+        !Array.isArray(updates.details) ||
+        !updates.details.length
+      ) {
         throwError(
-          'Dokumen Disetujui hanya boleh ubah informasi pembayaran & deskripsi',
+          'Jenis biaya berubah, harap isi ulang detail keperluan',
           400
         );
       }
-
-      if (updates.description !== undefined)
-        er.description = updates.description;
-      if (updates.method !== undefined) er.method = updates.method;
-
-      if (er.method === 'Tunai') {
-        er.bank_account_number = null;
-        er.bank = null;
-        er.bank_branch = null;
-        er.bank_account_holder = null;
-      } else if (er.method === 'Transfer') {
-        er.bank_account_number =
-          updates.bank_account_number ?? er.bank_account_number;
-        er.bank = updates.bank ?? er.bank;
-        er.bank_branch = updates.bank_branch ?? er.bank_branch;
-        er.bank_account_holder =
-          updates.bank_account_holder ?? er.bank_account_holder;
-      }
-
-      await er.save({ session });
-      await session.commitTransaction();
-      return res
-        .status(200)
-        .json({ message: 'Pengajuan diperbarui (non-finansial)', data: er });
     }
 
-    // ==== Perubahan: Ditolak sekarang TIDAK di-block edit langsung,
-    // tapi ikuti pola konsisten: user harus Reopen (self-reopen) dulu ====
-    throwError(
-      'Pengajuan Ditolak. Gunakan Reopen untuk membuka kembali ke Diproses, lalu perbaiki.',
-      409
-    );
+    // ===== Edit details (recalc + proyeksi overbudget) =====
+    if (updates.details && Array.isArray(updates.details)) {
+      let newDetails = updates.details.map((item) => {
+        const qty = num(item.quantity);
+        const unitPrice = num(item.unit_price);
+        return {
+          ...item,
+          category:
+            typeof item.category === 'object'
+              ? item.category.value
+              : item.category,
+          amount: qty * unitPrice,
+          is_overbudget: false
+        };
+      });
+
+      newDetails = await markOverbudgetFlags({
+        projectId: er.project,
+        expenseType: er.expense_type,
+        details: newDetails,
+        session,
+        excludeId: er._id
+      });
+
+      er.details = newDetails;
+      er.total_amount = newDetails.reduce((a, c) => a + num(c.amount), 0);
+      er.over_budget = newDetails.some((d) => d.is_overbudget);
+
+      // Catatan: di sini kita TIDAK menyentuh "details" pada ExpenseLog,
+      // hanya update meta expense_type (sesuai preferensi kamu).
+      await ExpenseLog.updateOne(
+        { voucher_number: er.voucher_number },
+        { $set: { expense_type: er.expense_type } },
+        { session }
+      );
+    }
+
+    // ===== Deskripsi =====
+    if (updates.description !== undefined) er.description = updates.description;
+
+    // ===== Metode pembayaran + data bank =====
+    if (updates.method !== undefined) er.method = updates.method;
+
+    if (er.method === 'Tunai') {
+      er.bank_account_number = null;
+      er.bank = null;
+      er.bank_branch = null;
+      er.bank_account_holder = null;
+    } else if (er.method === 'Transfer') {
+      er.bank_account_number =
+        updates.bank_account_number ?? er.bank_account_number;
+      er.bank = updates.bank ?? er.bank;
+      er.bank_branch = updates.bank_branch ?? er.bank_branch;
+      er.bank_account_holder =
+        updates.bank_account_holder ?? er.bank_account_holder;
+    }
+
+    // ===== Tetap Diproses setelah edit =====
+    er.status = 'Diproses';
+    er.request_status = 'Pending';
+    er.payment_voucher = null;
+    er.applied_bag_snapshot = null;
+
+    await er.save({ session });
+    await session.commitTransaction();
+
+    res.status(200).json({
+      message: 'Pengajuan biaya berhasil diperbarui',
+      data: er
+    });
   } catch (err) {
     await session.abortTransaction();
     throw err;
