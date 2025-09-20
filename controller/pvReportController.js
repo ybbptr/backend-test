@@ -511,13 +511,43 @@ const getPVReports = asyncHandler(async (req, res) => {
   }
 
   const totalItems = await PVReport.countDocuments(filter);
-  const data = await PVReport.find(filter)
+  const rows = await PVReport.find(filter)
     .populate('created_by', 'name')
     .populate('project', 'project_name')
     .skip(skip)
     .limit(limit)
     .sort({ createdAt: -1 })
     .lean();
+
+  // ==== Inject progress per voucher_number ====
+  const voucherNumbers = [...new Set(rows.map((r) => r.voucher_number))];
+
+  const [ers, logs] = await Promise.all([
+    ExpenseRequest.find({ voucher_number: { $in: voucherNumbers } })
+      .select('voucher_number details')
+      .lean(),
+    ExpenseLog.find({ voucher_number: { $in: voucherNumbers } })
+      .select('voucher_number details')
+      .lean()
+  ]);
+
+  const totalMap = new Map(
+    ers.map((er) => [er.voucher_number, (er.details || []).length])
+  );
+  const approvedMap = new Map(
+    logs.map((l) => [l.voucher_number, (l.details || []).length])
+  );
+
+  const data = rows.map((r) => ({
+    ...r,
+    // opsional: jumlah item di batch ini
+    items_count: Array.isArray(r.items) ? r.items.length : 0,
+    // progress voucher (untuk tampil "3/10")
+    progress: {
+      approved: approvedMap.get(r.voucher_number) || 0,
+      total: totalMap.get(r.voucher_number) || 0
+    }
+  }));
 
   res.status(200).json({
     page,
@@ -538,6 +568,7 @@ const getPVReport = asyncHandler(async (req, res) => {
     .lean();
   if (!pv) throwError('PV Report tidak ditemukan', 404);
 
+  // Signed URL untuk nota
   pv.items = await Promise.all(
     (pv.items || []).map(async (item) => {
       let nota_url = null;
@@ -549,6 +580,46 @@ const getPVReport = asyncHandler(async (req, res) => {
       return { ...item, nota_url };
     })
   );
+
+  // ==== Voucher progress breakdown ====
+  const [er, log, allBatches] = await Promise.all([
+    ExpenseRequest.findOne({ voucher_number: pv.voucher_number })
+      .select('details')
+      .lean(),
+    ExpenseLog.findOne({ voucher_number: pv.voucher_number })
+      .select('details')
+      .lean(),
+    PVReport.find({ voucher_number: pv.voucher_number })
+      .select('status items.er_detail_id')
+      .lean()
+  ]);
+
+  const total = er?.details?.length || 0;
+  const approved = log?.details?.length || 0;
+
+  // distinct er_detail_id per status (Diproses / Ditolak)
+  const inProcSet = new Set();
+  const rejSet = new Set();
+  for (const b of allBatches || []) {
+    if (!Array.isArray(b.items)) continue;
+    if (b.status === 'Diproses') {
+      b.items.forEach(
+        (it) => it?.er_detail_id && inProcSet.add(String(it.er_detail_id))
+      );
+    } else if (b.status === 'Ditolak') {
+      b.items.forEach(
+        (it) => it?.er_detail_id && rejSet.add(String(it.er_detail_id))
+      );
+    }
+  }
+
+  pv.voucher_progress = {
+    approved,
+    in_process: inProcSet.size,
+    rejected: rejSet.size,
+    remaining: Math.max(total - approved, 0),
+    total
+  };
 
   res.status(200).json(pv);
 });
