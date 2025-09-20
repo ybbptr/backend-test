@@ -538,8 +538,6 @@ const getPVReport = asyncHandler(async (req, res) => {
     .lean();
   if (!pv) throwError('PV Report tidak ditemukan', 404);
 
-  await ensureOwnershipOrAdmin(req, pv);
-
   pv.items = await Promise.all(
     (pv.items || []).map(async (item) => {
       let nota_url = null;
