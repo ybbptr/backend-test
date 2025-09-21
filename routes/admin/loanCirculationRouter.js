@@ -2,8 +2,8 @@ const express = require('express');
 const {
   getLoanCirculation,
   getLoanCirculations,
-  removeLoanCirculation,
-  refreshLoanCirculationUrls
+  refreshLoanCirculationUrls,
+  removeLoanCirculation
 } = require('../../controller/admin/loanCirculationController');
 const Router = express.Router();
 

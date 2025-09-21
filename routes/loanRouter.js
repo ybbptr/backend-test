@@ -8,16 +8,17 @@ const {
   updateLoanSchema
 } = require('../middleware/validations/validateLoan');
 const {
-  addLoan,
+  createLoan,
+  deleteLoan,
   getLoan,
   getLoans,
-  removeLoan,
   updateLoan,
+  approveLoan,
+  rejectLoan,
+  reopenLoan,
   getAllEmployee,
   getAllProduct,
-  getLoanPdf,
   getAllWarehouse,
-  getShelves,
   getLoansByEmployee,
   getEmployee,
   getAllProject,
@@ -29,7 +30,7 @@ Router.post(
   '/add-loan',
   validate(createLoanSchema),
   checkDuplicate(Loan, { loan_number: 'Nomor peminjaman' }),
-  addLoan
+  createLoan
 )
   .get('/all-loan', getLoans)
   .get('/all-employee', getAllEmployee)
@@ -39,14 +40,16 @@ Router.post(
   .get('/my-loans', getLoansByEmployee)
   .get('/all-project', getAllProject);
 
-Router.get('/shelves', getShelves);
-
 Router.get('/products/:productId/warehouses', getWarehousesByProduct);
 Router.get(
   '/products/:productId/warehouses/:warehouseId/shelves',
   getShelvesByProductAndWarehouse
 );
-Router.get('/:id/pdf', getLoanPdf);
+
+Router.get('/reopen/:id', reopenLoan);
+Router.get('/reject/:id', rejectLoan);
+Router.get('/approve/:id', approveLoan);
+
 Router.get('/:id', getLoan)
   .put(
     '/update/:id',
@@ -54,6 +57,6 @@ Router.get('/:id', getLoan)
     checkDuplicate(Loan, { loan_number: 'Nomor peminjaman' }),
     updateLoan
   )
-  .delete('/remove/:id', removeLoan);
+  .delete('/remove/:id', deleteLoan);
 
 module.exports = Router;

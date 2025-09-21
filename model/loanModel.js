@@ -1,74 +1,63 @@
 const mongoose = require('mongoose');
 const Counter = require('./counterModel');
 
-const loanSchema = new mongoose.Schema(
+const { Schema, Types } = mongoose;
+const ObjectId = Types.ObjectId;
+
+const APPROVAL = ['Diproses', 'Disetujui', 'Ditolak'];
+const CIRCULATION = ['Pending', 'Aktif', 'Selesai', 'Ditolak'];
+
+const loanSchema = new Schema(
   {
-    loan_number: { type: String, unique: true },
-    borrower: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Employee',
-      required: true
-    },
+    loan_number: { type: String, unique: true, index: true },
+
+    // peminjam & info
+    borrower: { type: ObjectId, ref: 'Employee', required: true },
     nik: { type: String, required: true },
     address: { type: String, required: true },
     phone: { type: String, required: true },
     position: { type: String, required: true },
+
+    // tanggal
     loan_date: { type: Date, required: true },
     pickup_date: { type: Date, required: true },
-    circulation_status: {
-      type: String,
-      enum: ['Aktif', 'Selesai', 'Pending', 'Ditolak'],
-      default: 'Pending'
-    },
-    // return_date: { type: Date, required: true },
+
+    // tujuan
     inventory_manager: {
       type: String,
       required: true,
       enum: ['Owan H.', 'Teguh F.', 'Korlap']
     },
-    warehouse_to: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Warehouse',
-      required: true
-    },
+    warehouse_to: { type: ObjectId, ref: 'Warehouse', required: true },
+
+    // item batch
     borrowed_items: [
       {
-        inventory: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'Inventory',
-          required: true
-        },
-        product: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'Product',
-          required: true
-        },
+        inventory: { type: ObjectId, ref: 'Inventory', required: true },
+        product: { type: ObjectId, ref: 'Product', required: true },
         product_code: { type: String, required: true },
-        brand: { type: String },
-        quantity: { type: Number, required: true },
-        project: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'RAP',
-          required: true
-        },
+        brand: String,
+        quantity: { type: Number, required: true, min: 1 },
+        project: { type: ObjectId, ref: 'RAP', required: true },
         condition_at_borrow: { type: String, required: true },
-        warehouse_from: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'Warehouse',
-          required: true
-        },
-        shelf_from: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'Shelf',
-          required: true
-        }
+        warehouse_from: { type: ObjectId, ref: 'Warehouse', required: true },
+        shelf_from: { type: ObjectId, ref: 'Shelf', required: true }
       }
     ],
-    approval: {
+
+    // Approval flow
+    status: { type: String, enum: APPROVAL, default: 'Diproses', index: true },
+    loan_locked: { type: Boolean, default: false },
+    note: { type: String },
+
+    // Lifecycle pengembalian
+    circulation_status: {
       type: String,
-      enum: ['Disetujui', 'Ditolak', 'Diproses'],
-      default: 'Diproses'
-    }
+      enum: CIRCULATION,
+      default: 'Pending',
+      index: true
+    },
+    completed_at: { type: Date, default: null }
   },
   { timestamps: true }
 );
@@ -80,13 +69,37 @@ loanSchema.pre('save', async function (next) {
       { $inc: { seq: 1 } },
       { new: true, upsert: true }
     );
-
-    this.loan_number = `PA-${String(counter.seq).padStart(3, '0')}`;
+    const prefix = process.env.LOAN_PREFIX || 'PA-';
+    this.loan_number = `${prefix}${String(counter.seq).padStart(4, '0')}`;
   }
   next();
 });
 
-loanSchema.index({ borrower: 1 });
+// Helper konsistensi status sirkulasi
+loanSchema.methods.syncCirculationStatus = function ({
+  allReturned = false
+} = {}) {
+  if (this.status === 'Ditolak') {
+    this.circulation_status = 'Ditolak';
+    this.completed_at = null;
+    return;
+  }
+  if (this.status === 'Diproses') {
+    this.circulation_status = 'Pending';
+    this.completed_at = null;
+    return;
+  }
+  // Disetujui
+  if (allReturned) {
+    this.circulation_status = 'Selesai';
+    if (!this.completed_at) this.completed_at = new Date();
+  } else {
+    this.circulation_status = 'Aktif';
+    this.completed_at = null;
+  }
+};
+
+loanSchema.index({ borrower: 1, createdAt: -1 });
 loanSchema.index({ 'borrowed_items.project': 1 });
 
 module.exports = mongoose.model('Loan', loanSchema);

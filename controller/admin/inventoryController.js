@@ -3,14 +3,14 @@ const mongoose = require('mongoose');
 const Product = require('../../model/productModel');
 const ProductCirculation = require('../../model/productCirculationModel');
 const Inventory = require('../../model/inventoryModel');
-const StockChangeLog = require('../../model/stockLogModel');
 const Warehouse = require('../../model/warehouseModel');
 const Shelf = require('../../model/shelfModel');
-const User = require('../../model/userModel');
 const { uploadBuffer, getFileUrl } = require('../../utils/wasabi');
 const path = require('path');
 const formatDate = require('../../utils/formatDate');
 const throwError = require('../../utils/throwError');
+const { resolveActor } = require('../../utils/actor');
+const { applyAdjustment } = require('../../utils/stockAdjustment');
 
 const addNewProductInInventory = asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
@@ -536,104 +536,148 @@ const moveInventory = asyncHandler(async (req, res) => {
   const { inventoryId } = req.params;
   const { quantity_move, warehouse_to, shelf_to } = req.body;
 
-  if (!quantity_move || quantity_move <= 0) {
-    throwError('Jumlah barang yang dipindah harus lebih dari 0', 400);
+  const qty = Number(quantity_move);
+  if (!Number.isFinite(qty) || qty <= 0) {
+    throwError('Jumlah barang yang dipindah harus > 0', 400);
   }
+  if (!warehouse_to) throwError('warehouse_to wajib diisi', 400);
 
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    const inv = await Inventory.findById(inventoryId)
-      .populate('product')
+    const src = await Inventory.findById(inventoryId)
+      .populate('product', 'product_code brand')
+      .populate('warehouse', 'warehouse_name')
+      .populate('shelf', 'shelf_name')
       .session(session);
 
-    if (!inv) throwError('Inventory asal tidak ditemukan', 404);
-
-    if (quantity_move > inv.on_hand) {
-      throwError(
-        `Stok tidak mencukupi. Maksimal bisa pindah ${inv.on_hand}`,
-        400
-      );
+    if (!src) throwError('Inventory asal tidak ditemukan', 404);
+    if (qty > src.on_hand) {
+      throwError(`Stok tidak mencukupi. Maks pindah ${src.on_hand}`, 400);
     }
 
-    inv.on_hand -= quantity_move;
-    await inv.save({ session });
-    if (inv.on_hand <= 0 && inv.on_loan <= 0) {
-      await Inventory.deleteOne({ _id: inv._id }, { session });
-    }
-    let target = await Inventory.findOne({
-      product: inv.product._id,
+    // target = produk & kondisi sama, lokasi baru
+    let dst = await Inventory.findOne({
+      product: src.product._id,
       warehouse: warehouse_to,
-      shelf: shelf_to,
-      condition: inv.condition
+      shelf: shelf_to || null,
+      condition: src.condition
     }).session(session);
 
-    if (target) {
-      target.on_hand += quantity_move;
-      await target.save({ session });
-    } else {
-      target = await Inventory.create(
+    if (!dst) {
+      const [created] = await Inventory.create(
         [
           {
-            product: inv.product._id,
+            product: src.product._id,
             warehouse: warehouse_to,
-            shelf: shelf_to,
-            condition: inv.condition,
-            on_hand: quantity_move,
+            shelf: shelf_to || null,
+            condition: src.condition,
+            on_hand: 0,
             on_loan: 0
           }
         ],
         { session }
       );
+      dst = created;
     }
 
-    const user = await User.findById(req.user.id).select('name');
+    // update stok fisik
+    src.on_hand -= qty;
+    src.last_out_at = new Date();
+    await src.save({ session });
+
+    dst.on_hand += qty;
+    dst.last_in_at = new Date();
+    await dst.save({ session });
+
+    const actor = await resolveActor(req, session);
+
+    // ledger (dua sisi)
+    await applyAdjustment(session, {
+      inventoryId: src._id,
+      bucket: 'ON_HAND',
+      delta: -qty,
+      reason_code: 'MOVE_INTERNAL',
+      reason_note: `Pindah ke warehouse:${warehouse_to} shelf:${
+        shelf_to || '-'
+      } `,
+      actor,
+      correlation: {
+        from_inventory_id: src._id,
+        to_inventory_id: dst._id,
+        product_id: src.product._id,
+        product_code: src.product.product_code
+      }
+    });
+    await applyAdjustment(session, {
+      inventoryId: dst._id,
+      bucket: 'ON_HAND',
+      delta: +qty,
+      reason_code: 'MOVE_INTERNAL',
+      reason_note: `Dari inventory:${src._id}`,
+      actor,
+      correlation: {
+        from_inventory_id: src._id,
+        to_inventory_id: dst._id,
+        product_id: src.product._id,
+        product_code: src.product.product_code
+      }
+    });
+
+    // product circulation (catat perpindahan lokasi)
     await ProductCirculation.create(
       [
         {
-          product: inv.product._id,
-          product_code: inv.product.product_code,
-          product_name: inv.product.brand,
-          quantity: quantity_move,
-          condition: inv.condition,
-          warehouse_from: inv.warehouse._id,
-          shelf_from: inv.shelf?._id || null,
+          movement_type: 'MOVE',
+          product: src.product._id,
+          product_code: src.product.product_code,
+          product_name: src.product.brand,
+          quantity: qty,
+          condition: src.condition,
+          warehouse_from: src.warehouse?._id || null,
+          shelf_from: src.shelf?._id || null,
           warehouse_to,
-          shelf_to,
-          moved_by_id: req.user.id,
-          moved_by_name: user.name
+          shelf_to: shelf_to || null,
+          moved_by_id: actor?.id || req.user.id,
+          moved_by_name: actor?.name
         }
       ],
       { session }
     );
 
-    await session.commitTransaction();
-    session.endSession();
+    // bersihkan src jika 0/0
+    if (src.on_hand <= 0 && src.on_loan <= 0) {
+      await Inventory.deleteOne({ _id: src._id }, { session });
+    }
 
+    await session.commitTransaction();
     res.status(200).json({
       message: 'Barang berhasil dipindahkan',
-      from: { id: inv._id, remaining: inv.on_hand },
+      from: { id: src._id, remaining: Math.max(src.on_hand, 0) },
       to: {
-        id: target._id,
+        id: dst._id,
         warehouse: warehouse_to,
-        shelf: shelf_to,
-        added: quantity_move
+        shelf: shelf_to || null,
+        added: qty
       }
     });
   } catch (err) {
     await session.abortTransaction();
-    session.endSession();
     throw err;
+  } finally {
+    session.endSession();
   }
 });
 
 const updateStock = asyncHandler(async (req, res) => {
   const { inventoryId } = req.params;
-  const { change, note } = req.body;
+  let { delta, change, note } = req.body;
 
-  if (!change || change === 0) {
-    throwError('Perubahan stok harus lebih dari 0 atau kurang dari 0', 400);
+  // kompatibel ke belakang: terima "change" juga
+  const qty = Number(delta ?? change);
+  if (!Number.isFinite(qty) || qty === 0) {
+    throwError('Perubahan stok (delta) harus angka non-nol', 400);
   }
 
   const session = await mongoose.startSession();
@@ -645,36 +689,40 @@ const updateStock = asyncHandler(async (req, res) => {
       .session(session);
     if (!inv) throwError('Inventory tidak ditemukan', 404);
 
-    const newStock = inv.on_hand + change;
-    if (newStock < 0) {
-      throwError('Stok tidak boleh kurang dari 0', 400);
-    }
+    const after = inv.on_hand + qty;
+    if (after < 0) throwError('Stok tidak boleh kurang dari 0', 400);
 
-    inv.on_hand = newStock;
+    // update stok
+    inv.on_hand = after;
+    if (qty > 0) inv.last_in_at = new Date();
+    if (qty < 0) inv.last_out_at = new Date();
     await inv.save({ session });
 
-    const user = await User.findById(req.user.id).select('name').lean();
-    if (!user) throwError('User tidak ditemukan', 404);
+    // ledger
+    const actor = await resolveActor(req, session);
+    await applyAdjustment(session, {
+      inventoryId: inv._id,
+      bucket: 'ON_HAND',
+      delta: qty,
+      reason_code: 'MANUAL_CORRECTION',
+      reason_note: note || 'Manual stock correction',
+      actor,
+      correlation: {
+        inventory_id: inv._id,
+        product_id: inv.product?._id,
+        product_code: inv.product?.product_code
+      }
+    });
 
-    await StockChangeLog.create(
-      [
-        {
-          product_code: inv.product.product_code,
-          brand: inv.product.brand,
-          change,
-          note,
-          inventory: inv._id,
-          changed_by: req.user.id,
-          changed_by_name: user.name
-        }
-      ],
-      { session }
-    );
+    // hapus doc jika 0/0
+    if (inv.on_hand <= 0 && inv.on_loan <= 0) {
+      await Inventory.deleteOne({ _id: inv._id }, { session });
+    }
 
     await session.commitTransaction();
     res.status(200).json({
       message: 'Stok berhasil diperbarui',
-      new_stock: inv.on_hand
+      on_hand: Math.max(after, 0)
     });
   } catch (err) {
     await session.abortTransaction();
@@ -686,121 +734,158 @@ const updateStock = asyncHandler(async (req, res) => {
 
 const changeCondition = asyncHandler(async (req, res) => {
   const { inventoryId } = req.params;
-  const { quantity, new_condition, warehouse_to, shelf_to } = req.body;
+  const { quantity, new_condition, warehouse_to, shelf_to, note } = req.body;
 
-  const user = await User.findById(req.user.id).select('name').lean();
-  if (!user) throwError('User tidak ditemukan', 404);
-
-  if (!quantity || quantity <= 0) {
-    throwError('Jumlah barang yang diubah harus lebih dari 0', 400);
+  const qty = Number(quantity);
+  if (!Number.isFinite(qty) || qty <= 0) {
+    throwError('Jumlah barang yang diubah harus > 0', 400);
   }
-  if (!new_condition) {
-    throwError('Kondisi baru wajib diisi', 400);
-  }
+  if (!new_condition) throwError('Kondisi baru wajib diisi', 400);
 
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    const inv = await Inventory.findById(inventoryId)
-      .populate('product')
-      .populate('warehouse')
-      .populate('shelf')
+    const src = await Inventory.findById(inventoryId)
+      .populate('product', 'product_code brand')
+      .populate('warehouse', 'warehouse_name')
+      .populate('shelf', 'shelf_name')
       .session(session);
 
-    if (!inv) throwError('Inventory asal tidak ditemukan', 404);
-    if (quantity > inv.on_hand) {
-      throwError(`Jumlah melebihi stok tersedia (${inv.on_hand})`, 400);
+    if (!src) throwError('Inventory asal tidak ditemukan', 404);
+    if (qty > src.on_hand) {
+      throwError(`Jumlah melebihi stok tersedia (${src.on_hand})`, 400);
     }
 
-    inv.on_hand -= quantity;
-    await inv.save({ session });
-    if (inv.on_hand <= 0 && inv.on_loan <= 0) {
-      await Inventory.deleteOne({ _id: inv._id }, { session });
-    }
+    const targetWarehouse = warehouse_to || src.warehouse?._id;
+    const targetShelf =
+      typeof shelf_to !== 'undefined' ? shelf_to : src.shelf?._id;
 
-    const targetWarehouse = warehouse_to || inv.warehouse._id;
-    const targetShelf = shelf_to || inv.shelf?._id;
-
-    let target = await Inventory.findOne({
-      product: inv.product._id,
-      warehouse: targetWarehouse,
-      shelf: targetShelf,
+    let dst = await Inventory.findOne({
+      product: src.product._id,
+      warehouse: targetWarehouse || null,
+      shelf: targetShelf || null,
       condition: new_condition
     }).session(session);
 
-    if (target) {
-      target.on_hand += quantity;
-      await target.save({ session });
-    } else {
-      target = new Inventory({
-        product: inv.product._id,
-        warehouse: targetWarehouse,
-        shelf: targetShelf,
-        condition: new_condition,
-        on_hand: quantity,
-        on_loan: 0
-      });
-      await target.save({ session });
+    if (!dst) {
+      const [created] = await Inventory.create(
+        [
+          {
+            product: src.product._id,
+            warehouse: targetWarehouse || null,
+            shelf: targetShelf || null,
+            condition: new_condition,
+            on_hand: 0,
+            on_loan: 0
+          }
+        ],
+        { session }
+      );
+      dst = created;
     }
 
-    const logOut = new StockChangeLog({
-      inventory: inv._id,
-      product_code: inv.product.product_code,
-      brand: inv.product.brand,
-      change: -quantity, // pakai field "change"
-      note: `Ubah kondisi dari ${inv.condition} → ${new_condition}`,
-      changed_by: req.user.id,
-      changed_by_name: user.name
-    });
-    await logOut.save({ session });
+    // update stok fisik
+    src.on_hand -= qty;
+    src.last_out_at = new Date();
+    await src.save({ session });
 
-    const logIn = new StockChangeLog({
-      inventory: target._id,
-      product_code: inv.product.product_code,
-      brand: inv.product.brand,
-      change: +quantity,
-      note: `Ubah kondisi dari ${inv.condition} → ${new_condition}`,
-      changed_by: req.user.id,
-      changed_by_name: user.name
-    });
-    await logIn.save({ session });
+    dst.on_hand += qty;
+    dst.last_in_at = new Date();
+    await dst.save({ session });
 
-    // 🔹 Kalau pindah lokasi, catat ke ProductCirculation
-    if (
-      warehouse_to &&
-      warehouse_to.toString() !== inv.warehouse._id.toString()
-    ) {
-      const circ = new ProductCirculation({
-        product: inv.product._id,
-        product_code: inv.product.product_code,
-        product_name: inv.product.brand,
-        quantity,
-        condition: new_condition,
-        warehouse_from: inv.warehouse._id,
-        shelf_from: inv.shelf?._id || null,
-        warehouse_to,
-        shelf_to,
-        moved_by_id: req.user.id,
-        moved_by_name: user.name
-      });
-      await circ.save({ session });
+    const actor = await resolveActor(req, session);
+
+    // ledger (dua sisi)
+    const reason = `Ubah kondisi ${src.condition} → ${new_condition}${
+      targetWarehouse &&
+      src.warehouse &&
+      String(targetWarehouse) !== String(src.warehouse._id)
+        ? ` & pindah lokasi`
+        : ''
+    }`;
+
+    await applyAdjustment(session, {
+      inventoryId: src._id,
+      bucket: 'ON_HAND',
+      delta: -qty,
+      reason_code: 'CHANGE_CONDITION',
+      reason_note: note || reason,
+      actor,
+      correlation: {
+        from_inventory_id: src._id,
+        to_inventory_id: dst._id,
+        product_id: src.product._id,
+        product_code: src.product.product_code
+      }
+    });
+    await applyAdjustment(session, {
+      inventoryId: dst._id,
+      bucket: 'ON_HAND',
+      delta: +qty,
+      reason_code: 'CHANGE_CONDITION',
+      reason_note: note || reason,
+      actor,
+      correlation: {
+        from_inventory_id: src._id,
+        to_inventory_id: dst._id,
+        product_id: src.product._id,
+        product_code: src.product.product_code
+      }
+    });
+
+    // Catat ProductCirculation hanya kalau pindah warehouse/shelf
+    const movedWarehouse =
+      targetWarehouse &&
+      src.warehouse &&
+      String(targetWarehouse) !== String(src.warehouse._id);
+    const movedShelf =
+      (targetShelf || null) !== (src.shelf ? String(src.shelf._id) : null);
+
+    if (movedWarehouse || movedShelf) {
+      await ProductCirculation.create(
+        [
+          {
+            movement_type: 'CHANGE_CONDITION_MOVE',
+            product: src.product._id,
+            product_code: src.product.product_code,
+            product_name: src.product.brand,
+            quantity: qty,
+            // from_condition = lama, to_condition = baru
+            from_condition: src.condition,
+            to_condition: new_condition,
+            warehouse_from: src.warehouse?._id || null,
+            shelf_from: src.shelf?._id || null,
+            warehouse_to: targetWarehouse || null,
+            shelf_to: targetShelf || null,
+            moved_by_id: actor?.id || req.user.id,
+            moved_by_name: actor?.name,
+            note: note || null
+          }
+        ],
+        { session }
+      );
+    }
+
+    // bersihkan src kalau 0/0
+    if (src.on_hand <= 0 && src.on_loan <= 0) {
+      await Inventory.deleteOne({ _id: src._id }, { session });
     }
 
     await session.commitTransaction();
     res.status(200).json({
-      message: 'Kondisi barang berhasil diubah',
+      message: 'Perubahan kondisi berhasil',
       from: {
-        id: inv._id,
-        condition: inv.condition,
-        remaining: inv.on_hand
+        id: src._id,
+        condition: src.condition,
+        remaining: Math.max(src.on_hand, 0)
       },
       to: {
-        id: target._id,
+        id: dst._id,
         condition: new_condition,
-        added: quantity,
-        warehouse: targetWarehouse,
-        shelf: targetShelf
+        added: qty,
+        warehouse: targetWarehouse || null,
+        shelf: targetShelf || null
       }
     });
   } catch (err) {

@@ -66,7 +66,7 @@ app.use('/admin/warehouses', require('./routes/admin/warehouseRouter'));
 app.use('/admin/vendors', require('./routes/admin/vendorRouter'));
 app.use('/admin/clients', require('./routes/admin/clientRouter'));
 app.use('/admin/inventory', require('./routes/admin/inventoryRouter'));
-app.use('/admin/stock-log', require('./routes/admin/stockLogRouter'));
+app.use('/admin/stock-log', require('./routes/admin/stockAdjustmentRouter'));
 app.use('/admin/profit-report', require('./routes/admin/profitReportRouter'));
 app.use('/admin/expense-log', require('./routes/admin/expenseLogRouter'));
 app.use('/admin/project-cost', require('./routes/admin/rapRouter'));

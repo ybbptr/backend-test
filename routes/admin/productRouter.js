@@ -9,12 +9,7 @@ const {
   updateProduct,
   removeProduct,
   getAllWarehouse,
-  getShelvesByWarehouse,
-  // Tambah stok
-  addStock,
-  getWarehousesAndShelvesWithStock,
-  // Utility
-  getProductList
+  getShelvesByWarehouse
 } = require('../../controller/admin/productController');
 
 const validate = require('../../middleware/validations/validate');
@@ -43,9 +38,6 @@ const uploadProductFiles = multer({
 
 const Router = express.Router();
 
-/* ================== MASTER PRODUCT ================== */
-
-// Tambah produk baru (metadata master)
 Router.post(
   '/add-product',
   uploadProductFiles.fields([
@@ -59,9 +51,6 @@ Router.post(
 
 // Ambil semua produk (plus total stok agregat)
 Router.get('/all-product', getProducts);
-
-// Ambil daftar produk (ringkas, untuk dropdown/autocomplete)
-Router.get('/product-list', getProductList);
 
 // Ambil daftar gudang (support FE form)
 Router.get('/all-warehouse', getAllWarehouse);
@@ -86,11 +75,5 @@ Router.put(
 
 // Hapus produk
 Router.delete('/remove/:id', removeProduct);
-
-// Tambah stok produk existing langsung dari halaman Master
-Router.post('/:id/add-stock', addStock);
-
-// Dropdown khusus untuk pilih gudang+lemari sekaligus lihat stok existing produk
-Router.get('/:id/warehouses-with-stock', getWarehousesAndShelvesWithStock);
 
 module.exports = Router;
