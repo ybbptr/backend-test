@@ -256,7 +256,7 @@ async function createDraftReturnLoan(session, req) {
 
   const loan = await Loan.findOne({ loan_number }).session(session);
   if (!loan) throwError('Peminjaman tidak ditemukan!', 404);
-  // const borrowerId = req.body?.borrower || loan.borrower;
+  const borrowerId = req.body?.borrower || loan.borrower;
   // Validasi struktur + sisa
   await validateReturnPayloadAndSisa({
     session,
@@ -268,7 +268,7 @@ async function createDraftReturnLoan(session, req) {
     [
       {
         loan_number,
-        borrower,
+        borrower: borrowerId,
         position,
         report_date,
         return_date,

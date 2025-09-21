@@ -38,10 +38,20 @@ Router.post(
 
 Router.get('/all-return-loan', getAllReturnLoan);
 Router.get('/my-loan', getMyLoanNumbers);
-Router.post('/finalize', finalizeReturnLoanOneShot);
+Router.post(
+  '/finalize',
+  uploadProofs,
+  filterProofFiles,
+  finalizeReturnLoanOneShot
+);
 Router.get('/form/:loan_number', getReturnForm);
 
-Router.post('/:id/finalize', finalizeReturnLoanById);
+Router.post(
+  '/:id/finalize',
+  uploadProofs,
+  filterProofFiles,
+  finalizeReturnLoanById
+);
 Router.get('/:id', getReturnLoan);
 
 Router.patch(
