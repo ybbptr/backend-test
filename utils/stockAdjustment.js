@@ -1,53 +1,51 @@
-const Inventory = require('../model/inventoryModel');
-const StockAdjustment = require('../model/stockAdjustmentModel');
+// utils/stockAdjustment.js
+'use strict';
 
-async function applyAdjustment(session, opts) {
-  const {
-    inventoryId,
-    bucket,
-    delta,
-    reason_code,
-    reason_note,
-    actor,
-    correlation
-  } = opts;
+const StockAdjustment = require('../model/stockAdjustmentModel');
+const Inventory = require('../model/inventoryModel');
+const throwError = require('./throwError');
+
+const VALID_BUCKETS = ['ON_HAND', 'ON_LOAN'];
+
+async function applyAdjustment(
+  session,
+  { inventoryId, bucket, delta, reason_code, reason_note, actor, correlation }
+) {
+  if (!VALID_BUCKETS.includes(bucket)) {
+    throwError('Bucket tidak valid (ON_HAND / ON_LOAN)', 400);
+  }
+  if (typeof delta !== 'number' || !Number.isFinite(delta) || delta === 0) {
+    throwError('Delta harus angka non-nol', 400);
+  }
 
   const inv = await Inventory.findById(inventoryId)
-    .populate('product', 'product_code brand')
+    .select('on_hand on_loan')
+    .lean()
     .session(session);
+  if (!inv) throwError('Inventory tidak ditemukan', 404);
 
-  if (!inv) throw new Error('Inventory tidak ditemukan');
-  const key = bucket === 'ON_HAND' ? 'on_hand' : 'on_loan';
+  const field = bucket === 'ON_HAND' ? 'on_hand' : 'on_loan';
 
-  const next = inv[key] + delta;
-  if (next < 0) throw new Error(`Hasil adjust membuat stok ${bucket} minus`);
-
-  inv[key] = next;
-  if (bucket === 'ON_HAND') {
-    if (delta > 0) inv.last_in_at = new Date();
-    if (delta < 0) inv.last_out_at = new Date();
-  }
-  await inv.save({ session });
+  const after = Number(inv[field]);
+  const before = after - delta;
 
   await StockAdjustment.create(
     [
       {
-        inventory: inv._id,
+        inventory: inventoryId,
         bucket,
         delta,
+        before,
+        after,
         reason_code,
-        reason_note,
-        product_code: inv.product?.product_code || '',
-        brand: inv.product?.brand || '',
-        changed_by: actor?.userId || null,
-        changed_by_name: actor?.name || 'system',
+        reason_note: reason_note || null,
+        actor_id: actor?.id || null,
+        actor_name: actor?.name || null,
         correlation: correlation || {}
       }
     ],
     { session }
   );
-
-  return inv;
 }
 
 module.exports = { applyAdjustment };
