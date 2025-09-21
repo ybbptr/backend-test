@@ -333,6 +333,8 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
   for (const ret of doc.returned_items || []) {
     const inv = await Inventory.findById(ret.inventory)
       .populate('product', 'product_code brand')
+      .populate('warehouse', '_id') // jaga-jaga
+      .populate('shelf', '_id')
       .session(session);
     if (!inv) throwError('Inventory tidak ditemukan', 404);
 
@@ -356,17 +358,70 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
           return_loan_id: doc._id
         }
       });
-    } else {
-      // Pengembalian normal
-      inv.on_hand += ret.quantity;
-      inv.on_loan -= ret.quantity;
-      inv.condition = ret.condition_new || inv.condition;
-      inv.warehouse = ret.warehouse_return || inv.warehouse;
-      inv.shelf = ret.shelf_return || inv.shelf;
-      inv.last_in_at = new Date();
-      await inv.save({ session });
 
-      // Catat pergerakan fisik
+      // Tidak sentuh identity inv
+      inv.on_loan -= ret.quantity;
+      await inv.save({ session });
+    } else {
+      // === NORMAL RETURN ===
+      const targetWarehouse =
+        ret.warehouse_return || inv.warehouse?._id || inv.warehouse;
+      const targetShelf =
+        ret.shelf_return ?? (inv.shelf?._id || inv.shelf || null);
+      const targetCond = ret.condition_new || inv.condition;
+
+      const sameIdentity =
+        String(targetWarehouse) === String(inv.warehouse) &&
+        String(targetShelf || '') === String(inv.shelf || '') &&
+        targetCond === inv.condition;
+
+      if (sameIdentity) {
+        // Aman di doc yang sama -> tidak ada risiko duplicate key
+        inv.on_hand += ret.quantity;
+        inv.on_loan -= ret.quantity;
+        inv.last_in_at = new Date();
+        await inv.save({ session });
+      } else {
+        // Kurangi pinjaman di sumber
+        inv.on_loan -= ret.quantity;
+        await inv.save({ session });
+        // Optional cleanup kalau kosong total
+        if ((inv.on_hand || 0) <= 0 && (inv.on_loan || 0) <= 0) {
+          await Inventory.deleteOne({ _id: inv._id }).session(session);
+        }
+
+        // Tambah stok ke target (merge kalau sudah ada)
+        let target = await Inventory.findOne({
+          product: inv.product,
+          warehouse: targetWarehouse,
+          shelf: targetShelf || null,
+          condition: targetCond
+        }).session(session);
+
+        if (target) {
+          target.on_hand += ret.quantity;
+          target.last_in_at = new Date();
+          await target.save({ session });
+        } else {
+          const created = await Inventory.create(
+            [
+              {
+                product: inv.product,
+                warehouse: targetWarehouse,
+                shelf: targetShelf || null,
+                condition: targetCond,
+                on_hand: ret.quantity,
+                on_loan: 0,
+                last_in_at: new Date()
+              }
+            ],
+            { session }
+          );
+          target = created[0];
+        }
+      }
+
+      // Catat pergerakan fisik untuk audit/riwayat
       circulationLogs.push({
         movement_type: 'RETURN_IN',
         product: inv.product?._id,
@@ -374,11 +429,11 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
         product_name: inv.product?.brand,
         quantity: ret.quantity,
         from_condition: circItem.condition,
-        to_condition: ret.condition_new,
+        to_condition: targetCond,
         warehouse_from: circItem.warehouse_from,
         shelf_from: circItem.shelf_from,
-        warehouse_to: ret.warehouse_return,
-        shelf_to: ret.shelf_return,
+        warehouse_to: targetWarehouse,
+        shelf_to: targetShelf || null,
         moved_by_id: loan.borrower,
         moved_by_name: loan.borrower?.name,
         loan_id: loan._id,
@@ -387,7 +442,7 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
       });
     }
 
-    // Timestamp pengembalian per item (opsional untuk tampilan)
+    // Tanggal return per item (opsional untuk FE)
     circItem.return_date_circulation = new Date();
   }
 
@@ -400,11 +455,11 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
 
   // Tandai batch final
   doc.status = 'Dikembalikan';
-  doc.needs_review = !!hasLost;
+  doc.need_review = !!hasLost; // hilang → perlu tinjauan
   doc.loan_locked = true;
   await doc.save({ session });
 
-  // Kunci Loan (ada setidaknya satu batch final)
+  // Kunci Loan supaya tidak diutak-atik selama ada batch final
   await Loan.updateOne(
     { _id: loan._id },
     { $set: { loan_locked: true } },
