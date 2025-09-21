@@ -428,14 +428,20 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
         product_code: inv.product?.product_code,
         product_name: inv.product?.brand,
         quantity: ret.quantity,
+
         from_condition: circItem.condition,
-        to_condition: targetCond,
+        to_condition: ret.condition_new,
+
         warehouse_from: circItem.warehouse_from,
         shelf_from: circItem.shelf_from,
-        warehouse_to: targetWarehouse,
-        shelf_to: targetShelf || null,
-        moved_by_id: loan.borrower,
-        moved_by_name: loan.borrower?.name,
+        warehouse_to: ret.warehouse_return,
+        shelf_to: ret.shelf_return,
+
+        // ⬇️ ⬇️ perbaikan field yang diwajibkan model
+        moved_by: loan.borrower, // ObjectId karyawan peminjam
+        moved_by_model: 'Employee', // nama model referensi
+        moved_by_name: loan.borrower?.name || 'Unknown',
+
         loan_id: loan._id,
         loan_number: loan.loan_number,
         return_loan_id: doc._id

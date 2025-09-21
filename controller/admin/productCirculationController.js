@@ -48,7 +48,7 @@ const getProductCirculations = asyncHandler(async (req, res) => {
       .populate('shelf_from', 'shelf_name shelf_code')
       .populate('shelf_to', 'shelf_name shelf_code')
       .populate('product', 'product_name product_code')
-      .populate('moved_by_id', 'name')
+      .populate('moved_by', 'name')
       .skip(skip)
       .limit(limit)
       .sort(sortOption)
@@ -74,7 +74,7 @@ const getProductCirculation = asyncHandler(async (req, res) => {
     .populate('shelf_from', 'shelf_name shelf_code')
     .populate('shelf_to', 'shelf_name shelf_code')
     .populate('product', 'product_name product_code')
-    .populate('moved_by_id', 'name role')
+    .populate('moved_by', 'name')
     .lean();
   if (!row) throwError('Sirkulasi tidak ditemukan!', 404);
   res.status(200).json({ success: true, data: row });
