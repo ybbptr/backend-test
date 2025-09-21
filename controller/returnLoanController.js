@@ -1,6 +1,4 @@
-// controller/returnLoanController.js
-'use strict';
-
+// controllers/returnLoanController.js
 const asyncHandler = require('express-async-handler');
 const mongoose = require('mongoose');
 const path = require('path');
@@ -42,41 +40,81 @@ function getProofFile(req, idx1) {
   return null;
 }
 
-/** Parser paling toleran untuk returned_items (multipart, array, object, string JSON, double-encoded) */
-function parseReturnedItemsFromBody(body) {
+/**
+ * Parser BARU untuk membaca returned_items dari berbagai format:
+ * - Array JSON langsung
+ * - String JSON (termasuk double-encoded)
+ * - Object {0:{...},1:{...}}
+ * - Bracket notation: returned_items[0][field]
+ */
+function parseReturnedItemsFromRequest(req) {
+  const body = req?.body || {};
+
+  // Kandidat field yang mungkin dipakai FE
   let raw =
     body?.returned_items ??
     body?.['returned_items[]'] ??
     body?.returnedItems ??
     null;
 
-  if (raw == null) return [];
-
+  // a) Sudah array
   if (Array.isArray(raw)) return raw;
 
-  if (typeof raw === 'object') return Object.values(raw);
+  // b) Object (mis. {0:{...},1:{...}})
+  if (raw && typeof raw === 'object') return Object.values(raw);
 
+  // c) String JSON (single/double encoded)
   if (typeof raw === 'string') {
     let s = raw.trim();
-    if (!s) return [];
-    while (s.length >= 2 && s[0] === '"' && s[s.length - 1] === '"')
-      s = s.slice(1, -1);
-    s = s.replace(/\r?\n/g, '');
-    try {
-      const arr = JSON.parse(s);
-      if (Array.isArray(arr)) return arr;
-    } catch {
+    if (s) {
+      while (s.length >= 2 && s[0] === '"' && s[s.length - 1] === '"')
+        s = s.slice(1, -1);
+      s = s.replace(/\r?\n/g, '');
       try {
-        const fixed = s.replace(/'/g, '"');
-        const arr = JSON.parse(fixed);
+        const arr = JSON.parse(s);
         if (Array.isArray(arr)) return arr;
       } catch {
-        throwError('returned_items bukan JSON valid', 400);
+        try {
+          const fixed = s.replace(/'/g, '"');
+          const arr = JSON.parse(fixed);
+          if (Array.isArray(arr)) return arr;
+        } catch {
+          // lanjut ke bracket parser
+        }
       }
     }
   }
 
-  throwError('returned_items harus berupa array', 400);
+  // d) BRACKET NOTATION: returned_items[0][field]
+  const REG = /^returned_items\[(\d+)\]\[([^\]]+)\]$/;
+  const buckets = new Map();
+
+  for (const [k, v] of Object.entries(body)) {
+    const m = k.match(REG);
+    if (!m) continue;
+    const idx = parseInt(m[1], 10);
+    const field = m[2];
+
+    if (!buckets.has(idx)) buckets.set(idx, {});
+
+    let val = v;
+    if (field === 'quantity') {
+      const n = Number(v);
+      val = Number.isFinite(n) ? n : v;
+    }
+    if (v === '' || v === 'null' || v === null) val = null;
+
+    buckets.get(idx)[field] = val;
+  }
+
+  if (buckets.size) {
+    return [...buckets.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, obj]) => obj);
+  }
+
+  // Format tidak dikenali → kosong
+  return [];
 }
 
 function decideItemStatus(totalQty, totalReturned, totalLost) {
@@ -141,6 +179,10 @@ async function recomputeCirculationAndLoan({ session, loan, circulation }) {
   await loan.save({ session });
 }
 
+/* ============================================================
+   CORE SERVICES (dipakai oleh by-id finalize & one-shot)
+   ============================================================ */
+
 // Validasi struktur & sisa kuantitas
 async function validateReturnPayloadAndSisa({ session, loan_number, items }) {
   const circulation = await LoanCirculation.findOne({ loan_number })
@@ -197,7 +239,7 @@ async function validateReturnPayloadAndSisa({ session, loan_number, items }) {
 }
 
 // Buat Draft ReturnLoan (tanpa efek stok)
-async function createDraftReturnLoan(session, { req }) {
+async function createDraftReturnLoan(session, req) {
   const {
     loan_number,
     borrower,
@@ -206,7 +248,7 @@ async function createDraftReturnLoan(session, { req }) {
     return_date,
     inventory_manager
   } = req.body || {};
-  const returned_items = parseReturnedItemsFromBody(req.body);
+  const returned_items = parseReturnedItemsFromRequest(req);
 
   if (!loan_number || returned_items.length === 0) {
     throwError('Nomor peminjaman dan daftar barang wajib diisi!', 400);
@@ -215,13 +257,12 @@ async function createDraftReturnLoan(session, { req }) {
   const loan = await Loan.findOne({ loan_number }).session(session);
   if (!loan) throwError('Peminjaman tidak ditemukan!', 404);
 
+  // Validasi struktur + sisa
   await validateReturnPayloadAndSisa({
     session,
     loan_number,
     items: returned_items
   });
-
-  const need_review = returned_items.some((x) => x.condition_new === 'Hilang');
 
   const [doc] = await ReturnLoan.create(
     [
@@ -234,7 +275,7 @@ async function createDraftReturnLoan(session, { req }) {
         inventory_manager,
         status: 'Draft',
         loan_locked: false,
-        need_review,
+        need_review: false,
         returned_items: []
       }
     ],
@@ -301,7 +342,7 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
     if (ret.condition_new === 'Hilang') {
       hasLost = true;
 
-      // Turunkan ON_LOAN
+      // Turunkan ON_LOAN (barang dipastikan tidak kembali)
       await applyAdjustment(session, {
         inventoryId: inv._id,
         bucket: 'ON_LOAN',
@@ -316,7 +357,7 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
         }
       });
     } else {
-      // Pengembalian normal: ON_HAND += qty, ON_LOAN -= qty
+      // Pengembalian normal
       inv.on_hand += ret.quantity;
       inv.on_loan -= ret.quantity;
       inv.condition = ret.condition_new || inv.condition;
@@ -325,7 +366,7 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
       inv.last_in_at = new Date();
       await inv.save({ session });
 
-      // Log pergerakan fisik
+      // Catat pergerakan fisik
       circulationLogs.push({
         movement_type: 'RETURN_IN',
         product: inv.product?._id,
@@ -346,7 +387,7 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
       });
     }
 
-    // Tanggal return per item
+    // Timestamp pengembalian per item (opsional untuk tampilan)
     circItem.return_date_circulation = new Date();
   }
 
@@ -354,13 +395,16 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
     await ProductCirculation.insertMany(circulationLogs, { session });
   }
 
+  // Recompute status sirkulasi & loan
   await recomputeCirculationAndLoan({ session, loan, circulation });
 
+  // Tandai batch final
   doc.status = 'Dikembalikan';
   doc.need_review = !!hasLost;
   doc.loan_locked = true;
   await doc.save({ session });
 
+  // Kunci Loan (ada setidaknya satu batch final)
   await Loan.updateOne(
     { _id: loan._id },
     { $set: { loan_locked: true } },
@@ -378,7 +422,8 @@ const createReturnLoan = asyncHandler(async (req, res) => {
   session.startTransaction();
 
   try {
-    const { doc } = await createDraftReturnLoan(session, { req });
+    const { doc } = await createDraftReturnLoan(session, req);
+
     await session.commitTransaction();
     res.status(201).json(doc);
   } catch (err) {
@@ -402,7 +447,7 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
     if (!doc) throwError('Data pengembalian tidak ditemukan', 404);
     if (doc.status !== 'Draft') throwError('Hanya Draft yang bisa diubah', 400);
 
-    const items = parseReturnedItemsFromBody(req.body);
+    const items = parseReturnedItemsFromRequest(req);
     await validateReturnPayloadAndSisa({
       session,
       loan_number: doc.loan_number,
@@ -453,6 +498,8 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
     }
 
     // Field meta
+    if (req.body.report_date !== undefined)
+      doc.report_date = req.body.report_date;
     if (req.body.return_date !== undefined)
       doc.return_date = req.body.return_date;
     if (req.body.inventory_manager !== undefined)
@@ -460,10 +507,9 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
     if (req.body.borrower !== undefined) doc.borrower = req.body.borrower;
     if (req.body.position !== undefined) doc.position = req.body.position;
 
-    doc.need_review = rebuilt.some((x) => x.condition_new === 'Hilang');
     doc.returned_items = rebuilt;
-
     await doc.save({ session });
+
     await session.commitTransaction();
     res.status(200).json(doc);
   } catch (err) {
@@ -493,7 +539,6 @@ const finalizeReturnLoanById = asyncHandler(async (req, res) => {
     if (!loan) throwError('Loan tidak ditemukan', 404);
 
     const actor = await resolveActor(req, session);
-
     await finalizeReturnLoanCore(session, { loan, doc, actor });
 
     await session.commitTransaction();
@@ -510,13 +555,13 @@ const finalizeReturnLoanById = asyncHandler(async (req, res) => {
   }
 });
 
-/** ONE-SHOT FINALIZE (Create Draft + Finalize) */
+/** ONE-SHOT FINALIZE (Create Draft + Finalize dalam satu transaksi) */
 const finalizeReturnLoanOneShot = asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    const { doc, loan } = await createDraftReturnLoan(session, { req });
+    const { doc, loan } = await createDraftReturnLoan(session, req);
     const actor = await resolveActor(req, session);
     await finalizeReturnLoanCore(session, { loan, doc, actor });
 
@@ -612,9 +657,12 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
         });
       }
 
-      if (circItem) circItem.return_date_circulation = null;
+      if (circItem) {
+        circItem.return_date_circulation = null;
+      }
     }
 
+    // bersihkan log/ledger batch ini
     await ProductCirculation.deleteMany({ return_loan_id: doc._id }).session(
       session
     );
@@ -622,8 +670,10 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
       'correlation.return_loan_id': doc._id
     }).session(session);
 
+    // recompute sirkulasi & loan
     await recomputeCirculationAndLoan({ session, loan, circulation });
 
+    // atur lock Loan: tetap true jika masih ada batch lain yang final
     const stillFinal = await ReturnLoan.exists({
       loan_number: loan.loan_number,
       status: 'Dikembalikan',
@@ -635,15 +685,17 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
       { session }
     );
 
+    // set batch ini kembali ke Draft
     doc.status = 'Draft';
     doc.loan_locked = false;
     doc.need_review = false;
     await doc.save({ session });
 
     await session.commitTransaction();
-    res
-      .status(200)
-      .json({ message: 'ReturnLoan dibuka ulang (Draft)', id: doc._id });
+    res.status(200).json({
+      message: 'ReturnLoan dibuka ulang (Draft)',
+      id: doc._id
+    });
   } catch (err) {
     await session.abortTransaction();
     throw err;
@@ -664,8 +716,9 @@ const deleteReturnLoan = asyncHandler(async (req, res) => {
     const doc = await ReturnLoan.findById(id).session(session);
     if (!doc) throwError('Data pengembalian tidak ditemukan', 404);
 
-    if (doc.status !== 'Draft')
+    if (doc.status !== 'Draft') {
       throwError('Hanya boleh menghapus batch yang masih Draft', 400);
+    }
 
     for (const it of doc.returned_items || []) {
       if (it?.proof_image?.key) {
@@ -728,7 +781,7 @@ const getAllReturnLoan = asyncHandler(async (req, res) => {
     .sort({ createdAt: -1 })
     .lean();
 
-  // Progress per loan_number
+  // Progress per loan_number: total dari circulation vs final approved
   const loanNumbers = [...new Set(rows.map((r) => r.loan_number))];
   const circs = await LoanCirculation.find({
     loan_number: { $in: loanNumbers }
@@ -903,7 +956,9 @@ const getMyLoanNumbers = asyncHandler(async (req, res) => {
       return (Number(b.quantity) || 0) - usedQty > 0;
     });
 
-    if (hasRemaining) result.push({ id: ln._id, loan_number: ln.loan_number });
+    if (hasRemaining) {
+      result.push({ id: ln._id, loan_number: ln.loan_number });
+    }
   }
 
   res.status(200).json({ borrower: me.name, loan_numbers: result });
@@ -967,18 +1022,23 @@ const getShelvesByWarehouse = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
+  // Draft CRUD
   createReturnLoan,
   updateReturnLoan,
   deleteReturnLoan,
 
+  // Finalize
   finalizeReturnLoanById,
   finalizeReturnLoanOneShot,
 
+  // Reopen
   reopenReturnLoan,
 
+  // Read
   getAllReturnLoan,
   getReturnLoan,
 
+  // FE helpers
   getMyLoanNumbers,
   getReturnForm,
   getAllWarehouse,
