@@ -342,14 +342,16 @@ const rejectLoan = asyncHandler(async (req, res) => {
   try {
     const loan = await Loan.findById(req.params.id).session(session);
     if (!loan) throwError('Pengajuan alat tidak ditemukan', 404);
-
-    if (loan.approval !== 'Diproses') {
+    if (loan.approval !== 'Diproses')
       throwError('Hanya dokumen Diproses yang bisa Ditolak', 400);
-    }
+
+    const reason = (req.body?.note ?? req.body?.reason ?? '').toString().trim();
+    if (!reason) throwError('Alasan penolakan (note) wajib diisi', 400);
 
     loan.approval = 'Ditolak';
-    loan.circulation_status = computeCirculationStatus('Ditolak'); // Ditolak
+    loan.circulation_status = computeCirculationStatus('Ditolak');
     loan.loan_locked = false;
+    loan.note = reason;
     await loan.save({ session });
 
     await LoanCirculation.deleteOne({ loan_number: loan.loan_number }).session(
@@ -357,7 +359,9 @@ const rejectLoan = asyncHandler(async (req, res) => {
     );
 
     await session.commitTransaction();
-    res.status(200).json({ message: 'Loan ditolak', id: loan._id });
+    res
+      .status(200)
+      .json({ message: 'Loan ditolak', id: loan._id, note: loan.note });
   } catch (err) {
     await session.abortTransaction();
     throw err;
@@ -395,6 +399,7 @@ const reopenLoan = asyncHandler(async (req, res) => {
       loan.approval = 'Diproses';
       loan.circulation_status = computeCirculationStatus('Diproses'); // Pending
       loan.loan_locked = false;
+      loan.note = null;
       await loan.save({ session });
 
       await session.commitTransaction();
