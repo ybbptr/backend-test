@@ -46,7 +46,12 @@ const loanSchema = new Schema(
     ],
 
     // Approval flow
-    status: { type: String, enum: APPROVAL, default: 'Diproses', index: true },
+    approval: {
+      type: String,
+      enum: APPROVAL,
+      default: 'Diproses',
+      index: true
+    },
     loan_locked: { type: Boolean, default: false },
     note: { type: String },
 
