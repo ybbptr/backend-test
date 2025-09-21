@@ -7,7 +7,7 @@ const {
 } = require('../middleware/validations/validateReturnLoan');
 
 const {
-  // createReturnLoan,
+  createReturnLoan,
   getAllReturnLoan,
   getReturnLoan,
   updateReturnLoan,
@@ -21,7 +21,7 @@ const {
   finalizeReturnLoanOneShot
 } = require('../controller/returnLoanController');
 
-const { createReturnLoan } = require('../controller/debug');
+// const { createReturnLoan } = require('../controller/debug');
 
 const { uploadProofs, filterProofFiles } = require('../utils/uploadProofs');
 

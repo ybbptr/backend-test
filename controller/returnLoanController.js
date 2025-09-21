@@ -256,7 +256,7 @@ async function createDraftReturnLoan(session, req) {
 
   const loan = await Loan.findOne({ loan_number }).session(session);
   if (!loan) throwError('Peminjaman tidak ditemukan!', 404);
-
+  // const borrowerId = req.body?.borrower || loan.borrower;
   // Validasi struktur + sisa
   await validateReturnPayloadAndSisa({
     session,
@@ -275,7 +275,7 @@ async function createDraftReturnLoan(session, req) {
         inventory_manager,
         status: 'Draft',
         loan_locked: false,
-        need_review: false,
+        needs_review: false,
         returned_items: []
       }
     ],
@@ -400,7 +400,7 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
 
   // Tandai batch final
   doc.status = 'Dikembalikan';
-  doc.need_review = !!hasLost;
+  doc.needs_review = !!hasLost;
   doc.loan_locked = true;
   await doc.save({ session });
 
@@ -545,7 +545,7 @@ const finalizeReturnLoanById = asyncHandler(async (req, res) => {
     res.status(200).json({
       message: 'ReturnLoan difinalisasi',
       id: doc._id,
-      need_review: doc.need_review
+      needs_review: doc.needs_review
     });
   } catch (err) {
     await session.abortTransaction();
@@ -560,19 +560,78 @@ const finalizeReturnLoanOneShot = asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
+  // DEBUG SNAPSHOT
   try {
-    const { doc, loan } = await createDraftReturnLoan(session, req);
+    console.log('[RETURN-ONE] content-type:', req.headers['content-type']);
+    console.log('[RETURN-ONE] body keys:', Object.keys(req.body || {}));
+    console.log('[RETURN-ONE] loan_number:', req.body?.loan_number);
+    console.log(
+      '[RETURN-ONE] typeof returned_items:',
+      typeof req.body?.returned_items,
+      'isArray=',
+      Array.isArray(req.body?.returned_items)
+    );
+    if (typeof req.body?.returned_items === 'string') {
+      const s = req.body.returned_items;
+      console.log(
+        '[RETURN-ONE] returned_items(raw):',
+        s.length > 800 ? s.slice(0, 800) + '...<truncated>' : s
+      );
+    }
+    if (Array.isArray(req.files)) {
+      console.log(
+        '[RETURN-ONE] files(array):',
+        req.files.map((f) => ({ field: f.fieldname, size: f.size }))
+      );
+    } else {
+      console.log(
+        '[RETURN-ONE] files(obj):',
+        Object.fromEntries(
+          Object.entries(req.files || {}).map(([k, arr]) => [
+            k,
+            Array.isArray(arr) ? arr.length : 1
+          ])
+        )
+      );
+    }
+  } catch {}
+
+  try {
+    // 1) Buat Draft (pakai helper; sudah auto-fallback borrower dari Loan)
+    const { doc, loan } = await (async () => {
+      // panggil helper createDraftReturnLoan tapi kita override fallback meta di dalamnya
+      // jadi cukup panggil seperti biasa
+      const created = await createDraftReturnLoan(session, {
+        body: req.body,
+        files: req.files
+      });
+
+      // safety log
+      console.log('[RETURN-ONE] draft.created:', {
+        id: created.doc?._id?.toString(),
+        items: created.doc?.returned_items?.length,
+        borrower: created.doc?.borrower?.toString?.() || created.doc?.borrower
+      });
+
+      return created;
+    })();
+
+    // 2) Finalize langsung
     const actor = await resolveActor(req, session);
-    await finalizeReturnLoanCore(session, { loan, doc, actor });
+    console.log('[RETURN-ONE] actor:', actor);
+
+    const result = await finalizeReturnLoanCore(session, { loan, doc, actor });
+    console.log('[RETURN-ONE] finalize.result:', result);
 
     await session.commitTransaction();
     res.status(201).json({
       message: 'ReturnLoan dibuat & difinalisasi',
       id: doc._id,
-      need_review: doc.need_review
+      needs_review: doc.needs_review
     });
   } catch (err) {
     await session.abortTransaction();
+    console.error('[RETURN-ONE] error:', err?.message, err?.stack);
     throw err;
   } finally {
     session.endSession();
@@ -688,7 +747,7 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
     // set batch ini kembali ke Draft
     doc.status = 'Draft';
     doc.loan_locked = false;
-    doc.need_review = false;
+    doc.needs_review = false;
     await doc.save({ session });
 
     await session.commitTransaction();
