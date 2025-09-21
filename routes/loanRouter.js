@@ -46,9 +46,9 @@ Router.get(
   getShelvesByProductAndWarehouse
 );
 
-Router.get('/reopen/:id', reopenLoan);
-Router.get('/reject/:id', rejectLoan);
-Router.get('/approve/:id', approveLoan);
+Router.post('/reopen/:id', reopenLoan);
+Router.post('/reject/:id', rejectLoan);
+Router.post('/approve/:id', approveLoan);
 
 Router.get('/:id', getLoan)
   .put(
