@@ -23,6 +23,12 @@ const VALID_CONDS = ['Baik', 'Rusak', 'Maintenance', 'Hilang'];
 
 /* ========================= Helpers ========================= */
 
+async function getEmployeeId(req) {
+  const me = await Employee.findOne({ user: req.user.id }).select('_id').lean();
+  if (!me) throwError('Karyawan tidak ditemukan', 404);
+  return me._id;
+}
+
 const ensureObjectId = (id, label = 'ID') => {
   if (!mongoose.Types.ObjectId.isValid(id))
     throwError(`${label} tidak valid`, 400);
@@ -1141,6 +1147,82 @@ const getShelvesByWarehouse = asyncHandler(async (req, res) => {
   res.json(shelves);
 });
 
+const getAvailableLoanNumbers = asyncHandler(async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+  const search = (req.query.search || '').trim();
+
+  // filter dasar sesuai rule
+  const filter = {
+    approval: 'Disetujui',
+    circulation_status: { $in: ['Aktif', 'Pending'] }
+  };
+
+  if (req.user.role === 'karyawan') {
+    const myId = await getEmployeeId(req);
+    filter.borrower = myId;
+  }
+
+  if (search) {
+    filter.loan_number = { $regex: search, $options: 'i' };
+  }
+
+  const loans = await Loan.find(filter)
+    .select('loan_number borrower createdAt')
+    .populate('borrower', 'name')
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .lean();
+
+  if (!loans.length) {
+    return res.status(200).json({ success: true, loans: [] });
+  }
+
+  // ambil sirkulasi untuk semua loan_number sekaligus
+  const loanNumbers = loans.map((l) => l.loan_number);
+  const circs = await LoanCirculation.find({
+    loan_number: { $in: loanNumbers }
+  })
+    .select('loan_number borrowed_items')
+    .lean();
+  const circMap = new Map(circs.map((c) => [c.loan_number, c]));
+
+  const result = [];
+  for (const ln of loans) {
+    const circ = circMap.get(ln.loan_number);
+    if (!circ || !Array.isArray(circ.borrowed_items)) continue;
+
+    const retMap = await buildReturnedMap(ln.loan_number);
+
+    let remainingItems = 0;
+    let remainingQty = 0;
+    let totalQty = 0;
+
+    for (const b of circ.borrowed_items) {
+      const qty = Number(b.quantity) || 0;
+      totalQty += qty;
+      const used = retMap.get(String(b._id)) || 0;
+      const remain = Math.max(qty - used, 0);
+      if (remain > 0) {
+        remainingItems += 1;
+        remainingQty += remain;
+      }
+    }
+
+    if (remainingItems > 0) {
+      result.push({
+        loan_id: ln._id,
+        loan_number: ln.loan_number,
+        borrower_name: ln.borrower?.name || null,
+        remaining_items: remainingItems,
+        remaining_quantity: remainingQty,
+        total_quantity: totalQty
+      });
+    }
+  }
+
+  res.status(200).json({ success: true, loans: result });
+});
+
 module.exports = {
   // Draft CRUD
   createReturnLoan,
@@ -1162,5 +1244,6 @@ module.exports = {
   getMyLoanNumbers,
   getReturnForm,
   getAllWarehouse,
-  getShelvesByWarehouse
+  getShelvesByWarehouse,
+  getAvailableLoanNumbers
 };

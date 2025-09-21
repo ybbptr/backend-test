@@ -18,7 +18,8 @@ const {
   getMyLoanNumbers,
   reopenReturnLoan,
   finalizeReturnLoanById,
-  finalizeReturnLoanOneShot
+  finalizeReturnLoanOneShot,
+  getAvailableLoanNumbers
 } = require('../controller/returnLoanController');
 
 // const { createReturnLoan } = require('../controller/debug');
@@ -27,6 +28,7 @@ const { uploadProofs, filterProofFiles } = require('../utils/uploadProofs');
 
 Router.get('/all-warehouse', getAllWarehouse);
 Router.get('/shelves', getShelvesByWarehouse);
+Router.get('/loan-list', getAvailableLoanNumbers);
 
 Router.post(
   '/add-return-loan',
