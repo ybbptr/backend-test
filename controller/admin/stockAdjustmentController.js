@@ -57,28 +57,22 @@ const getStockAdjustment = asyncHandler(async (req, res) => {
   const row = await StockAdjustment.findById(req.params.id).lean();
   if (!row) throwError('Log penyesuaian stok tidak ditemukan', 404);
 
-  const actionLabel = (code) => {
-    switch (code) {
-      case 'LOAN_OUT':
-        return 'Peminjaman';
-      case 'REVERT_LOAN_OUT':
-        return 'Buka ulang peminjaman';
-      case 'RETURN_IN':
-        return 'Pengembalian';
-      case 'REVERT_RETURN':
-        return 'Batal pengembalian';
-      case 'MARK_LOST':
-        return 'Ditandai hilang';
-      case 'REVERT_MARK_LOST':
-        return 'Batalkan penandaan hilang';
-      case 'MANUAL_EDIT':
-        return 'Penyesuaian manual';
-      case 'SYSTEM_CORRECTION':
-        return 'Koreksi sistem';
-      default:
-        return code || '-';
-    }
-  };
+  const actionLabel = (code) =>
+    ({
+      LOAN_OUT: 'Peminjaman',
+      REVERT_LOAN_OUT: 'Buka ulang peminjaman',
+      RETURN_IN: 'Pengembalian',
+      REVERT_RETURN: 'Batal pengembalian',
+      MARK_LOST: 'Ditandai hilang',
+      REVERT_MARK_LOST: 'Batalkan penandaan hilang',
+      MOVE_INTERNAL: 'Transfer internal',
+      MANUAL_EDIT: 'Penyesuaian manual',
+      MANUAL_CORRECTION: 'Koreksi manual',
+      SYSTEM_CORRECTION: 'Koreksi sistem',
+      CHANGE_CONDITION: 'Perubahan kondisi'
+    }[code] ||
+    code ||
+    '-');
 
   const direction =
     row.delta > 0 ? 'Masuk' : row.delta < 0 ? 'Keluar' : 'Netral';
