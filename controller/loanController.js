@@ -270,7 +270,7 @@ const approveLoan = asyncHandler(async (req, res) => {
         bucket: 'ON_HAND',
         delta: -it.quantity,
         reason_code: 'LOAN_OUT',
-        reason_note: `Loan ${loan.loan_number}`,
+        reason_note: `Barang keluar di peminjaman ${loan.loan_number}`,
         actor,
         correlation: { loan_id: loan._id, loan_number: loan.loan_number }
       });
@@ -279,7 +279,7 @@ const approveLoan = asyncHandler(async (req, res) => {
         bucket: 'ON_LOAN',
         delta: +it.quantity,
         reason_code: 'LOAN_OUT',
-        reason_note: `Loan ${loan.loan_number}`,
+        reason_note: `Barang dipinjam di peminjaman ${loan.loan_number}`,
         actor,
         correlation: { loan_id: loan._id, loan_number: loan.loan_number }
       });
@@ -433,7 +433,7 @@ const reopenLoan = asyncHandler(async (req, res) => {
         bucket: 'ON_HAND',
         delta: +it.quantity,
         reason_code: 'REVERT_LOAN_OUT',
-        reason_note: `Reopen Loan ${loan.loan_number}`,
+        reason_note: `Buka ulang data peminjaman ${loan.loan_number}`,
         actor,
         correlation: { loan_id: loan._id, loan_number: loan.loan_number }
       });
@@ -442,7 +442,7 @@ const reopenLoan = asyncHandler(async (req, res) => {
         bucket: 'ON_LOAN',
         delta: -it.quantity,
         reason_code: 'REVERT_LOAN_OUT',
-        reason_note: `Reopen Loan ${loan.loan_number}`,
+        reason_note: `Buka ulang data peminjaman ${loan.loan_number}`,
         actor,
         correlation: { loan_id: loan._id, loan_number: loan.loan_number }
       });

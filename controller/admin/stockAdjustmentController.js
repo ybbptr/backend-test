@@ -2,42 +2,17 @@ const asyncHandler = require('express-async-handler');
 const StockAdjustment = require('../../model/stockAdjustmentModel');
 const throwError = require('../../utils/throwError');
 
-// GET /stock-adjustments
 const getStockAdjustments = asyncHandler(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 10;
   const skip = (page - 1) * limit;
 
-  const {
-    bucket, // ON_HAND | ON_LOAN
-    reason_code, // LOAN_OUT | RETURN_IN | MARK_LOST | MOVE_OUT | MOVE_IN | ...
-    product_code,
-    inventory, // inventoryId
-    loan_number,
-    return_loan_id,
-    search,
-    start_date,
-    end_date,
-    sort
-  } = req.query;
+  const { loan_number, product_code, start_date, end_date } = req.query;
 
   const filter = {};
-  if (bucket) filter.bucket = bucket;
-  if (reason_code) filter.reason_code = reason_code;
-  if (inventory) filter.inventory = inventory;
+  if (loan_number) filter['correlation.loan_number'] = loan_number;
   if (product_code)
     filter['snapshot.product_code'] = new RegExp(product_code, 'i');
-  if (loan_number) filter['correlation.loan_number'] = loan_number;
-  if (return_loan_id) filter['correlation.return_loan_id'] = return_loan_id;
-
-  if (search) {
-    filter.$or = [
-      { reason_code: new RegExp(search, 'i') },
-      { reason_note: new RegExp(search, 'i') },
-      { 'snapshot.product_code': new RegExp(search, 'i') },
-      { 'snapshot.product_name': new RegExp(search, 'i') }
-    ];
-  }
 
   if (start_date || end_date) {
     filter.createdAt = {};
@@ -49,32 +24,79 @@ const getStockAdjustments = asyncHandler(async (req, res) => {
     }
   }
 
-  let sortOption = { createdAt: -1 };
-  if (sort) {
-    const [field, order] = String(sort).split(':');
-    if (field) sortOption = { [field]: order === 'asc' ? 1 : -1 };
-  }
-
   const [totalItems, rows] = await Promise.all([
     StockAdjustment.countDocuments(filter),
-    StockAdjustment.find(filter).skip(skip).limit(limit).sort(sortOption).lean()
+    StockAdjustment.find(filter)
+      .skip(skip)
+      .limit(limit)
+      .sort({ createdAt: -1 })
+      .lean()
   ]);
+
+  const mapped = rows.map((r) => ({
+    date: r.createdAt,
+    document_number: r.correlation?.loan_number || '-',
+    product: r.snapshot?.product_name || r.snapshot?.product_code || '-',
+    change: r.delta,
+    stock_after: r.after,
+    note: r.reason_note || r.reason_code
+  }));
 
   res.status(200).json({
     page,
     limit,
     totalItems,
     totalPages: Math.ceil(totalItems / limit),
-    sort: sortOption,
-    data: rows
+    data: mapped
   });
 });
 
-// GET /stock-adjustments/:id
 const getStockAdjustment = asyncHandler(async (req, res) => {
   const row = await StockAdjustment.findById(req.params.id).lean();
-  if (!row) throwError('Log adjustment tidak ditemukan!', 404);
-  res.status(200).json(row);
+  if (!row) throwError('Log penyesuaian stok tidak ditemukan', 404);
+
+  const actionLabel = (code) => {
+    switch (code) {
+      case 'LOAN_OUT':
+        return 'Peminjaman';
+      case 'REVERT_LOAN_OUT':
+        return 'Buka ulang peminjaman';
+      case 'RETURN_IN':
+        return 'Pengembalian';
+      case 'REVERT_RETURN':
+        return 'Batal pengembalian';
+      case 'MARK_LOST':
+        return 'Ditandai hilang';
+      case 'REVERT_MARK_LOST':
+        return 'Batalkan penandaan hilang';
+      case 'MANUAL_EDIT':
+        return 'Penyesuaian manual';
+      case 'SYSTEM_CORRECTION':
+        return 'Koreksi sistem';
+      default:
+        return code || '-';
+    }
+  };
+
+  const direction =
+    row.delta > 0 ? 'Masuk' : row.delta < 0 ? 'Keluar' : 'Netral';
+
+  res.status(200).json({
+    date: row.createdAt, // waktu log
+    document_number: row.correlation?.loan_number || null, // nomor peminjaman (jika ada)
+    product: {
+      code: row.snapshot?.product_code || null,
+      name: row.snapshot?.product_name || null,
+      brand: row.snapshot?.brand || null
+    },
+    action: actionLabel(row.reason_code), // label aksi (Indonesia)
+    bucket: row.bucket, // ON_HAND / ON_LOAN
+    change: row.delta, // +/- perubahan
+    before: row.before, // stok sebelum
+    after: row.after, // stok sesudah
+    direction, // Masuk/Keluar/Netral
+    note: row.reason_note || null // catatan (opsional)
+  });
 });
 
 // (opsional) DELETE /stock-adjustments/remove/:id

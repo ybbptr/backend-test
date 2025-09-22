@@ -93,6 +93,12 @@ const addWarehouse = asyncHandler(async (req, res) => {
   }
 });
 
+const getShelvesByWarehouse = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const shelves = await Shelf.find({ warehouse: id }).select('shelf_name');
+  res.json({ success: true, data: shelves });
+});
+
 const getWarehouses = asyncHandler(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 10;
@@ -259,5 +265,6 @@ module.exports = {
   getWarehouses,
   removeWarehouse,
   updateWarehouse,
-  getWarehouse
+  getWarehouse,
+  getShelvesByWarehouse
 };

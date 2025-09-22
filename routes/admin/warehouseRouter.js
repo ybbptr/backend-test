@@ -6,9 +6,10 @@ const { imageUploader } = require('../../utils/fileUploader');
 const {
   addWarehouse,
   getWarehouses,
+  getWarehouse,
   removeWarehouse,
   updateWarehouse,
-  getWarehouse
+  getShelvesByWarehouse
 } = require('../../controller/admin/warehouseController');
 const validate = require('../../middleware/validations/validate');
 const {
@@ -58,5 +59,6 @@ Router.put(
 Router.delete('/remove/:id', removeWarehouse);
 
 Router.get('/:id', getWarehouse);
+Router.get('/:id/shelves', getShelvesByWarehouse);
 
 module.exports = Router;
