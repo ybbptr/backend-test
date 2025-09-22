@@ -23,6 +23,26 @@ const VALID_CONDS = ['Baik', 'Rusak', 'Maintenance', 'Hilang'];
 
 /* ========================= Helpers ========================= */
 
+async function resolveBorrower(loan, session) {
+  const borrowerId =
+    loan?.borrower && loan.borrower._id ? loan.borrower._id : loan?.borrower;
+
+  let borrowerName = loan?.borrower?.name || null;
+
+  if (!borrowerName && borrowerId) {
+    const emp = await Employee.findById(borrowerId)
+      .select('name')
+      .session(session)
+      .lean();
+    borrowerName = emp?.name || null;
+  }
+
+  return {
+    borrowerId: borrowerId || null,
+    borrowerName: borrowerName || 'Unknown'
+  };
+}
+
 async function getEmployeeId(req) {
   const me = await Employee.findOne({ user: req.user.id }).select('_id').lean();
   if (!me) throwError('Karyawan tidak ditemukan', 404);
@@ -316,10 +336,10 @@ async function createDraftReturnLoan(session, req) {
   return { loan, doc };
 }
 
-// Finalisasi satu ReturnLoan draft → gerak stok, log, recompute
 async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
-  if (doc.status !== 'Draft')
+  if (doc.status !== 'Draft') {
     throwError('Batch bukan Draft, tidak bisa difinalisasi', 400);
+  }
 
   const circulation = await LoanCirculation.findOne({
     loan_number: doc.loan_number
@@ -333,13 +353,16 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
     items: doc.returned_items || []
   });
 
+  // Pastikan identitas peminjam terisi untuk log
+  const { borrowerId, borrowerName } = await resolveBorrower(loan, session);
+
   const circulationLogs = [];
   let hasLost = false;
 
   for (const ret of doc.returned_items || []) {
     const inv = await Inventory.findById(ret.inventory)
       .populate('product', 'product_code brand')
-      .populate('warehouse', '_id') // jaga-jaga
+      .populate('warehouse', '_id') // antisipasi jika bukan ObjectId murni
       .populate('shelf', '_id')
       .session(session);
     if (!inv) throwError('Inventory tidak ditemukan', 404);
@@ -350,7 +373,7 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
     if (ret.condition_new === 'Hilang') {
       hasLost = true;
 
-      // Turunkan ON_LOAN (barang dipastikan tidak kembali)
+      // Ledger: turunkan ON_LOAN (barang dipastikan tidak kembali)
       await applyAdjustment(session, {
         inventoryId: inv._id,
         bucket: 'ON_LOAN',
@@ -365,7 +388,7 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
         }
       });
 
-      // Tidak sentuh identity inv
+      // Sinkronkan snapshot inventory
       inv.on_loan -= ret.quantity;
       await inv.save({ session });
     } else {
@@ -376,27 +399,57 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
         ret.shelf_return ?? (inv.shelf?._id || inv.shelf || null);
       const targetCond = ret.condition_new || inv.condition;
 
+      // Cek apakah identitas target sama dengan dokumen saat ini (hindari dup key)
       const sameIdentity =
         String(targetWarehouse) === String(inv.warehouse) &&
         String(targetShelf || '') === String(inv.shelf || '') &&
         targetCond === inv.condition;
 
+      // Ledger: ON_LOAN turun, ON_HAND naik
+      await applyAdjustment(session, {
+        inventoryId: inv._id,
+        bucket: 'ON_LOAN',
+        delta: -ret.quantity,
+        reason_code: 'RETURN_IN',
+        reason_note: `Return in (ReturnLoan ${doc._id})`,
+        actor,
+        correlation: {
+          loan_id: loan._id,
+          loan_number: loan.loan_number,
+          return_loan_id: doc._id
+        }
+      });
+
       if (sameIdentity) {
-        // Aman di doc yang sama -> tidak ada risiko duplicate key
         inv.on_hand += ret.quantity;
-        inv.on_loan -= ret.quantity;
+        inv.on_loan -= ret.quantity; // sudah dikurangi di ledger; ini untuk snapshot
         inv.last_in_at = new Date();
         await inv.save({ session });
+
+        // Ledger untuk ON_HAND (pakai dokumen yang sama)
+        await applyAdjustment(session, {
+          inventoryId: inv._id,
+          bucket: 'ON_HAND',
+          delta: +ret.quantity,
+          reason_code: 'RETURN_IN',
+          reason_note: `Return in (ReturnLoan ${doc._id})`,
+          actor,
+          correlation: {
+            loan_id: loan._id,
+            loan_number: loan.loan_number,
+            return_loan_id: doc._id
+          }
+        });
       } else {
-        // Kurangi pinjaman di sumber
+        // Kurangi pinjaman dari sumber (snapshot)
         inv.on_loan -= ret.quantity;
         await inv.save({ session });
-        // Optional cleanup kalau kosong total
+        // Hapus jika kosong total
         if ((inv.on_hand || 0) <= 0 && (inv.on_loan || 0) <= 0) {
           await Inventory.deleteOne({ _id: inv._id }).session(session);
         }
 
-        // Tambah stok ke target (merge kalau sudah ada)
+        // Tambahkan ke target (merge jika sudah ada)
         let target = await Inventory.findOne({
           product: inv.product,
           warehouse: targetWarehouse,
@@ -408,6 +461,20 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
           target.on_hand += ret.quantity;
           target.last_in_at = new Date();
           await target.save({ session });
+
+          await applyAdjustment(session, {
+            inventoryId: target._id,
+            bucket: 'ON_HAND',
+            delta: +ret.quantity,
+            reason_code: 'RETURN_IN',
+            reason_note: `Return in (ReturnLoan ${doc._id})`,
+            actor,
+            correlation: {
+              loan_id: loan._id,
+              loan_number: loan.loan_number,
+              return_loan_id: doc._id
+            }
+          });
         } else {
           const created = await Inventory.create(
             [
@@ -424,6 +491,20 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
             { session }
           );
           target = created[0];
+
+          await applyAdjustment(session, {
+            inventoryId: target._id,
+            bucket: 'ON_HAND',
+            delta: +ret.quantity,
+            reason_code: 'RETURN_IN',
+            reason_note: `Return in (ReturnLoan ${doc._id})`,
+            actor,
+            correlation: {
+              loan_id: loan._id,
+              loan_number: loan.loan_number,
+              return_loan_id: doc._id
+            }
+          });
         }
       }
 
@@ -443,10 +524,9 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
         warehouse_to: ret.warehouse_return,
         shelf_to: ret.shelf_return,
 
-        // ⬇️ ⬇️ perbaikan field yang diwajibkan model
-        moved_by: loan.borrower, // ObjectId karyawan peminjam
+        moved_by: borrowerId, // ObjectId (Employee)
         moved_by_model: 'Employee', // nama model referensi
-        moved_by_name: loan.borrower?.name || 'Unknown',
+        moved_by_name: borrowerName, // nama employee
 
         loan_id: loan._id,
         loan_number: loan.loan_number,
@@ -454,7 +534,7 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
       });
     }
 
-    // Tanggal return per item (opsional untuk FE)
+    // Tanggal return per item (untuk tracking)
     circItem.return_date_circulation = new Date();
   }
 
@@ -467,11 +547,10 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
 
   // Tandai batch final
   doc.status = 'Dikembalikan';
-  doc.need_review = !!hasLost; // hilang → perlu tinjauan
+  doc.needs_review = !!hasLost;
   doc.loan_locked = true;
   await doc.save({ session });
 
-  // Kunci Loan supaya tidak diutak-atik selama ada batch final
   await Loan.updateOne(
     { _id: loan._id },
     { $set: { loan_locked: true } },
@@ -1157,7 +1236,7 @@ const getAvailableLoanNumbers = asyncHandler(async (req, res) => {
     circulation_status: { $in: ['Aktif', 'Pending'] }
   };
 
-  if (req.user.role === 'karyawan') {
+  if (req.user?.role === 'karyawan') {
     const myId = await getEmployeeId(req);
     filter.borrower = myId;
   }
