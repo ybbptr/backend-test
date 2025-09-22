@@ -33,13 +33,15 @@ const getStockAdjustments = asyncHandler(async (req, res) => {
       .lean()
   ]);
 
-  const mapped = rows.map((r) => ({
+  const data = rows.map((r) => ({
+    id: String(r._id),
     date: r.createdAt,
-    document_number: r.correlation?.loan_number || '-',
-    product: r.snapshot?.product_name || r.snapshot?.product_code || '-',
+    document_number: r.correlation?.loan_number || null,
+    product_code: r.snapshot?.product_code || null, // dipisah
+    brand: r.snapshot?.brand || null, // dipisah
     change: r.delta,
     stock_after: r.after,
-    note: r.reason_note || r.reason_code
+    note: r.reason_note || r.reason_code || null
   }));
 
   res.status(200).json({
@@ -47,7 +49,7 @@ const getStockAdjustments = asyncHandler(async (req, res) => {
     limit,
     totalItems,
     totalPages: Math.ceil(totalItems / limit),
-    data: mapped
+    data
   });
 });
 
@@ -90,7 +92,6 @@ const getStockAdjustment = asyncHandler(async (req, res) => {
       brand: row.snapshot?.brand || null
     },
     action: actionLabel(row.reason_code), // label aksi (Indonesia)
-    bucket: row.bucket, // ON_HAND / ON_LOAN
     change: row.delta, // +/- perubahan
     before: row.before, // stok sebelum
     after: row.after, // stok sesudah
@@ -99,7 +100,6 @@ const getStockAdjustment = asyncHandler(async (req, res) => {
   });
 });
 
-// (opsional) DELETE /stock-adjustments/remove/:id
 const removeStockAdjustment = asyncHandler(async (req, res) => {
   const row = await StockAdjustment.findById(req.params.id);
   if (!row) throwError('Log adjustment tidak ditemukan!', 404);
