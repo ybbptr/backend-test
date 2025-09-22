@@ -19,24 +19,24 @@ const REASON_CODES = [
 
 const CorrelationSchema = new Schema(
   {
-    loan_id: { type: ObjectId, ref: 'Loan', default: null },
+    loan_id: { type: Types.ObjectId, ref: 'Loan', default: null },
     loan_number: { type: String, default: null },
-    return_loan_id: { type: ObjectId, ref: 'ReturnLoan', default: null }
+    return_loan_id: { type: Types.ObjectId, ref: 'ReturnLoan', default: null }
   },
   { _id: false }
 );
 
 const SnapshotSchema = new Schema(
   {
-    product_id: { type: ObjectId, ref: 'Product', default: null },
+    product_id: { type: Types.ObjectId, ref: 'Product', default: null },
     product_code: { type: String, default: null },
     product_name: { type: String, default: null },
     brand: { type: String, default: null },
 
-    warehouse_id: { type: ObjectId, ref: 'Warehouse', default: null },
+    warehouse_id: { type: Types.ObjectId, ref: 'Warehouse', default: null },
     warehouse_name: { type: String, default: null },
 
-    shelf_id: { type: ObjectId, ref: 'Shelf', default: null },
+    shelf_id: { type: Types.ObjectId, ref: 'Shelf', default: null },
     shelf_name: { type: String, default: null }
   },
   { _id: false }
@@ -44,9 +44,9 @@ const SnapshotSchema = new Schema(
 
 const StockAdjustmentSchema = new Schema(
   {
-    inventory: { type: ObjectId, ref: 'Inventory', required: true },
+    inventory: { type: Types.ObjectId, ref: 'Inventory', required: true },
 
-    bucket: { type: String, enum: VALID_BUCKETS, required: true }, // ON_HAND / ON_LOAN
+    bucket: { type: String, enum: BUCKETS, required: true }, // ON_HAND / ON_LOAN
     delta: { type: Number, required: true },
     before: { type: Number, required: true },
     after: { type: Number, required: true },
@@ -54,7 +54,7 @@ const StockAdjustmentSchema = new Schema(
     reason_code: { type: String, enum: REASON_CODES, required: true },
     reason_note: { type: String, default: null },
 
-    actor_id: { type: ObjectId, default: null },
+    actor_id: { type: Types.ObjectId, default: null },
     actor_name: { type: String, default: 'system' },
 
     correlation: { type: CorrelationSchema, default: {} },
