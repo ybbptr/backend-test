@@ -820,7 +820,7 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
           bucket: 'ON_LOAN',
           delta: +item.quantity,
           reason_code: 'REVERT_MARK_LOST',
-          reason_note: `Reopen ReturnLoan ${doc._id}`,
+          reason_note: `Buka ulang data pengembalian`,
           actor,
           correlation: {
             loan_id: loan._id,
@@ -839,7 +839,7 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
           bucket: 'ON_HAND',
           delta: -item.quantity,
           reason_code: 'REVERT_RETURN',
-          reason_note: `Reopen ReturnLoan ${doc._id}`,
+          reason_note: `Buka ulang data pengembalian`,
           actor,
           correlation: {
             loan_id: loan._id,
@@ -852,7 +852,7 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
           bucket: 'ON_LOAN',
           delta: +item.quantity,
           reason_code: 'REVERT_RETURN',
-          reason_note: `Reopen ReturnLoan ${doc._id}`,
+          reason_note: `Buka ulang data pengembalian`,
           actor,
           correlation: {
             loan_id: loan._id,

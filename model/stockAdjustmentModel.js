@@ -13,8 +13,11 @@ const REASON_CODES = [
   'REVERT_RETURN',
   'MARK_LOST',
   'REVERT_MARK_LOST',
+  'MOVE_INTERNAL',
   'MANUAL_EDIT',
-  'SYSTEM_CORRECTION'
+  'MANUAL_CORRECTION',
+  'SYSTEM_CORRECTION',
+  'CHANGE_CONDITION'
 ];
 
 const stockAdjustmentSchema = new Schema(

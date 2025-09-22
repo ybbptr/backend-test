@@ -599,7 +599,7 @@ const moveInventory = asyncHandler(async (req, res) => {
       bucket: 'ON_HAND',
       delta: -qty,
       reason_code: 'MOVE_INTERNAL',
-      reason_note: `Pindah ke warehouse:${warehouse_to} shelf:${
+      reason_note: `Pindah ke gudang:${warehouse_to} lemari:${
         shelf_to || '-'
       } `,
       actor,
@@ -615,7 +615,9 @@ const moveInventory = asyncHandler(async (req, res) => {
       bucket: 'ON_HAND',
       delta: +qty,
       reason_code: 'MOVE_INTERNAL',
-      reason_note: `Dari inventory:${src._id}`,
+      reason_note: `Barang pindahan dari gudang:${warehouse_to} lemari:${
+        shelf_to || '-'
+      } `,
       actor,
       correlation: {
         from_inventory_id: src._id,
@@ -677,7 +679,7 @@ const updateStock = asyncHandler(async (req, res) => {
   // kompatibel ke belakang: terima "change" juga
   const qty = Number(delta ?? change);
   if (!Number.isFinite(qty) || qty === 0) {
-    throwError('Perubahan stok (delta) harus angka non-nol', 400);
+    throwError('Perubahan stok tidak boleh nol (0)', 400);
   }
 
   const session = await mongoose.startSession();
@@ -705,7 +707,7 @@ const updateStock = asyncHandler(async (req, res) => {
       bucket: 'ON_HAND',
       delta: qty,
       reason_code: 'MANUAL_CORRECTION',
-      reason_note: note || 'Manual stock correction',
+      reason_note: note || 'Koreksi jumlah stok secara manual',
       actor,
       correlation: {
         inventory_id: inv._id,

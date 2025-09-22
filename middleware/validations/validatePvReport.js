@@ -68,9 +68,10 @@ function itemsParser(itemSchema) {
 // Admin boleh supply created_by; non-admin di-strip
 const createdByField = Joi.alternatives().conditional('$role', {
   is: 'admin',
-  then: objectId
-    .optional()
-    .messages({ 'any.invalid': 'ID pembuat tidak valid' }),
+  then: objectId.optional().messages({
+    'any.invalid': 'ID pembuat tidak valid',
+    'string.empty': 'Pembuat tidak boleh kosong'
+  }),
   otherwise: Joi.any().strip()
 });
 
