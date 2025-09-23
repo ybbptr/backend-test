@@ -630,11 +630,6 @@ const rejectExpenseRequest = asyncHandler(async (req, res) => {
   }
 });
 
-/* ================= Aksi: REOPEN ================= */
-/** Reopen rules:
- * - Dari Ditolak: **owner atau admin** boleh self-reopen → kembali ke Diproses (tanpa sentuh RAP).
- * - Dari Disetujui: **admin only** → rollback RAP snapshot → kembali ke Diproses.
- */
 const reopenExpenseRequest = asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();

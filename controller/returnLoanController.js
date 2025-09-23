@@ -145,9 +145,14 @@ function parseReturnedItemsFromRequest(req) {
 
 function decideItemStatus(totalQty, totalReturned, totalLost) {
   const used = totalReturned + totalLost;
-  if (used <= 0) return 'Dipinjam';
-  if (used < totalQty) return 'Dipinjam';
-  return totalReturned > 0 ? 'Dikembalikan' : 'Hilang';
+
+  if (used <= 0) return 'Dipinjam'; // belum ada yang balik/hilang
+  if (used < totalQty) return 'Dipinjam'; // sebagian aja → masih dianggap dipinjam
+  if (used >= totalQty) {
+    if (totalReturned > 0 && totalLost === 0) return 'Dikembalikan'; // semua balik normal
+    if (totalReturned === 0 && totalLost > 0) return 'Hilang'; // semua hilang
+    return 'Selesai'; // campuran (ada yang balik, ada yang hilang)
+  }
 }
 
 // Akumulasi semua ReturnLoan FINAL ("Dikembalikan") untuk loan_number (per borrowed_item id)

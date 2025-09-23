@@ -472,7 +472,7 @@ const addPVReport = asyncHandler(async (req, res) => {
 
     await ExpenseRequest.updateOne(
       { voucher_number },
-      { $set: { request_status: 'Aktif' } },
+      { $set: { request_status: 'Aktif', pv_locked: true } },
       { session }
     );
 

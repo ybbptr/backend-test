@@ -281,32 +281,68 @@ const getProduct = asyncHandler(async (req, res) => {
 
 const removeProduct = asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
-  session.startTransaction();
+  let filesToDelete = [];
 
   try {
-    const product = await Product.findById(req.params.id);
-    if (!product) throwError('Barang tidak tersedia!', 400);
+    await session.withTransaction(async () => {
+      const product = await Product.findById(req.params.id).session(session);
+      if (!product) throwError('Barang tidak tersedia!', 404);
 
-    if (product.product_image?.key) {
-      await deleteFile(product.product_image.key);
+      // Cek total stok (opsional tapi recommended)
+      const totalsAgg = await Inventory.aggregate([
+        { $match: { product: product._id } },
+        {
+          $group: {
+            _id: null,
+            total_on_hand: { $sum: '$on_hand' },
+            total_on_loan: { $sum: '$on_loan' },
+            rows: { $sum: 1 }
+          }
+        }
+      ]).session(session);
+
+      const totals = totalsAgg[0] || {
+        total_on_hand: 0,
+        total_on_loan: 0,
+        rows: 0
+      };
+
+      if (totals.total_on_hand > 0 || totals.total_on_loan > 0) {
+        throwError(
+          `Tidak bisa menghapus produk karena masih ada stok (on_hand=${totals.total_on_hand}) atau sedang dipinjam (on_loan=${totals.total_on_loan}). Kosongkan/kembalikan dulu.`,
+          400
+        );
+      }
+
+      await Loan.updateMany(
+        { product: product._id },
+        { $set: { product: null } },
+        { session }
+      );
+
+      // HAPUS semua inventory yang terkait produk ini
+      await Inventory.deleteMany({ product: product._id }).session(session);
+
+      // Hapus dokumen product
+      await Product.deleteOne({ _id: product._id }).session(session);
+
+      filesToDelete = [product.product_image?.key, product.invoice?.key].filter(
+        Boolean
+      );
+    });
+
+    for (const key of filesToDelete) {
+      try {
+        await deleteFile(key);
+      } catch (e) {
+        console.error('Gagal hapus file:', key, e?.message);
+      }
     }
-    if (product.invoice?.key) {
-      await deleteFile(product.invoice.key);
-    }
 
-    await Loan.updateMany(
-      { product: product._id },
-      { $set: { product: null } },
-      { session }
-    );
-
-    await product.deleteOne({ session });
-
-    await session.commitTransaction();
     res.status(200).json({ message: 'Barang berhasil dihapus.' });
   } catch (err) {
-    await session.abortTransaction();
-    throwError('Gagal menghapus barang', 400);
+    console.error('removeProduct error:', err?.message);
+    throwError(err?.message || 'Gagal menghapus barang', 400);
   } finally {
     session.endSession();
   }
@@ -405,7 +441,6 @@ const getShelvesByWarehouse = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
-  // Tambah barang baru
   addProduct,
   getProducts,
   getProduct,

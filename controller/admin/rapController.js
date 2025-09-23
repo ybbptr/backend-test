@@ -141,6 +141,7 @@ const addRAP = asyncHandler(async (req, res) => {
     await ProfitReport.create(
       [
         {
+          rap: rap._id,
           project_name: rap.project_name,
           kontrak_file: rap.kontrak_file,
           nilai_pekerjaan: rap.nilai_pekerjaan,
@@ -333,12 +334,7 @@ const updateRAP = asyncHandler(async (req, res) => {
 
     // update ProfitReport sinkron
     await ProfitReport.findOneAndUpdate(
-      {
-        $or: [
-          { nomor_kontrak: oldNomorKontrak },
-          { project_name: oldProjectName }
-        ]
-      },
+      { rap: rap._id },
       {
         project_name: rap.project_name,
         kontrak_file: rap.kontrak_file,
@@ -411,37 +407,45 @@ const updateRAP = asyncHandler(async (req, res) => {
 
 const removeRAP = asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
-  session.startTransaction();
+  let kontrakKey = null;
 
   try {
-    const rap = await RAP.findById(req.params.id).session(session);
-    if (!rap) throwError('Data RAP tidak ditemukan!', 404);
+    await session.withTransaction(async () => {
+      const rap = await RAP.findById(req.params.id).session(session);
+      if (!rap) throwError('Data RAP tidak ditemukan!', 404);
 
-    if (rap.kontrak_file?.key) {
+      kontrakKey = rap.kontrak_file?.key || null;
+
+      const prog = await ProgressProject.findOne({ rap: rap._id })
+        .select('_id')
+        .session(session);
+
+      if (prog) {
+        await DailyProgress.deleteMany({ progress_project: prog._id }).session(
+          session
+        );
+        await ProgressProject.deleteOne({ _id: prog._id }, { session });
+      }
+
+      await ProfitReport.deleteMany({ rap: rap._id }, { session });
+      await RAP.deleteOne({ _id: rap._id }, { session });
+    });
+
+    if (kontrakKey) {
       try {
-        await deleteFile(rap.kontrak_file.key);
-      } catch (_) {}
+        await deleteFile(kontrakKey);
+      } catch (e) {
+        console.error('Gagal hapus file kontrak:', e?.message);
+      }
     }
 
-    await rap.deleteOne({ session });
-
-    await ProfitReport.deleteOne(
-      {
-        $or: [
-          { nomor_kontrak: rap.nomor_kontrak },
-          { project_name: rap.project_name }
-        ]
-      },
-      { session }
-    );
-
-    await session.commitTransaction();
-    res
-      .status(200)
-      .json({ message: 'Data RAP & Profit Report berhasil dihapus.' });
+    res.status(200).json({
+      message:
+        'Biaya Proyek, Progress Proyek, Progress Harian, & Rekap Proyek berhasil dihapus.'
+    });
   } catch (err) {
-    await session.abortTransaction();
-    throw err;
+    console.error('removeRAP error:', err?.message);
+    throwError(err?.message || 'Gagal menghapus data RAP', 400);
   } finally {
     session.endSession();
   }

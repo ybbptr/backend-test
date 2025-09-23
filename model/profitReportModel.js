@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { Schema, Types } = mongoose;
 
 const biayaSchema = new mongoose.Schema(
   { aktual: { type: Number, default: 0 } },
@@ -7,6 +8,11 @@ const biayaSchema = new mongoose.Schema(
 
 const profitReportSchema = new mongoose.Schema(
   {
+    rap: {
+      type: Types.ObjectId,
+      ref: 'RAP',
+      required: true
+    },
     project_name: { type: String, required: true },
 
     kontrak_file: {
