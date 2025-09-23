@@ -206,11 +206,10 @@ const verifyRegisterOtp = asyncHandler(async (req, res) => {
   const { accessToken, refreshToken } = await generateTokens(user);
 
   res
-    .clearCookie('refreshToken', { ...baseCookie, path: '/users' })
     .cookie('accessToken', accessToken, {
       ...baseCookie,
       path: '/',
-      maxAge: 35 * 60 * 1000
+      maxAge: 30 * 60 * 1000
     })
     .cookie('refreshToken', refreshToken, {
       ...baseCookie,
@@ -406,11 +405,10 @@ const verifyEmailUpdateOtp = asyncHandler(async (req, res) => {
 
   const { accessToken, refreshToken } = await generateTokens(user);
   res
-    .clearCookie('refreshToken', { ...baseCookie, path: '/users' })
     .cookie('accessToken', accessToken, {
       ...baseCookie,
       path: '/',
-      maxAge: 35 * 60 * 1000
+      maxAge: 30 * 60 * 1000
     })
     .cookie('refreshToken', refreshToken, {
       ...baseCookie,
@@ -614,7 +612,7 @@ const resetPasswordWithToken = asyncHandler(async (req, res) => {
     .cookie('accessToken', accessToken, {
       ...baseCookie,
       path: '/',
-      maxAge: 35 * 60 * 1000
+      maxAge: 30 * 60 * 1000
     })
     .cookie('refreshToken', refreshToken, {
       ...baseCookie,
@@ -680,7 +678,7 @@ const loginUser = asyncHandler(async (req, res) => {
     .cookie('accessToken', accessToken, {
       ...baseCookie,
       path: '/',
-      maxAge: 5 * 60 * 1000
+      maxAge: 30 * 60 * 1000
     })
     .cookie('refreshToken', refreshToken, {
       ...baseCookie,
@@ -772,46 +770,51 @@ const refreshToken = asyncHandler(async (req, res) => {
 
   try {
     const payload = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
-    const user = await User.findById(payload.sub);
+    const user = await User.findById(payload.sub).select(
+      '+refreshToken +prevRefreshToken'
+    );
 
-    if (!user || user.refreshToken !== token) {
+    const matchesCurrent = user?.refreshToken === token;
+    const matchesPrev = user?.prevRefreshToken === token;
+
+    if (!user || (!matchesCurrent && !matchesPrev)) {
+      res
+        .clearCookie('accessToken', { ...baseCookie })
+        .clearCookie('refreshToken', { ...baseCookie });
       return res.status(401).json({ message: 'Refresh token invalid' });
     }
 
-    // ✅ generate access & refresh baru
     const newAccessToken = jwt.sign(
       { sub: user._id.toString(), role: user.role },
       process.env.ACCESS_TOKEN_SECRET,
       { expiresIn: '30m' }
     );
-
     const newRefreshToken = jwt.sign(
       { sub: user._id.toString(), role: user.role },
       process.env.REFRESH_TOKEN_SECRET,
       { expiresIn: '7d' }
     );
 
-    await User.findByIdAndUpdate(user._id, { refreshToken: newRefreshToken });
+    // rotasi: current -> prev, new -> current
+    await User.findByIdAndUpdate(user._id, {
+      prevRefreshToken: user.refreshToken,
+      refreshToken: newRefreshToken
+    });
 
     res
-      // .clearCookie('refreshToken', { path: '/users' })
-      // .clearCookie('refreshToken', { path: '/' })
       .cookie('accessToken', newAccessToken, {
         ...baseCookie,
-        path: '/',
-        maxAge: 35 * 60 * 1000
+        maxAge: 30 * 60 * 1000
       })
       .cookie('refreshToken', newRefreshToken, {
         ...baseCookie,
-        path: '/',
         maxAge: 7 * 24 * 60 * 60 * 1000
-      });
-
-    return res.json({ message: 'Access token berhasil di refresh' });
+      })
+      .json({ message: 'Access token berhasil di refresh' });
   } catch (err) {
     res
-      .clearCookie('accessToken', { ...baseCookie, path: '/' })
-      .clearCookie('refreshToken', { ...baseCookie, path: '/' });
+      .clearCookie('accessToken', { ...baseCookie })
+      .clearCookie('refreshToken', { ...baseCookie });
     return res.status(401).json({ message: 'Refresh token invalid/expired' });
   }
 });

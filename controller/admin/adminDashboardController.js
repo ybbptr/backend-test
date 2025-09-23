@@ -65,7 +65,7 @@ const getAdminDashboard = asyncHandler(async (req, res) => {
       RAP.countDocuments(),
       ExpenseRequest.countDocuments(),
       PvReport.countDocuments(),
-      UserManagement.countDocuments(),
+      UserManagement.countDocuments({ role: { $ne: 'admin' } }),
       StockLog.countDocuments(),
       ExpenseLog.countDocuments(),
       ProfitReport.countDocuments()

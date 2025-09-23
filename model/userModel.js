@@ -55,7 +55,8 @@ const userSchema = new mongoose.Schema(
     },
     emailVerified: { type: Boolean, default: false },
     oauthId: { type: String, default: null },
-    refreshToken: { type: String, default: null }
+    refreshToken: { type: String, default: null, select: false },
+    prevRefreshToken: { type: String, default: null, select: false }
   },
 
   { timestamps: true }

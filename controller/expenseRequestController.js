@@ -372,6 +372,7 @@ const getMyExpenseRequests = asyncHandler(async (req, res) => {
       .limit(limit)
       .sort({ createdAt: -1 })
       .populate('project', 'project_name')
+      .populate('name', 'name')
   ]);
 
   res.status(200).json({
@@ -383,7 +384,6 @@ const getMyExpenseRequests = asyncHandler(async (req, res) => {
   });
 });
 
-/* ================= Update ================= */
 const updateExpenseRequest = asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -515,7 +515,6 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
   }
 });
 
-/* ================= Aksi: APPROVE (admin) ================= */
 const approveExpenseRequest = asyncHandler(async (req, res) => {
   requireAdmin(req);
 
@@ -588,7 +587,6 @@ const approveExpenseRequest = asyncHandler(async (req, res) => {
   }
 });
 
-/* ================= Aksi: REJECT (admin) ================= */
 const rejectExpenseRequest = asyncHandler(async (req, res) => {
   requireAdmin(req);
 

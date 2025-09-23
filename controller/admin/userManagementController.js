@@ -14,7 +14,7 @@ const getAllUsers = asyncHandler(async (req, res) => {
 
   const { email, name, phone, search, sort } = req.query;
 
-  const filter = { role: 'user' };
+  const filter = { role: { $ne: 'admin' } };
 
   if (email) filter.email = { $regex: email, $options: 'i' };
   if (name) filter.name = { $regex: name, $options: 'i' };
