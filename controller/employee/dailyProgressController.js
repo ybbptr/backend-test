@@ -1,9 +1,14 @@
+'use strict';
+
 const mongoose = require('mongoose');
 const asyncHandler = require('express-async-handler');
 const throwError = require('../../utils/throwError');
+
 const ProgressProject = require('../../model/progressProjectModel');
 const DailyProgress = require('../../model/dailyProgressModel');
+const Employee = require('../../model/employeeModel');
 
+/* ==================== Helpers ==================== */
 const toDateStr = (date) => {
   if (!date) return null;
   const d = new Date(date);
@@ -29,17 +34,25 @@ const pickProgress = (p = {}) => ({
   }
 });
 
+// Translate User._id (dari token) -> Employee._id
+const resolveEmployeeId = async (userId) => {
+  if (!userId) throwError('Unauthorized', 401);
+  const me = await Employee.findOne({ user: userId }).select('_id').lean();
+  if (!me) throwError('Karyawan tidak ditemukan', 404);
+  return me._id;
+};
+
+/* ==================== Controllers ==================== */
 const upsertDailyProgress = asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
     const { projectId, local_date } = req.params;
-    const authorId = req.user?.id;
-    if (!authorId) throwError('Unauthorized', 401);
+    const authorId = await resolveEmployeeId(req.user?.id); // <- Employee._id
 
     if (!/^\d{4}-\d{2}-\d{2}$/.test(local_date)) {
-      throwError('local_date harus format YYYY-MM-DD', 400);
+      throwError('Tanggal harus format YYYY-MM-DD', 400);
     }
 
     const { notes = '', items } = req.body || {};
@@ -52,12 +65,12 @@ const upsertDailyProgress = asyncHandler(async (req, res) => {
     if (!project) throwError('Project tidak ditemukan', 404);
 
     const startStr = toDateStr(project.start_date);
-    if (local_date < startStr)
+    if (startStr && local_date < startStr)
       throwError('Tanggal progress sebelum tanggal mulai proyek.', 400);
 
     if (project.end_date) {
       const endStr = toDateStr(project.end_date);
-      if (local_date > endStr)
+      if (endStr && local_date > endStr)
         throwError('Tanggal progress melewati tanggal selesai proyek.', 400);
     }
 
@@ -89,6 +102,7 @@ const upsertDailyProgress = asyncHandler(async (req, res) => {
         depth_reached: Math.max(0, Number(it.depth_reached || 0))
       }));
 
+    // hitung delta (total harian) per method
     const delta = {
       sondir: { points: 0, depthMax: 0 },
       bor: { points: 0, depthMax: 0 },
@@ -114,6 +128,7 @@ const upsertDailyProgress = asyncHandler(async (req, res) => {
     };
 
     if (existing) {
+      // hitung delta terhadap nilai sebelumnya (agar idempotent by date)
       const prev = {
         sondir: { points: 0, depthMax: 0 },
         bor: { points: 0, depthMax: 0 },
@@ -148,46 +163,63 @@ const upsertDailyProgress = asyncHandler(async (req, res) => {
       };
     }
 
+    // Validasi batas 0..total_points sesudah update
     const cur = project.progress || {};
     const nextCompleted = {
       sondir:
         (cur.sondir?.completed_points || 0) +
-        inc['progress.sondir.completed_points'],
+        (inc['progress.sondir.completed_points'] || 0),
       bor:
-        (cur.bor?.completed_points || 0) + inc['progress.bor.completed_points'],
+        (cur.bor?.completed_points || 0) +
+        (inc['progress.bor.completed_points'] || 0),
       cptu:
         (cur.cptu?.completed_points || 0) +
-        inc['progress.cptu.completed_points']
+        (inc['progress.cptu.completed_points'] || 0)
     };
-    const bad = [];
+
+    const violations = [];
     if (
       nextCompleted.sondir < 0 ||
       nextCompleted.sondir > (cur.sondir?.total_points || 0)
     )
-      bad.push('sondir');
+      violations.push(
+        `sondir (0..${cur.sondir?.total_points ?? 0}, hasil=${
+          nextCompleted.sondir
+        })`
+      );
     if (
       nextCompleted.bor < 0 ||
       nextCompleted.bor > (cur.bor?.total_points || 0)
     )
-      bad.push('bor');
+      violations.push(
+        `bor (0..${cur.bor?.total_points ?? 0}, hasil=${nextCompleted.bor})`
+      );
     if (
       nextCompleted.cptu < 0 ||
       nextCompleted.cptu > (cur.cptu?.total_points || 0)
     )
-      bad.push('cptu');
-    if (bad.length)
-      throwError(
-        `Completed points ${bad.join(', ')} keluar batas (0..total_points).`,
-        400
+      violations.push(
+        `cptu (0..${cur.cptu?.total_points ?? 0}, hasil=${nextCompleted.cptu})`
       );
+    if (violations.length)
+      throwError(`Titik selesai keluar batas: ${violations.join(', ')}`, 400);
 
+    // upsert daily progress (per author+date+project)
     const doc = await DailyProgress.findOneAndUpdate(
       { project: projectId, author: authorId, local_date },
-      { $set: { local_date, notes, items: cleanItems } },
+      {
+        $set: {
+          local_date,
+          notes,
+          items: cleanItems,
+          author: authorId,
+          project: projectId
+        }
+      },
       { new: true, upsert: true, setDefaultsOnInsert: true, session }
     );
 
-    // update progress project
+    // update progress project (aggregate counters + max depth)
     await ProgressProject.updateOne(
       { _id: projectId },
       { $inc: inc, $max: max },
@@ -220,10 +252,10 @@ const upsertDailyProgress = asyncHandler(async (req, res) => {
 
 const getDailyProgress = asyncHandler(async (req, res) => {
   const { projectId, local_date } = req.params;
-  const authorId = req.user?.id;
-  if (!authorId) throwError('Unauthorized', 401);
+  const authorId = await resolveEmployeeId(req.user?.id); // Employee._id
+
   if (!/^\d{4}-\d{2}-\d{2}$/.test(local_date))
-    throwError('local_date harus format YYYY-MM-DD', 400);
+    throwError('Tanggal harus format YYYY-MM-DD', 400);
 
   const project = await ProgressProject.findById(projectId)
     .select('start_date end_date progress')
@@ -234,7 +266,9 @@ const getDailyProgress = asyncHandler(async (req, res) => {
     project: projectId,
     author: authorId,
     local_date
-  }).lean();
+  })
+    .populate('author', 'name') // karena ref ke Employee
+    .lean();
 
   res.json({
     data: doc || null,
@@ -249,10 +283,10 @@ const removeDailyProgress = asyncHandler(async (req, res) => {
   session.startTransaction();
   try {
     const { projectId, local_date } = req.params;
-    const authorId = req.user?.id;
-    if (!authorId) throwError('Unauthorized', 401);
+    const authorId = await resolveEmployeeId(req.user?.id); // Employee._id
+
     if (!/^\d{4}-\d{2}-\d{2}$/.test(local_date))
-      throwError('local_date harus YYYY-MM-DD', 400);
+      throwError('Tanggal harus YYYY-MM-DD', 400);
 
     const project = await ProgressProject.findById(projectId).session(session);
     if (!project) throwError('Project tidak ditemukan', 404);
@@ -345,7 +379,6 @@ const removeDailyProgress = asyncHandler(async (req, res) => {
 const getAllDailyProgress = asyncHandler(async (req, res) => {
   const { projectId } = req.params;
   const { from, to, author, page = 1, limit = 20 } = req.query;
-  const me = req.user?.id;
 
   const project = await ProgressProject.findById(projectId).select('_id');
   if (!project) throwError('Project tidak ditemukan', 404);
@@ -353,14 +386,26 @@ const getAllDailyProgress = asyncHandler(async (req, res) => {
   const q = { project: projectId };
   if (from) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from))
-      throwError('from harus YYYY-MM-DD', 400);
+      throwError('Tanggal harus YYYY-MM-DD', 400);
     q.local_date = { ...(q.local_date || {}), $gte: from };
   }
   if (to) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(to)) throwError('to harus YYYY-MM-DD', 400);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(to))
+      throwError('Tanggal harus YYYY-MM-DD', 400);
     q.local_date = { ...(q.local_date || {}), $lte: to };
   }
-  if (author) q.author = author === 'me' ? me : author;
+
+  // Filter author:
+  // - "me" => terjemahkan ke Employee._id milik user saat ini
+  // - string ObjectId lain => dianggap Employee._id langsung
+  if (author) {
+    if (author === 'me') {
+      const meEmpId = await resolveEmployeeId(req.user?.id);
+      q.author = meEmpId;
+    } else {
+      q.author = author;
+    }
+  }
 
   const pg = Math.max(1, Number(page));
   const lim = Math.max(1, Math.min(100, Number(limit)));
@@ -370,7 +415,7 @@ const getAllDailyProgress = asyncHandler(async (req, res) => {
       .sort({ local_date: -1, _id: -1 })
       .skip((pg - 1) * lim)
       .limit(lim)
-      .populate('author', 'name')
+      .populate('author', 'name') // Employee
       .lean(),
     DailyProgress.countDocuments(q)
   ]);
