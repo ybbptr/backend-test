@@ -37,23 +37,31 @@ const addProduct = asyncHandler(async (req, res) => {
     const files = req.files || {};
 
     const getNonEmptySingleFile = (fieldName) => {
+      const aliasMap = {
+        product_image: 'Gambar barang',
+        invoice: 'Invoice pembelian barang'
+      };
+
+      const displayName = aliasMap[fieldName] || fieldName;
+
       const list = files[fieldName];
       if (!list || !list[0]) {
-        throwError(`File ${fieldName} wajib diupload.`, 400);
+        throwError(`File ${displayName} wajib diupload.`, 400);
       }
       const f = list[0];
 
       // Robust check ukuran
       const size = typeof f.size === 'number' ? f.size : f.buffer?.length ?? 0;
       if (!f.buffer || size <= 0) {
-        throwError(`File ${fieldName} tidak boleh kosong atau korup.`, 400);
+        throwError(`File ${displayName} tidak boleh kosong atau korup.`, 400);
       }
       if (!f.mimetype) {
-        throwError(`File ${fieldName} tidak valid.`, 400);
+        throwError(`File ${displayName} tidak valid.`, 400);
       }
       if (!f.originalname) {
-        throwError(`File ${fieldName} tidak valid (nama file kosong).`, 400);
+        throwError(`File ${displayName} tidak valid (nama file kosong).`, 400);
       }
+
       return f;
     };
 

@@ -65,6 +65,7 @@ app.use('/return-loan', require('./routes/returnLoanRouter'));
 app.use('/expense-report', require('./routes/pvReportRouter'));
 app.use('/progress-project', require('./routes/progressProjectRouter'));
 
+app.use('/admin/backup', require('./routes/admin/backupRouter'));
 app.use('/admin/products', require('./routes/admin/productRouter'));
 app.use('/admin/employees', require('./routes/admin/employeeRouter'));
 app.use('/admin/warehouses', require('./routes/admin/warehouseRouter'));

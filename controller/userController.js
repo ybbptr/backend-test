@@ -20,6 +20,10 @@ const {
   PR_TOKEN_TTL
 } = require('../utils/authTokens');
 
+const parseRemember = (req) => {
+  const v = req.body?.remember;
+  return v === true || v === 'true' || v === 1 || v === '1';
+};
 const isProd = process.env.NODE_ENV === 'production';
 const baseCookie = {
   httpOnly: true,
@@ -662,29 +666,33 @@ const resetPasswordWithToken = asyncHandler(async (req, res) => {
 
 const loginUser = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
+  const remember = parseRemember(req);
   const user = await User.findOne({ email }).select('+password');
   if (!user) throwError('Email tidak ditemukan', 401);
-
   const isValid = await bcrypt.compare(password, user.password);
   if (!isValid) throwError('Password invalid', 401);
 
-  const { accessToken, refreshToken } = await generateTokens(user);
+  const { accessToken, refreshToken } = await generateTokens(user, {
+    remember
+  });
+
+  const refreshCookieOpts = remember
+    ? { ...baseCookie, maxAge: 7 * 24 * 60 * 60 * 1000 } // persistent 7d
+    : { ...baseCookie }; // session cookie (tanpa maxAge)
 
   res.clearCookie('refreshToken', { ...baseCookie, path: '/' });
   res.clearCookie('accessToken', { ...baseCookie, path: '/' });
-
   res
     .cookie('accessToken', accessToken, {
       ...baseCookie,
-      path: '/',
       maxAge: 30 * 60 * 1000
     })
-    .cookie('refreshToken', refreshToken, {
-      ...baseCookie,
-      path: '/',
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    })
-    .json({ message: 'Login berhasil', role: user.role });
+    .cookie('refreshToken', refreshToken, refreshCookieOpts)
+    .json({
+      message: 'Login berhasil',
+      role: user.role,
+      accessExpiresInSec: 1800
+    });
 });
 
 const getCurrentUser = asyncHandler(async (req, res) => {
@@ -744,7 +752,10 @@ const logoutUser = asyncHandler(async (req, res) => {
     if (token) {
       try {
         const payload = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
-        await User.findByIdAndUpdate(payload.sub, { refreshToken: null });
+        await User.findByIdAndUpdate(payload.sub, {
+          refreshToken: null,
+          prevRefreshToken: null
+        });
       } catch (_) {}
     }
 
@@ -768,35 +779,41 @@ const refreshToken = asyncHandler(async (req, res) => {
   try {
     const payload = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
     const user = await User.findById(payload.sub).select(
-      '+refreshToken +prevRefreshToken'
+      '+refreshToken +prevRefreshToken role'
     );
 
-    const matchesCurrent = user?.refreshToken === token;
-    const matchesPrev = user?.prevRefreshToken === token;
-
-    if (!user || (!matchesCurrent && !matchesPrev)) {
-      res
+    const ok =
+      user && (user.refreshToken === token || user.prevRefreshToken === token);
+    if (!ok) {
+      return res
         .clearCookie('accessToken', { ...baseCookie })
-        .clearCookie('refreshToken', { ...baseCookie });
-      return res.status(401).json({ message: 'Refresh token invalid' });
+        .clearCookie('refreshToken', { ...baseCookie })
+        .status(401)
+        .json({ message: 'Refresh token invalid' });
     }
 
     const newAccessToken = jwt.sign(
-      { sub: user._id.toString(), role: user.role },
+      { sub: user._id.toString(), role: user.role, name: user.name },
       process.env.ACCESS_TOKEN_SECRET,
       { expiresIn: '30m' }
     );
+
+    const remember = !!payload.remember; // pertahankan preferensi
     const newRefreshToken = jwt.sign(
-      { sub: user._id.toString(), role: user.role },
+      { sub: user._id.toString(), role: user.role, name: user.name, remember },
       process.env.REFRESH_TOKEN_SECRET,
       { expiresIn: '7d' }
     );
 
-    // rotasi: current -> prev, new -> current
     await User.findByIdAndUpdate(user._id, {
       prevRefreshToken: user.refreshToken,
       refreshToken: newRefreshToken
     });
+
+    const refreshCookieOpts = remember
+      ? { ...baseCookie, maxAge: 7 * 24 * 60 * 60 * 1000 }
+      : { ...baseCookie }; // session
+
     console.log('[rt] cookie len=', token?.length);
     console.log(
       '[rt] db current len=',
@@ -805,21 +822,22 @@ const refreshToken = asyncHandler(async (req, res) => {
       user?.prevRefreshToken?.length
     );
     console.log('[rt] path cookies:', req.headers.cookie);
+
     res
       .cookie('accessToken', newAccessToken, {
         ...baseCookie,
         maxAge: 30 * 60 * 1000
       })
-      .cookie('refreshToken', newRefreshToken, {
-        ...baseCookie,
-        maxAge: 7 * 24 * 60 * 60 * 1000
-      })
-      .json({ message: 'Access token berhasil di refresh' });
-  } catch (err) {
-    res
+      .cookie('refreshToken', newRefreshToken, refreshCookieOpts)
+      .json({
+        message: 'Access token berhasil di refresh'
+      });
+  } catch {
+    return res
       .clearCookie('accessToken', { ...baseCookie })
-      .clearCookie('refreshToken', { ...baseCookie });
-    return res.status(401).json({ message: 'Refresh token invalid/expired' });
+      .clearCookie('refreshToken', { ...baseCookie })
+      .status(401)
+      .json({ message: 'Refresh token invalid/expired' });
   }
 });
 
