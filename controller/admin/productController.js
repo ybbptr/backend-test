@@ -36,33 +36,60 @@ const addProduct = asyncHandler(async (req, res) => {
 
     const files = req.files || {};
 
+    const getNonEmptySingleFile = (fieldName) => {
+      const list = files[fieldName];
+      if (!list || !list[0]) {
+        throwError(`File ${fieldName} wajib diupload.`, 400);
+      }
+      const f = list[0];
+
+      // Robust check ukuran
+      const size = typeof f.size === 'number' ? f.size : f.buffer?.length ?? 0;
+      if (!f.buffer || size <= 0) {
+        throwError(`File ${fieldName} tidak boleh kosong atau korup.`, 400);
+      }
+      if (!f.mimetype) {
+        throwError(`File ${fieldName} tidak valid.`, 400);
+      }
+      if (!f.originalname) {
+        throwError(`File ${fieldName} tidak valid (nama file kosong).`, 400);
+      }
+      return f;
+    };
+
+    // === Wajib ada: product_image & invoice ===
+    const productImageFile = getNonEmptySingleFile('product_image');
+    const invoiceFile = getNonEmptySingleFile('invoice');
+
     // Upload gambar produk
     let productImageMeta = null;
-    if (files.product_image && files.product_image[0]) {
-      const file = files.product_image[0];
-      const ext = path.extname(file.originalname);
+    {
+      const ext = path.extname(productImageFile.originalname);
       const key = `inventaris/${product_code}/${category}_${brand}_${type}_${formatDate()}${ext}`;
-      await uploadBuffer(key, file.buffer, { contentType: file.mimetype });
+      await uploadBuffer(key, productImageFile.buffer, {
+        contentType: productImageFile.mimetype
+      });
       productImageMeta = {
         key,
-        contentType: file.mimetype,
-        size: file.size,
+        contentType: productImageFile.mimetype,
+        size: productImageFile.size ?? productImageFile.buffer.length,
         uploadedAt: new Date()
       };
     }
 
     // Upload invoice
     let invoiceMeta = null;
-    if (files.invoice && files.invoice[0]) {
-      const file = files.invoice[0];
-      const ext = path.extname(file.originalname);
+    {
+      const ext = path.extname(invoiceFile.originalname);
       const date = formatDate();
       const key = `inventaris/${product_code}/invoice_${date}${ext}`;
-      await uploadBuffer(key, file.buffer, { contentType: file.mimetype });
+      await uploadBuffer(key, invoiceFile.buffer, {
+        contentType: invoiceFile.mimetype
+      });
       invoiceMeta = {
         key,
-        contentType: file.mimetype,
-        size: file.size,
+        contentType: invoiceFile.mimetype,
+        size: invoiceFile.size ?? invoiceFile.buffer.length,
         uploadedAt: new Date()
       };
     }

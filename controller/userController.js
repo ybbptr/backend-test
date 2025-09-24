@@ -670,7 +670,6 @@ const loginUser = asyncHandler(async (req, res) => {
 
   const { accessToken, refreshToken } = await generateTokens(user);
 
-  res.clearCookie('refreshToken', { ...baseCookie, path: '/users' });
   res.clearCookie('refreshToken', { ...baseCookie, path: '/' });
   res.clearCookie('accessToken', { ...baseCookie, path: '/' });
 
@@ -750,13 +749,11 @@ const logoutUser = asyncHandler(async (req, res) => {
     }
 
     res
-      .clearCookie('refreshToken', { ...baseCookie, path: '/users' })
       .clearCookie('accessToken', { ...baseCookie, path: '/' })
       .clearCookie('refreshToken', { ...baseCookie, path: '/' })
       .json({ message: 'Berhasil logout' });
   } catch (_) {
     res
-      .clearCookie('refreshToken', { ...baseCookie, path: '/users' })
       .clearCookie('accessToken', { ...baseCookie, path: '/' })
       .clearCookie('refreshToken', { ...baseCookie, path: '/' })
       .status(200)
@@ -800,7 +797,14 @@ const refreshToken = asyncHandler(async (req, res) => {
       prevRefreshToken: user.refreshToken,
       refreshToken: newRefreshToken
     });
-
+    console.log('[rt] cookie len=', token?.length);
+    console.log(
+      '[rt] db current len=',
+      user?.refreshToken?.length,
+      'prev len=',
+      user?.prevRefreshToken?.length
+    );
+    console.log('[rt] path cookies:', req.headers.cookie);
     res
       .cookie('accessToken', newAccessToken, {
         ...baseCookie,
