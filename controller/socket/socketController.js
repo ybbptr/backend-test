@@ -72,7 +72,7 @@ async function onConnection(nsp, socket) {
 
     log('connected:', String(actor.userId), actor.role);
 
-    // join semua conv user
+    // join all conversations
     const convs = await Conversation.find({ 'members.user': actor.userId })
       .select('_id')
       .lean();
@@ -120,7 +120,7 @@ async function onConnection(nsp, socket) {
           }
         }
 
-        // attachments cleaning
+        // sanitize attachments
         const cleaned = (attachments || [])
           .map((a) => ({
             key: a?.key,
@@ -134,10 +134,11 @@ async function onConnection(nsp, socket) {
           throw new Error('Pesan kosong');
         }
 
-        // promotion rule
+        // PROMOTION RULE
         const promoted = [];
         for (const a of cleaned) {
           const isCustomerConv = conv.type === 'customer';
+
           if (isCustomerConv) {
             if (a.key.startsWith('customer/')) {
               promoted.push(a);
@@ -180,18 +181,45 @@ async function onConnection(nsp, socket) {
 
         const dto = mapMessage(msg);
 
+        // broadcast ke seluruh anggota room
         nsp.to(String(conversationId)).emit('chat:new', dto);
 
+        // ack langsung jadi delivered (✓✓ abu-abu)
+        ackOk(ack, { message: dto });
+
+        // broadcast delivered ke semua anggota
         nsp.to(String(conversationId)).emit('chat:delivered', {
           conversationId: String(conversationId),
-          messageId: String(msg._id),
+          messageIds: [String(msg._id)],
           at: new Date()
         });
-
-        // ack ke pengirim
-        ackOk(ack, { message: dto });
       } catch (e) {
         ackErr(ack, e);
+      }
+    });
+
+    // delivered event manual dari FE
+    socket.on('chat:delivered', async ({ conversationId, messageIds }) => {
+      try {
+        if (!conversationId || !isValidId(conversationId)) return;
+        if (!Array.isArray(messageIds) || !messageIds.length) return;
+
+        const exists = await Conversation.exists({
+          _id: conversationId,
+          'members.user': actor.userId
+        });
+        if (!exists) return;
+
+        const at = new Date();
+
+        nsp.to(String(conversationId)).emit('chat:delivered', {
+          conversationId,
+          userId: String(actor.userId),
+          messageIds: messageIds.map(String),
+          at
+        });
+      } catch (e) {
+        log('chat:delivered error', e.message);
       }
     });
 
@@ -206,7 +234,7 @@ async function onConnection(nsp, socket) {
       });
     });
 
-    // read receipt (✓✓ biru)
+    // read receipt
     socket.on('chat:read', async ({ conversationId }) => {
       try {
         if (!conversationId || !isValidId(conversationId)) return;
@@ -224,7 +252,6 @@ async function onConnection(nsp, socket) {
           { $set: { 'members.$.lastReadAt': at } }
         );
 
-        // broadcast ke semua anggota (termasuk pengirim)
         nsp.to(String(conversationId)).emit('chat:read', {
           conversationId,
           userId: String(actor.userId),
@@ -284,7 +311,7 @@ async function onConnection(nsp, socket) {
       }
     });
 
-    // join/leave room
+    // join room baru
     socket.on('conv:join', async ({ conversationId }, ack) => {
       try {
         if (!conversationId || !isValidId(conversationId)) {
@@ -301,6 +328,7 @@ async function onConnection(nsp, socket) {
         ackErr(ack, e);
       }
     });
+
     socket.on('conv:leave', ({ conversationId }) => {
       if (!conversationId || !isValidId(conversationId)) return;
       socket.leave(String(conversationId));
@@ -309,7 +337,8 @@ async function onConnection(nsp, socket) {
     // announcement
     socket.on('announcement:send', async ({ title, text }, ack) => {
       try {
-        if (roleLower !== 'admin') throw new Error('Forbidden');
+        const roleLower2 = String(actor.role || '').toLowerCase();
+        if (roleLower2 !== 'admin') throw new Error('Forbidden');
 
         const conv = await Conversation.create({
           type: 'announcement',
