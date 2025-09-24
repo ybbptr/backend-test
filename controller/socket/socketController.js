@@ -35,7 +35,6 @@ const mapMessage = (m) => ({
   deletedAt: m.deletedAt || null
 });
 
-/* ===== helpers ===== */
 const isValidId = (v) => Types.ObjectId.isValid(String(v));
 
 /** COOKIE ONLY */
@@ -73,7 +72,7 @@ async function onConnection(nsp, socket) {
 
     log('connected:', String(actor.userId), actor.role);
 
-    // join all conversations
+    // join semua conv user
     const convs = await Conversation.find({ 'members.user': actor.userId })
       .select('_id')
       .lean();
@@ -121,7 +120,7 @@ async function onConnection(nsp, socket) {
           }
         }
 
-        // sanitize attachments
+        // attachments cleaning
         const cleaned = (attachments || [])
           .map((a) => ({
             key: a?.key,
@@ -135,13 +134,10 @@ async function onConnection(nsp, socket) {
           throw new Error('Pesan kosong');
         }
 
-        // PROMOTION RULE:
-        // - conversation customer => semua attachment harus ke 'customer/...'
-        // - selain itu => tmp/* (kalau ada) dipromosikan ke 'chat/...'
+        // promotion rule
         const promoted = [];
         for (const a of cleaned) {
           const isCustomerConv = conv.type === 'customer';
-
           if (isCustomerConv) {
             if (a.key.startsWith('customer/')) {
               promoted.push(a);
@@ -184,10 +180,15 @@ async function onConnection(nsp, socket) {
 
         const dto = mapMessage(msg);
 
-        // broadcast ke seluruh anggota room (termasuk pengirim)
         nsp.to(String(conversationId)).emit('chat:new', dto);
 
-        // ack supaya FE bisa langsung set "delivered" (✓✓ abu-abu)
+        nsp.to(String(conversationId)).emit('chat:delivered', {
+          conversationId: String(conversationId),
+          messageId: String(msg._id),
+          at: new Date()
+        });
+
+        // ack ke pengirim
         ackOk(ack, { message: dto });
       } catch (e) {
         ackErr(ack, e);
@@ -205,11 +206,11 @@ async function onConnection(nsp, socket) {
       });
     });
 
+    // read receipt (✓✓ biru)
     socket.on('chat:read', async ({ conversationId }) => {
       try {
         if (!conversationId || !isValidId(conversationId)) return;
 
-        // pastikan dia anggota
         const exists = await Conversation.exists({
           _id: conversationId,
           'members.user': actor.userId
@@ -223,7 +224,7 @@ async function onConnection(nsp, socket) {
           { $set: { 'members.$.lastReadAt': at } }
         );
 
-        // gunakan nsp.to(...) agar PENGIRIM juga menerima event ini
+        // broadcast ke semua anggota (termasuk pengirim)
         nsp.to(String(conversationId)).emit('chat:read', {
           conversationId,
           userId: String(actor.userId),
@@ -232,7 +233,7 @@ async function onConnection(nsp, socket) {
       } catch (_) {}
     });
 
-    // hapus pesan (soft) + hapus file
+    // hapus pesan
     socket.on('chat:delete', async ({ messageId }, ack) => {
       try {
         if (!messageId || !isValidId(messageId)) {
@@ -283,7 +284,7 @@ async function onConnection(nsp, socket) {
       }
     });
 
-    // join room baru
+    // join/leave room
     socket.on('conv:join', async ({ conversationId }, ack) => {
       try {
         if (!conversationId || !isValidId(conversationId)) {
@@ -300,16 +301,15 @@ async function onConnection(nsp, socket) {
         ackErr(ack, e);
       }
     });
-
     socket.on('conv:leave', ({ conversationId }) => {
       if (!conversationId || !isValidId(conversationId)) return;
       socket.leave(String(conversationId));
     });
 
+    // announcement
     socket.on('announcement:send', async ({ title, text }, ack) => {
       try {
-        const roleLower2 = String(actor.role || '').toLowerCase();
-        if (roleLower2 !== 'admin') throw new Error('Forbidden');
+        if (roleLower !== 'admin') throw new Error('Forbidden');
 
         const conv = await Conversation.create({
           type: 'announcement',
