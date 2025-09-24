@@ -396,7 +396,7 @@ const getContacts = asyncHandler(async (req, res) => {
     .lean();
 
   const contacts = employees.map((e) => ({
-    userId: e.user ? String(e.user) : null,
+    userId: e.user._id,
     id: String(e._id),
     name: e.name,
     role: e.user?.role || 'karyawan',
