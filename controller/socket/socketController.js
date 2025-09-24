@@ -1,6 +1,9 @@
+'use strict';
+
 const { Server } = require('socket.io');
 const cookie = require('cookie');
 const jwt = require('jsonwebtoken');
+const { Types } = require('mongoose');
 
 const Conversation = require('../../model/conversationModel');
 const Message = require('../../model/messageModel');
@@ -31,6 +34,9 @@ const mapMessage = (m) => ({
   editedAt: m.editedAt || null,
   deletedAt: m.deletedAt || null
 });
+
+/* ===== helpers ===== */
+const isValidId = (v) => Types.ObjectId.isValid(String(v));
 
 /** COOKIE ONLY */
 function getTokenFromHandshake(handshake) {
@@ -80,6 +86,7 @@ async function onConnection(nsp, socket) {
 
     /* ================== EVENTS ================== */
 
+    // kirim pesan
     socket.on('chat:send', async (payload, ack) => {
       try {
         const {
@@ -89,7 +96,10 @@ async function onConnection(nsp, socket) {
           clientId = null,
           type = 'text'
         } = payload || {};
-        if (!conversationId) throw new Error('conversationId wajib');
+
+        if (!conversationId || !isValidId(conversationId)) {
+          throw new Error('conversationId tidak valid');
+        }
 
         const conv = await Conversation.findOne({
           _id: conversationId,
@@ -98,6 +108,7 @@ async function onConnection(nsp, socket) {
         if (!conv)
           throw new Error('Percakapan tidak ditemukan / bukan anggota');
 
+        // idempotent by clientId
         if (clientId) {
           const dup = await Message.findOne({
             conversation: conv._id,
@@ -110,6 +121,7 @@ async function onConnection(nsp, socket) {
           }
         }
 
+        // sanitize attachments
         const cleaned = (attachments || [])
           .map((a) => ({
             key: a?.key,
@@ -124,7 +136,7 @@ async function onConnection(nsp, socket) {
         }
 
         // PROMOTION RULE:
-        // - jika conv.type === 'customer' => semua attachment harus berada di 'customer/...'
+        // - conversation customer => semua attachment harus ke 'customer/...'
         // - selain itu => tmp/* (kalau ada) dipromosikan ke 'chat/...'
         const promoted = [];
         for (const a of cleaned) {
@@ -132,7 +144,7 @@ async function onConnection(nsp, socket) {
 
           if (isCustomerConv) {
             if (a.key.startsWith('customer/')) {
-              promoted.push(a); // sudah benar
+              promoted.push(a);
             } else {
               const dest = a.key.startsWith('tmp/')
                 ? a.key
@@ -152,7 +164,7 @@ async function onConnection(nsp, socket) {
               await deleteFile(a.key);
               promoted.push({ ...a, key: dest });
             } else {
-              promoted.push(a); // sudah di chat/
+              promoted.push(a);
             }
           }
         }
@@ -171,15 +183,20 @@ async function onConnection(nsp, socket) {
         await conv.save();
 
         const dto = mapMessage(msg);
+
+        // broadcast ke seluruh anggota room (termasuk pengirim)
         nsp.to(String(conversationId)).emit('chat:new', dto);
+
+        // ack supaya FE bisa langsung set "delivered" (✓✓ abu-abu)
         ackOk(ack, { message: dto });
       } catch (e) {
         ackErr(ack, e);
       }
     });
 
+    // typing indikator
     socket.on('chat:typing', ({ conversationId, isTyping }) => {
-      if (!conversationId) return;
+      if (!conversationId || !isValidId(conversationId)) return;
       socket.to(String(conversationId)).emit('chat:typing', {
         conversationId,
         userId: String(actor.userId),
@@ -190,23 +207,37 @@ async function onConnection(nsp, socket) {
 
     socket.on('chat:read', async ({ conversationId }) => {
       try {
-        if (!conversationId) return;
+        if (!conversationId || !isValidId(conversationId)) return;
+
+        // pastikan dia anggota
+        const exists = await Conversation.exists({
+          _id: conversationId,
+          'members.user': actor.userId
+        });
+        if (!exists) return;
+
+        const at = new Date();
+
         await Conversation.updateOne(
           { _id: conversationId, 'members.user': actor.userId },
-          { $set: { 'members.$.lastReadAt': new Date() } }
+          { $set: { 'members.$.lastReadAt': at } }
         );
-        socket.to(String(conversationId)).emit('chat:read', {
+
+        // gunakan nsp.to(...) agar PENGIRIM juga menerima event ini
+        nsp.to(String(conversationId)).emit('chat:read', {
           conversationId,
           userId: String(actor.userId),
-          at: new Date()
+          at
         });
       } catch (_) {}
     });
 
-    // Soft delete + HAPUS FILE di Wasabi
+    // hapus pesan (soft) + hapus file
     socket.on('chat:delete', async ({ messageId }, ack) => {
       try {
-        if (!messageId) throw new Error('messageId wajib');
+        if (!messageId || !isValidId(messageId)) {
+          throw new Error('messageId tidak valid');
+        }
 
         const msg = await Message.findById(messageId);
         if (!msg) throw new Error('Pesan tidak ditemukan');
@@ -223,7 +254,8 @@ async function onConnection(nsp, socket) {
           (m) => String(m.user) === String(actor.userId)
         );
         const canManage =
-          (me && ['owner', 'admin'].includes(me.role)) || roleLower === 'admin';
+          (me && ['owner', 'admin'].includes(me.role)) ||
+          String(actor.role || '').toLowerCase() === 'admin';
         const isSender = String(msg.sender) === String(actor.userId);
         if (!isSender && !canManage)
           throw new Error('Tidak punya izin menghapus');
@@ -251,9 +283,12 @@ async function onConnection(nsp, socket) {
       }
     });
 
+    // join room baru
     socket.on('conv:join', async ({ conversationId }, ack) => {
       try {
-        if (!conversationId) throw new Error('conversationId wajib');
+        if (!conversationId || !isValidId(conversationId)) {
+          throw new Error('conversationId tidak valid');
+        }
         const ok = await Conversation.exists({
           _id: conversationId,
           'members.user': actor.userId
@@ -267,7 +302,7 @@ async function onConnection(nsp, socket) {
     });
 
     socket.on('conv:leave', ({ conversationId }) => {
-      if (!conversationId) return;
+      if (!conversationId || !isValidId(conversationId)) return;
       socket.leave(String(conversationId));
     });
 

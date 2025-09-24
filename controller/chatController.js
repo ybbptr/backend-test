@@ -387,23 +387,21 @@ const createAnnouncement = asyncHandler(async (req, res) => {
 // GET /chat/contacts
 const getContacts = asyncHandler(async (req, res) => {
   const role = String(req.user.role || '').toLowerCase();
+  const myUserId = req.user.id;
 
   if (role === 'user') {
     return res.json({ contacts: [] });
   }
 
-  // Ambil semua karyawan
-  const employees = await Employee.find({})
+  const employees = await Employee.find({ user: { $ne: myUserId } })
     .select('_id name user')
     .populate('user', 'role email')
     .lean();
 
-  // Ambil semua admin dari User
-  const admins = await User.find({ role: 'admin' })
+  const admins = await User.find({ role: 'admin', _id: { $ne: myUserId } })
     .select('_id role email name')
     .lean();
 
-  // Map jadi kontak
   const empContacts = employees.map((e) => ({
     userId: e.user?._id,
     id: String(e._id),
@@ -414,13 +412,13 @@ const getContacts = asyncHandler(async (req, res) => {
 
   const adminContacts = admins.map((a) => ({
     userId: a._id,
-    id: String(a._id), // tidak ada Employee._id untuk admin
+    id: String(a._id),
     name: a.name || 'Admin',
     role: a.role,
     email: a.email
   }));
 
-  // Gabungkan & hapus duplikat
+  // Gabungkan
   const contacts = [...empContacts, ...adminContacts];
 
   res.json({ contacts });
