@@ -94,7 +94,7 @@ const updateMyProfile = asyncHandler(async (req, res) => {
         }
 
         const key = `karyawan/${employee._id}/${field}_${formatDate()}${ext}`;
-        await uploadBuffer(key, file.buffer);
+        await uploadBuffer(key, file.buffer, { contentType: file.mimetype });
 
         employee.documents[field] = {
           key,

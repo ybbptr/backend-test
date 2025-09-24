@@ -444,7 +444,7 @@ const addPVReport = asyncHandler(async (req, res) => {
       const key = `Pertanggungjawaban Dana/${pv_number}/nota_${
         i + 1
       }_${formatDate()}${ext}`;
-      await uploadBuffer(key, file.buffer);
+      await uploadBuffer(key, file.buffer, { contentType: file.mimetype });
 
       pv.items.push({
         er_detail_id: src._id,
@@ -727,7 +727,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
           const key = `Pertanggungjawaban Dana/${pv.pv_number}/nota_${
             i + 1
           }_${formatDate()}${ext}`;
-          await uploadBuffer(key, file.buffer);
+          await uploadBuffer(key, file.buffer, { contentType: file.mimetype });
           merged.nota = {
             key,
             contentType: file.mimetype,

@@ -83,7 +83,7 @@ const addEmployee = asyncHandler(async (req, res) => {
         const ext = path.extname(file.originalname);
         const key = `karyawan/${employee._id}/${field}_${formatDate()}${ext}`;
 
-        await uploadBuffer(key, file.buffer);
+        await uploadBuffer(key, file.buffer, { contentType: file.mimetype });
 
         documents[field] = {
           key,
@@ -297,7 +297,7 @@ const updateEmployee = asyncHandler(async (req, res) => {
         }
 
         const key = `karyawan/${employee._id}/${field}_${formatDate()}${ext}`;
-        await uploadBuffer(key, file.buffer);
+        await uploadBuffer(key, file.buffer, { contentType: file.mimetype });
 
         employee.documents[field] = {
           key,

@@ -1,4 +1,3 @@
-// middleware/uploadProofs.js
 const multer = require('multer');
 const throwError = require('../utils/throwError');
 

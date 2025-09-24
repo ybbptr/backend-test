@@ -18,7 +18,7 @@ const addStaff = asyncHandler(async (req, res) => {
     const ext = path.extname(file.originalname);
     const key = `Staff/${staff_name}/img_${formatDate()}${ext}`;
 
-    await uploadBuffer(key, file.buffer);
+    await uploadBuffer(key, file.buffer, { contentType: file.mimetype });
 
     imgMeta = {
       key,
@@ -33,7 +33,7 @@ const addStaff = asyncHandler(async (req, res) => {
     const ext = path.extname(file.originalname);
     const key = `staff/${staff_name}/gif_${formatDate()}${ext}`;
 
-    await uploadBuffer(key, file.buffer);
+    await uploadBuffer(key, file.buffer, { contentType: file.mimetype });
 
     gifMeta = {
       key,
@@ -156,7 +156,7 @@ const updateStaff = asyncHandler(async (req, res) => {
     if (staff.img?.key) await deleteFile(staff.img.key);
 
     const key = `staff/${staff.staff_name}/img_${formatDate()}${ext}`;
-    await uploadBuffer(key, file.buffer);
+    await uploadBuffer(key, file.buffer, { contentType: file.mimetype });
 
     staff.img = {
       key,
@@ -174,7 +174,7 @@ const updateStaff = asyncHandler(async (req, res) => {
     if (staff.gif?.key) await deleteFile(staff.gif.key);
 
     const key = `Staff/${staff.staff_name}/gif_${formatDate()}${ext}`;
-    await uploadBuffer(key, file.buffer);
+    await uploadBuffer(key, file.buffer, { contentType: file.mimetype });
 
     staff.gif = {
       key,

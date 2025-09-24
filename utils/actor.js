@@ -1,7 +1,7 @@
 const Employee = require('../model/employeeModel');
 
 async function resolveActor(req, session) {
-  const userId = req.user?.id || req.user?._id || null;
+  const userId = req.user?.id || null;
   let name = req.user?.name || null;
 
   if (userId) {

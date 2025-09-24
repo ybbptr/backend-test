@@ -2,7 +2,8 @@ const {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
-  DeleteObjectCommand
+  DeleteObjectCommand,
+  CopyObjectCommand
 } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 
@@ -15,13 +16,32 @@ const s3 = new S3Client({
   }
 });
 
-async function uploadBuffer(key, body) {
-  const command = new PutObjectCommand({
+async function copyObject(srcKey, destKey, contentType) {
+  const command = new CopyObjectCommand({
+    Bucket: process.env.WASABI_BUCKET,
+    CopySource: `/${process.env.WASABI_BUCKET}/${encodeURIComponent(srcKey)}`,
+    Key: destKey,
+    MetadataDirective: 'REPLACE', // biar ContentType bisa diganti
+    ContentType: contentType // penting buat preview
+  });
+  return s3.send(command);
+}
+
+async function uploadBuffer(key, body, opts) {
+  const params = {
     Bucket: process.env.WASABI_BUCKET,
     Key: key,
     Body: body
-  });
+  };
+  // backward-compatible: boleh string atau object
+  if (typeof opts === 'string') {
+    params.ContentType = opts;
+  } else if (opts && typeof opts === 'object') {
+    if (opts.contentType) params.ContentType = opts.contentType;
+    if (opts.cacheControl) params.CacheControl = opts.cacheControl;
+  }
 
+  const command = new PutObjectCommand(params);
   return await s3.send(command);
 }
 
@@ -51,4 +71,10 @@ async function getFileStream(key) {
   return Body;
 }
 
-module.exports = { uploadBuffer, getFileUrl, deleteFile, getFileStream };
+module.exports = {
+  uploadBuffer,
+  getFileUrl,
+  deleteFile,
+  getFileStream,
+  copyObject
+};

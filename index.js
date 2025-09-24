@@ -3,7 +3,7 @@ const http = require('http');
 const path = require('path');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
-const dotenv = require('dotenv').config();
+require('dotenv').config();
 
 const connectDb = require('./config/dbConnection');
 const errorHandler = require('./middleware/errorHandler');
@@ -13,13 +13,15 @@ const socketController = require('./controller/socket/socketController');
 const app = express();
 const port = process.env.PORT || 3001;
 
+// ---------- DB ----------
 connectDb();
 
-// CORS setup
+// ---------- CORS ----------
 const allowedOrigins = [
-  'https://soilab-app.vercel.app',
+  process.env.FRONTEND_URL || 'https://soilab-app.vercel.app',
   'http://localhost:5173'
 ];
+
 app.use(
   cors({
     origin(origin, cb) {
@@ -36,23 +38,26 @@ app.use(
     credentials: true
   })
 );
+app.options('*', cors());
 
+// ---------- App setup ----------
 app.set('trust proxy', 1);
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
 
 // Static assets
 app.use('/assets', express.static(path.join(__dirname, 'public/assets')));
 
-// ---------------- PUBLIC ROUTES ---------------- //
+// ---------------- PUBLIC ROUTES ----------------
 app.use('/auth', require('./routes/authRouter'));
 app.use('/admin/staffs', require('./routes/admin/staffRouter'));
 app.use('/admin/showcases', require('./routes/admin/showcaseRouter'));
-app.use('/users', require('./routes/userRouter')); // router ini handle campuran public & protected
+app.use('/users', require('./routes/userRouter')); // campuran public/protected di dalam router ini
 
-// ---------------- PROTECTED ROUTES (global) ---------------- //
+// ---------------- PROTECTED ROUTES (global) ----------------
 app.use(validateToken);
 
+// (bisnis)
 app.use('/orders', require('./routes/orderRouter'));
 app.use('/expense-request', require('./routes/expenseRequestRouter'));
 app.use('/loans', require('./routes/loanRouter'));
@@ -88,10 +93,11 @@ app.use(
 app.use('/employee/projects', require('./routes/employee/dailyProgressRouter'));
 app.use('/employee/profile', require('./routes/employee/editProfileRouter'));
 
-// Error handler
+// ---------- CHAT ROUTES (protected) ----------
+app.use('/chat', require('./routes/chatRouter'));
+
 app.use(errorHandler);
 
-// Socket.io
 const server = http.createServer(app);
 socketController(server);
 

@@ -182,25 +182,17 @@ const upsertDailyProgress = asyncHandler(async (req, res) => {
       nextCompleted.sondir < 0 ||
       nextCompleted.sondir > (cur.sondir?.total_points || 0)
     )
-      violations.push(
-        `sondir (0..${cur.sondir?.total_points ?? 0}, hasil=${
-          nextCompleted.sondir
-        })`
-      );
+      violations.push(`Sondir`);
     if (
       nextCompleted.bor < 0 ||
       nextCompleted.bor > (cur.bor?.total_points || 0)
     )
-      violations.push(
-        `bor (0..${cur.bor?.total_points ?? 0}, hasil=${nextCompleted.bor})`
-      );
+      violations.push(`Bor`);
     if (
       nextCompleted.cptu < 0 ||
       nextCompleted.cptu > (cur.cptu?.total_points || 0)
     )
-      violations.push(
-        `cptu (0..${cur.cptu?.total_points ?? 0}, hasil=${nextCompleted.cptu})`
-      );
+      violations.push(`CPTU`);
     if (violations.length)
       throwError(`Titik selesai keluar batas: ${violations.join(', ')}`, 400);
 

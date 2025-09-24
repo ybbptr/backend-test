@@ -323,7 +323,7 @@ async function createDraftReturnLoan(session, req) {
       const key = `bukti_pengembalian_barang/${loan_number}/bukti_${
         i + 1
       }_${formatDate()}${ext}`;
-      await uploadBuffer(key, file.buffer);
+      await uploadBuffer(key, file.buffer, { contentType: file.mimetype });
       proofImage = {
         key,
         contentType: file.mimetype,
@@ -635,7 +635,7 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
         const key = `bukti_pengembalian_barang/${doc.loan_number}/bukti_${
           i + 1
         }_${formatDate()}${ext}`;
-        await uploadBuffer(key, file.buffer);
+        await uploadBuffer(key, file.buffer, { contentType: file.mimetype });
         proof = {
           key,
           contentType: file.mimetype,

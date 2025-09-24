@@ -97,7 +97,7 @@ const addRAP = asyncHandler(async (req, res) => {
     if (req.file) {
       const ext = path.extname(req.file.originalname);
       const key = `rap/${project_name}/kontrak_${formatDate()}${ext}`;
-      await uploadBuffer(key, req.file.buffer);
+      await uploadBuffer(key, req.file.buffer, { contentType: file.mimetype });
       kontrakFileMeta = {
         key,
         contentType: req.file.mimetype,
@@ -274,7 +274,7 @@ const updateRAP = asyncHandler(async (req, res) => {
         } catch (_) {}
       }
 
-      await uploadBuffer(key, req.file.buffer);
+      await uploadBuffer(key, req.file.buffer, { contentType: file.mimetype });
       rap.kontrak_file = {
         key,
         contentType: req.file.mimetype,

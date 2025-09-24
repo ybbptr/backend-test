@@ -33,7 +33,7 @@ const addWarehouse = asyncHandler(async (req, res) => {
       const ext = path.extname(file.originalname);
       const key = `gudang/${warehouse_code}/${warehouse_name}_${formatDate()}${ext}`;
 
-      await uploadBuffer(key, file.buffer);
+      await uploadBuffer(key, file.buffer, { contentType: file.mimetype });
 
       imageData = {
         key,
@@ -214,7 +214,7 @@ const updateWarehouse = asyncHandler(async (req, res) => {
     const ext = path.extname(file.originalname);
     const key = `gudang/${warehouse_code}/${warehouse_name}_${formatDate()}${ext}`;
 
-    await uploadBuffer(key, file.buffer);
+    await uploadBuffer(key, file.buffer, { contentType: file.mimetype });
 
     warehouse.warehouse_image = {
       key,

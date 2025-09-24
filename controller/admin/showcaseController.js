@@ -18,7 +18,7 @@ const addShowcase = asyncHandler(async (req, res) => {
     const ext = path.extname(file.originalname);
     const key = `showcase/${project_name}/img_${formatDate()}${ext}`;
 
-    await uploadBuffer(key, file.buffer);
+    await uploadBuffer(key, file.buffer, { contentType: file.mimetype });
 
     imgMeta = {
       key,
@@ -127,7 +127,7 @@ const updateShowcase = asyncHandler(async (req, res) => {
     }
 
     const key = `showcase/${showcase.project_name}/img_${formatDate()}${ext}`;
-    await uploadBuffer(key, file.buffer);
+    await uploadBuffer(key, file.buffer, { contentType: file.mimetype });
 
     showcase.img = {
       key,

@@ -42,7 +42,7 @@ const addNewProductInInventory = asyncHandler(async (req, res) => {
       const file = files.product_image[0];
       const ext = path.extname(file.originalname);
       const key = `inventaris/${product_code}/${category}_${brand}_${type}_${formatDate()}${ext}`;
-      await uploadBuffer(key, file.buffer);
+      await uploadBuffer(key, file.buffer, { contentType: file.mimetype });
       productImageMeta = {
         key,
         contentType: file.mimetype,
@@ -57,7 +57,7 @@ const addNewProductInInventory = asyncHandler(async (req, res) => {
       const ext = path.extname(file.originalname);
       const date = formatDate();
       const key = `inventaris/${product_code}/invoice_${date}${ext}`;
-      await uploadBuffer(key, file.buffer);
+      await uploadBuffer(key, file.buffer, { contentType: file.mimetype });
       invoiceMeta = {
         key,
         contentType: file.mimetype,
