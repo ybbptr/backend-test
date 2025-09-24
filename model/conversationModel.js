@@ -20,7 +20,7 @@ const ConversationSchema = new Schema(
   {
     type: { type: String, enum: CONV_TYPES, required: true },
     title: { type: String, trim: true }, // wajib di FE untuk group/announcement
-    createdBy: { type: Types.ObjectId, ref: 'UserManagement' },
+    createdBy: { type: Types.ObjectId, ref: 'User' },
 
     members: {
       type: [MemberSchema],
