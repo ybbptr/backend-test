@@ -3,7 +3,7 @@
 const mongoose = require('mongoose');
 const { Schema, model, Types } = mongoose;
 
-const CONV_TYPES = ['direct', 'group', 'announcement', 'customer'];
+const CONV_TYPES = ['direct', 'group', 'customer'];
 const MEMBER_ROLES = ['owner', 'admin', 'member'];
 
 const MemberSchema = new Schema(

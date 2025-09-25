@@ -310,8 +310,7 @@ const updateEmployee = asyncHandler(async (req, res) => {
 });
 
 const getAllUserEmails = asyncHandler(async (req, res) => {
-  const users = await User.find().select('email');
-
+  const users = await User.find({ role: 'user' }).select('email');
   res.json(users);
 });
 

@@ -33,7 +33,7 @@ const listConversations = asyncHandler(async (req, res) => {
 
   const match = { 'members.user': asId(actor.userId) };
 
-  // Customer hanya boleh melihat percakapan type 'customer'
+  // Customer hanya boleh lihat percakapan type 'customer'
   if (roleLower === 'user') {
     match.type = 'customer';
   } else if (type) {
@@ -99,8 +99,6 @@ const listConversations = asyncHandler(async (req, res) => {
 
 /* ========== CREATE CONVERSATION (direct/group) ========== */
 // POST /chat/conversations
-// direct: { type:"direct", memberIds:["u1","u2"] }  // UserManagement._id
-// group : { type:"group", title:"...", memberIds:["u1","u2","u3"] }
 const createConversation = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const roleLower = String(req.user.role || '').toLowerCase();
@@ -111,7 +109,7 @@ const createConversation = asyncHandler(async (req, res) => {
     throwError('memberIds wajib diisi', 400);
   }
 
-  // Customer tidak boleh create di endpoint ini (harus lewat /chat/customer/open)
+  // Customer tidak boleh create di endpoint ini
   if (roleLower === 'user') {
     throwError(
       'Customer tidak bisa membuat percakapan langsung. Gunakan /chat/customer/open',
@@ -141,7 +139,7 @@ const createConversation = asyncHandler(async (req, res) => {
   }
 
   if (type === 'announcement') {
-    throwError('Gunakan /chat/announcement untuk pengumuman', 400);
+    throwError('Fitur announcement sudah tidak tersedia', 400);
   }
 
   const members = uniqIds.map((uid) => ({
@@ -162,7 +160,7 @@ const createConversation = asyncHandler(async (req, res) => {
 });
 
 /* ========== UPDATE CONVERSATION (rename/pin) ========== */
-// PATCH /chat/conversations/:id   body: { title, pinned }
+// PATCH /chat/conversations/:id
 const updateConversation = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const { id } = req.params;
@@ -178,8 +176,8 @@ const updateConversation = asyncHandler(async (req, res) => {
     if (conv.type === 'customer') {
       throwError('Percakapan customer tidak memiliki judul untuk diubah', 400);
     }
-    if (!['group', 'announcement'].includes(conv.type)) {
-      throwError('Title hanya untuk group/announcement', 400);
+    if (conv.type !== 'group') {
+      throwError('Title hanya bisa diubah untuk grup', 400);
     }
     if (!['owner', 'admin'].includes(me.role)) {
       throwError('Hanya owner/admin grup yang bisa ganti nama', 403);
@@ -188,7 +186,7 @@ const updateConversation = asyncHandler(async (req, res) => {
   }
 
   if (typeof pinned === 'boolean') {
-    me.pinned = pinned; // preferensi per-anggota
+    me.pinned = pinned;
   }
 
   await conv.save();
@@ -197,7 +195,6 @@ const updateConversation = asyncHandler(async (req, res) => {
 
 /* ========== UPDATE MEMBERS (add/remove/role) ========== */
 // PATCH /chat/conversations/:id/members
-// body: { add:["u3","u4"], remove:["u5"], roles:[{user:"u1", role:"admin"}] }
 const updateMembers = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const { id } = req.params;
@@ -236,7 +233,6 @@ const updateMembers = asyncHandler(async (req, res) => {
   if (ownersToRemove.length >= ownersBefore.length && ownersBefore.length > 0) {
     throwError('Tidak boleh menghapus owner terakhir', 400);
   }
-  // Remove (aman)
   conv.members = conv.members.filter((m) => !removeSet.has(String(m.user)));
 
   // Ubah role
@@ -244,7 +240,6 @@ const updateMembers = asyncHandler(async (req, res) => {
     const target = conv.members.find((m) => String(m.user) === String(r.user));
     if (target) {
       if (r.role === 'owner') {
-        // pastikan hanya 1 owner: owner lama diturunkan ke admin
         conv.members.forEach((m) => {
           if (String(m.user) !== String(target.user) && m.role === 'owner')
             m.role = 'admin';
@@ -261,7 +256,7 @@ const updateMembers = asyncHandler(async (req, res) => {
 });
 
 /* ========== GET MESSAGES (paging) ========== */
-// GET /chat/conversations/:id/messages?limit=50&cursor=&dir=back
+// GET /chat/conversations/:id/messages
 const getMessages = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const { id } = req.params;
@@ -303,7 +298,6 @@ const getMessages = asyncHandler(async (req, res) => {
   const hasMore = rows.length > lim;
   const items = hasMore ? rows.slice(0, lim) : rows;
 
-  // FE biasanya maunya newest → oldest
   const normalized = dir === 'back' ? items.reverse() : items;
 
   const last = normalized[normalized.length - 1];
@@ -314,7 +308,7 @@ const getMessages = asyncHandler(async (req, res) => {
 });
 
 /* ========== OPEN CUSTOMER CHAT (TTL 24h) ========== */
-// POST /chat/customer/open   body: { customerName }
+// POST /chat/customer/open
 const openCustomerChat = asyncHandler(async (req, res) => {
   if (String(req.user.role || '').toLowerCase() !== 'user') {
     throwError('Hanya customer yang bisa membuka chat ini', 403);
@@ -322,11 +316,9 @@ const openCustomerChat = asyncHandler(async (req, res) => {
 
   const userId = asId(req.user.id);
 
-  // pilih satu admin (bisa diubah jadi round-robin nanti)
   const adminUser = await User.findOne({ role: 'Admin' }).lean();
   if (!adminUser) throwError('Tidak ada admin tersedia', 404);
 
-  // cek apakah sudah ada conversation type=customer antara user ini dan admin itu
   let conv = await Conversation.findOne({
     type: 'customer',
     'members.user': { $all: [userId, asId(adminUser._id)] }
@@ -345,45 +337,7 @@ const openCustomerChat = asyncHandler(async (req, res) => {
   res.json({ conversationId: conv._id });
 });
 
-/* ========== CREATE ANNOUNCEMENT (ADMIN ONLY) ========== */
-// POST /chat/announcement   body: { title, text }
-const createAnnouncement = asyncHandler(async (req, res) => {
-  const actor = await resolveChatActor(req);
-  if (!actor.isAdmin)
-    throwError('Hanya Admin yang boleh membuat pengumuman', 403);
-
-  const { title, text } = req.body || {};
-  if (!title || !title.trim()) throwError('title wajib diisi', 400);
-
-  const conv = await Conversation.create({
-    type: 'announcement',
-    title: title.trim(),
-    createdBy: asId(actor.userId),
-    members: [
-      {
-        user: asId(actor.userId),
-        role: 'owner',
-        lastReadAt: null,
-        pinned: false
-      }
-    ]
-  });
-
-  const msg = await Message.create({
-    conversation: conv._id,
-    sender: asId(actor.userId),
-    type: 'system',
-    text: text || ''
-  });
-
-  conv.lastMessage = msg._id;
-  conv.lastMessageAt = msg.createdAt;
-  await conv.save();
-
-  res.status(201).json({ conversation: conv, message: msg });
-});
-
-/* ========== CONTACTS (karyawan saja) ========== */
+/* ========== CONTACTS (karyawan & admin, exclude diri sendiri) ========== */
 // GET /chat/contacts
 const getContacts = asyncHandler(async (req, res) => {
   const role = String(req.user.role || '').toLowerCase();
@@ -418,15 +372,12 @@ const getContacts = asyncHandler(async (req, res) => {
     email: a.email
   }));
 
-  // Gabungkan
   const contacts = [...empContacts, ...adminContacts];
-
   res.json({ contacts });
 });
 
 module.exports = {
   listConversations,
-  createAnnouncement,
   openCustomerChat,
   getMessages,
   updateMembers,

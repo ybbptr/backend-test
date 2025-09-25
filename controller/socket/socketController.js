@@ -334,50 +334,6 @@ async function onConnection(nsp, socket) {
       socket.leave(String(conversationId));
     });
 
-    // announcement
-    socket.on('announcement:send', async ({ title, text }, ack) => {
-      try {
-        const roleLower2 = String(actor.role || '').toLowerCase();
-        if (roleLower2 !== 'admin') throw new Error('Forbidden');
-
-        const conv = await Conversation.create({
-          type: 'announcement',
-          title: (title || '').trim() || 'Pengumuman',
-          createdBy: actor.userId,
-          members: [
-            {
-              user: actor.userId,
-              role: 'owner',
-              lastReadAt: null,
-              pinned: false
-            }
-          ]
-        });
-
-        const msg = await Message.create({
-          conversation: conv._id,
-          sender: actor.userId,
-          type: 'system',
-          text: text || ''
-        });
-
-        conv.lastMessage = msg._id;
-        conv.lastMessageAt = msg.createdAt;
-        await conv.save();
-
-        const dto = mapMessage(msg);
-        nsp.to('role:employee').emit('announcement:new', {
-          conversationId: String(conv._id),
-          title: conv.title,
-          message: dto
-        });
-
-        ackOk(ack, { conversationId: String(conv._id) });
-      } catch (e) {
-        ackErr(ack, e);
-      }
-    });
-
     socket.on('disconnect', () => {
       nsp.emit('user:offline', { userId: String(actor.userId) });
       log('disconnected:', String(actor.userId));

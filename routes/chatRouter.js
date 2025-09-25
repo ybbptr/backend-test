@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const {
-  createAnnouncement,
   createConversation,
   getMessages,
   listConversations,
@@ -23,7 +22,5 @@ router.patch('/conversations/:id/members', updateMembers); // tambah/keluarin an
 
 router.get('/conversations/:id/messages', getMessages); // riwayat pesan (paging)
 router.post('/customer/open', openCustomerChat); // buat chat customer (TTL 24h)
-
-router.post('/announcement', createAnnouncement); // admin bikin pengumuman
 
 module.exports = router;
