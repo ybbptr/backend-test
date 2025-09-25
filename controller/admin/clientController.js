@@ -80,7 +80,7 @@ const removeClient = asyncHandler(async (req, res) => {
 
   try {
     const client = await Client.findById(req.params.id).session(session);
-    if (!client) throwError('Client tidak terdaftar!', 400);
+    if (!client) throwError('Data client tidak terdaftar!', 400);
 
     await RAP.updateMany(
       { client: client._id },
@@ -92,10 +92,10 @@ const removeClient = asyncHandler(async (req, res) => {
 
     await session.commitTransaction();
 
-    res.status(200).json({ message: 'Client berhasil dihapus.' });
+    res.status(200).json({ message: 'Data client berhasil dihapus.' });
   } catch (err) {
     await session.abortTransaction();
-    throwError(err.message || 'Gagal menghapus client', 400);
+    throwError(err.message || 'Gagal menghapus data client', 400);
   } finally {
     session.endSession();
   }
@@ -112,7 +112,7 @@ const updateClient = asyncHandler(async (req, res) => {
   } = req.body || {};
 
   const client = await Client.findById(req.params.id);
-  if (!client) throwError('Client berhasil dihapus', 404);
+  if (!client) throwError('Data client tidak ada', 404);
 
   client.name = name || client.name;
   client.address = address || client.address;

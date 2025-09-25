@@ -16,7 +16,7 @@ const addShowcase = asyncHandler(async (req, res) => {
   if (req.file) {
     const file = req.file;
     const ext = path.extname(file.originalname);
-    const key = `showcase/${project_name}/img_${formatDate()}${ext}`;
+    const key = `galeri_proyek/${project_name}/img_${formatDate()}${ext}`;
 
     await uploadBuffer(key, file.buffer, { contentType: file.mimetype });
 
@@ -37,7 +37,7 @@ const addShowcase = asyncHandler(async (req, res) => {
   });
 
   res.status(201).json({
-    message: 'Showcase berhasil ditambahkan',
+    message: 'Galeri proyek berhasil ditambahkan',
     data: showcase
   });
 });
@@ -96,7 +96,7 @@ const getShowcases = asyncHandler(async (req, res) => {
 
 const getShowcase = asyncHandler(async (req, res) => {
   const showcase = await Showcase.findById(req.params.id);
-  if (!showcase) throwError('Showcase tidak ditemukan!', 400);
+  if (!showcase) throwError('Galeri proyek tidak ditemukan!', 400);
 
   let imgUrl = null;
   if (showcase.img?.key) imgUrl = await getFileUrl(showcase.img.key, 86400);
@@ -111,7 +111,7 @@ const updateShowcase = asyncHandler(async (req, res) => {
   const { project_name, location, date_start, date_end } = req.body || {};
 
   const showcase = await Showcase.findById(req.params.id);
-  if (!showcase) throwError('Showcase tidak ditemukan!', 404);
+  if (!showcase) throwError('Galeri proyek tidak ditemukan!', 404);
 
   if (project_name) showcase.project_name = project_name;
   if (location) showcase.location = location;
@@ -126,7 +126,9 @@ const updateShowcase = asyncHandler(async (req, res) => {
       await deleteFile(showcase.img.key);
     }
 
-    const key = `showcase/${showcase.project_name}/img_${formatDate()}${ext}`;
+    const key = `galeri_proyek/${
+      showcase.project_name
+    }/img_${formatDate()}${ext}`;
     await uploadBuffer(key, file.buffer, { contentType: file.mimetype });
 
     showcase.img = {
@@ -139,21 +141,21 @@ const updateShowcase = asyncHandler(async (req, res) => {
 
   await showcase.save();
   res.status(200).json({
-    message: 'Showcase berhasil diperbarui',
+    message: 'Galeri proyek berhasil diperbarui',
     data: showcase
   });
 });
 
 const removeShowcase = asyncHandler(async (req, res) => {
   const showcase = await Showcase.findById(req.params.id);
-  if (!showcase) throwError('Showcase tidak ditemukan!', 400);
+  if (!showcase) throwError('Galeri proyek tidak ditemukan!', 400);
 
   if (showcase.img?.key) {
     await deleteFile(showcase.img.key);
   }
 
   await showcase.deleteOne();
-  res.status(200).json({ message: 'Showcase berhasil dihapus.' });
+  res.status(200).json({ message: 'Galeri proyek berhasil dihapus.' });
 });
 
 module.exports = {

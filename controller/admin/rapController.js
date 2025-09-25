@@ -212,7 +212,8 @@ const getAllRAP = asyncHandler(async (req, res) => {
     'createdAt',
     'project_name',
     'nomor_kontrak',
-    'nilai_pekerjaan'
+    'nilai_pekerjaan',
+    'nilai_fix_pekerjaan'
   ]);
   let sortOption = { createdAt: -1 };
   if (sort) {
@@ -224,10 +225,29 @@ const getAllRAP = asyncHandler(async (req, res) => {
 
   const totalItems = await RAP.countDocuments(filter);
   const raps = await RAP.find(filter)
+    .select(
+      'project_name client lokasi nomor_kontrak nilai_pekerjaan nilai_fix_pekerjaan createdAt updatedAt'
+    )
+    .populate('client', 'name') // ambil nama client aja
     .skip(skip)
     .limit(limit)
     .sort(sortOption)
     .lean();
+
+  // fallback nilai_pekerjaan_fix → nilai_pekerjaan
+  const data = raps.map((rap) => ({
+    _id: rap._id,
+    project_name: rap.project_name,
+    client: rap.client?.name || null,
+    location: rap.location,
+    nomor_kontrak: rap.nomor_kontrak_addendum || rap.nomor_kontrak,
+    nilai_pekerjaan:
+      rap.nilai_fix_pekerjaan != null
+        ? rap.nilai_fix_pekerjaan
+        : rap.nilai_pekerjaan,
+    createdAt: rap.createdAt,
+    updatedAt: rap.updatedAt
+  }));
 
   res.status(200).json({
     page,
@@ -235,11 +255,10 @@ const getAllRAP = asyncHandler(async (req, res) => {
     totalItems,
     totalPages: Math.ceil(totalItems / limit),
     sort: sortOption,
-    data: raps
+    data
   });
 });
 
-// GET ONE (+ kontrak url)
 const getRAP = asyncHandler(async (req, res) => {
   const rap = await RAP.findById(req.params.id);
   if (!rap) throwError('RAP tidak ditemukan!', 404);

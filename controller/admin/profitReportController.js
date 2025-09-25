@@ -158,7 +158,7 @@ const getAllProfitReports = asyncHandler(async (req, res) => {
       const m = computeMetricsFromRap(rap);
       rap_total = m.total_budget;
       total_aktual = m.total_aktual;
-      profit = m.profit; // 🔥 ambil profit dari helper
+      profit = m.profit;
     }
 
     data.push({

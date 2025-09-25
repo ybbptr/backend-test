@@ -57,7 +57,7 @@ const upsertDailyProgress = asyncHandler(async (req, res) => {
 
     const { notes = '', items } = req.body || {};
     if (!Object.prototype.hasOwnProperty.call(req.body || {}, 'items')) {
-      throwError('PUT requires full payload: field "items" wajib ada', 400);
+      throwError('Field "items" wajib ada', 400);
     }
 
     // cek project

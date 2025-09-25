@@ -58,15 +58,15 @@ const getProductCirculations = asyncHandler(async (req, res) => {
   const labelMovement = (code) => {
     switch (code) {
       case 'LOAN_OUT':
-        return 'Peminjaman (keluar)';
+        return 'Peminjaman (barang keluar)';
       case 'RETURN_IN':
-        return 'Pengembalian (masuk)';
+        return 'Pengembalian (barang masuk)';
       case 'TRANSFER':
         return 'Transfer antar gudang';
       case 'CONDITION_CHANGE':
         return 'Perubahan kondisi';
       case 'REOPEN_LOAN':
-        return 'Buka ulang peminjaman';
+        return 'Buka ulang data peminjaman';
       default:
         return code || '-';
     }
@@ -129,15 +129,15 @@ const getProductCirculation = asyncHandler(async (req, res) => {
   const labelMovement = (code) => {
     switch (code) {
       case 'LOAN_OUT':
-        return 'Peminjaman (keluar)';
+        return 'Peminjaman (barang keluar)';
       case 'RETURN_IN':
-        return 'Pengembalian (masuk)';
+        return 'Pengembalian (barang masuk)';
       case 'TRANSFER':
         return 'Transfer antar gudang';
       case 'CONDITION_CHANGE':
         return 'Perubahan kondisi';
       case 'REOPEN_LOAN':
-        return 'Buka ulang peminjaman';
+        return 'Buka ulang data peminjaman';
       default:
         return code || '-';
     }

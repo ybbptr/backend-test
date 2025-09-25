@@ -87,7 +87,7 @@ const updateProjectTotals = asyncHandler(async (req, res) => {
     const completed = Number(proj.progress[job]?.completed_points) || 0;
     if (newTotal < completed) {
       throwError(
-        `Total titik ${job} tidak boleh lebih kecil dari titik selesai (${completed})`,
+        `Total titik ${job} tidak boleh lebih kecil dari titik yang sudah selesai (${completed})`,
         400
       );
     }

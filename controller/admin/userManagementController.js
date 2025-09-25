@@ -68,7 +68,7 @@ const deleteUser = asyncHandler(async (req, res) => {
   await user.deleteOne();
 
   res.status(200).json({
-    message: 'User berhasil dihapus dan relasi employee dinullify'
+    message: 'User berhasil dihapus dan role karyawan di hapus'
   });
 });
 

@@ -66,30 +66,19 @@ function getProofFile(req, idx1) {
   return null;
 }
 
-/**
- * Parser BARU untuk membaca returned_items dari berbagai format:
- * - Array JSON langsung
- * - String JSON (termasuk double-encoded)
- * - Object {0:{...},1:{...}}
- * - Bracket notation: returned_items[0][field]
- */
 function parseReturnedItemsFromRequest(req) {
   const body = req?.body || {};
 
-  // Kandidat field yang mungkin dipakai FE
   let raw =
     body?.returned_items ??
     body?.['returned_items[]'] ??
     body?.returnedItems ??
     null;
 
-  // a) Sudah array
   if (Array.isArray(raw)) return raw;
 
-  // b) Object (mis. {0:{...},1:{...}})
   if (raw && typeof raw === 'object') return Object.values(raw);
 
-  // c) String JSON (single/double encoded)
   if (typeof raw === 'string') {
     let s = raw.trim();
     if (s) {
@@ -104,14 +93,11 @@ function parseReturnedItemsFromRequest(req) {
           const fixed = s.replace(/'/g, '"');
           const arr = JSON.parse(fixed);
           if (Array.isArray(arr)) return arr;
-        } catch {
-          // lanjut ke bracket parser
-        }
+        } catch {}
       }
     }
   }
 
-  // d) BRACKET NOTATION: returned_items[0][field]
   const REG = /^returned_items\[(\d+)\]\[([^\]]+)\]$/;
   const buckets = new Map();
 
@@ -139,7 +125,6 @@ function parseReturnedItemsFromRequest(req) {
       .map(([, obj]) => obj);
   }
 
-  // Format tidak dikenali → kosong
   return [];
 }
 
@@ -151,7 +136,7 @@ function decideItemStatus(totalQty, totalReturned, totalLost) {
   if (used >= totalQty) {
     if (totalReturned > 0 && totalLost === 0) return 'Dikembalikan'; // semua balik normal
     if (totalReturned === 0 && totalLost > 0) return 'Hilang'; // semua hilang
-    return 'Selesai'; // campuran (ada yang balik, ada yang hilang)
+    return 'Selesai';
   }
 }
 
@@ -210,10 +195,6 @@ async function recomputeCirculationAndLoan({ session, loan, circulation }) {
   await loan.save({ session });
 }
 
-/* ============================================================
-   CORE SERVICES (dipakai oleh by-id finalize & one-shot)
-   ============================================================ */
-
 // Validasi struktur & sisa kuantitas
 async function validateReturnPayloadAndSisa({ session, loan_number, items }) {
   const circulation = await LoanCirculation.findOne({ loan_number })
@@ -233,17 +214,14 @@ async function validateReturnPayloadAndSisa({ session, loan_number, items }) {
     if (!it.quantity || Number(it.quantity) <= 0)
       throwError(`quantity item #${idx + 1} harus > 0`, 400);
     if (it.condition_new !== 'Hilang' && !it.warehouse_return) {
-      throwError(
-        `Item #${idx + 1}: warehouse_return wajib untuk kondisi != "Hilang"`,
-        400
-      );
+      throwError(`Item #${idx + 1}: gudang pengembalian wajib diisi"`, 400);
     }
     if (
       it.condition_new === 'Hilang' &&
       (it.warehouse_return || it.shelf_return)
     ) {
       throwError(
-        `Item #${idx + 1}: tidak boleh isi gudang/lemari saat "Hilang"`,
+        `Item #${idx + 1}: tidak bisa isi gudang/lemari saat "Hilang"`,
         400
       );
     }
@@ -258,7 +236,7 @@ async function validateReturnPayloadAndSisa({ session, loan_number, items }) {
     const available = (circItem?.quantity || 0) - used;
     if (it.quantity > available) {
       throwError(
-        `Qty retur (${it.quantity}) > sisa (${available}) utk item ${
+        `Stok pengembalian (${it.quantity}) > sisa (${available}) untuk item ${
           it.product_code || it._id
         }`,
         400
@@ -271,14 +249,8 @@ async function validateReturnPayloadAndSisa({ session, loan_number, items }) {
 
 // Buat Draft ReturnLoan (tanpa efek stok)
 async function createDraftReturnLoan(session, req) {
-  const {
-    loan_number,
-    borrower,
-    position,
-    report_date,
-    return_date,
-    inventory_manager
-  } = req.body || {};
+  const { loan_number, position, report_date, return_date, inventory_manager } =
+    req.body || {};
   const returned_items = parseReturnedItemsFromRequest(req);
 
   if (!loan_number || returned_items.length === 0) {
@@ -288,7 +260,6 @@ async function createDraftReturnLoan(session, req) {
   const loan = await Loan.findOne({ loan_number }).session(session);
   if (!loan) throwError('Peminjaman tidak ditemukan!', 404);
   const borrowerId = req.body?.borrower || loan.borrower;
-  // Validasi struktur + sisa
   await validateReturnPayloadAndSisa({
     session,
     loan_number,
@@ -384,7 +355,7 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
         bucket: 'ON_LOAN',
         delta: -ret.quantity,
         reason_code: 'MARK_LOST',
-        reason_note: `Barang hilang (ReturnLoan ${doc._id})`,
+        reason_note: `Barang hilang di peminjaman (${loan.loan_number})`,
         actor,
         correlation: {
           loan_id: loan._id,
@@ -416,7 +387,7 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
         bucket: 'ON_LOAN',
         delta: -ret.quantity,
         reason_code: 'RETURN_IN',
-        reason_note: `Return in (ReturnLoan ${doc._id})`,
+        reason_note: `Barang dikembalikan dari peminjaman (${loan.loan_number})`,
         actor,
         correlation: {
           loan_id: loan._id,
@@ -437,7 +408,7 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
           bucket: 'ON_HAND',
           delta: +ret.quantity,
           reason_code: 'RETURN_IN',
-          reason_note: `Return in (ReturnLoan ${doc._id})`,
+          reason_note: `Barang dikembalikan dari peminjaman (${loan.loan_number})`,
           actor,
           correlation: {
             loan_id: loan._id,
@@ -472,7 +443,7 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
             bucket: 'ON_HAND',
             delta: +ret.quantity,
             reason_code: 'RETURN_IN',
-            reason_note: `Return in (ReturnLoan ${doc._id})`,
+            reason_note: `Barang dikembalikan dari peminjaman (${loan.loan_number})`,
             actor,
             correlation: {
               loan_id: loan._id,
@@ -502,7 +473,7 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
             bucket: 'ON_HAND',
             delta: +ret.quantity,
             reason_code: 'RETURN_IN',
-            reason_note: `Return in (ReturnLoan ${doc._id})`,
+            reason_note: `Barang dikembalikan dari peminjaman (${loan.loan_number})`,
             actor,
             correlation: {
               loan_id: loan._id,
@@ -711,68 +682,14 @@ const finalizeReturnLoanOneShot = asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
-  // DEBUG SNAPSHOT
   try {
-    console.log('[RETURN-ONE] content-type:', req.headers['content-type']);
-    console.log('[RETURN-ONE] body keys:', Object.keys(req.body || {}));
-    console.log('[RETURN-ONE] loan_number:', req.body?.loan_number);
-    console.log(
-      '[RETURN-ONE] typeof returned_items:',
-      typeof req.body?.returned_items,
-      'isArray=',
-      Array.isArray(req.body?.returned_items)
-    );
-    if (typeof req.body?.returned_items === 'string') {
-      const s = req.body.returned_items;
-      console.log(
-        '[RETURN-ONE] returned_items(raw):',
-        s.length > 800 ? s.slice(0, 800) + '...<truncated>' : s
-      );
-    }
-    if (Array.isArray(req.files)) {
-      console.log(
-        '[RETURN-ONE] files(array):',
-        req.files.map((f) => ({ field: f.fieldname, size: f.size }))
-      );
-    } else {
-      console.log(
-        '[RETURN-ONE] files(obj):',
-        Object.fromEntries(
-          Object.entries(req.files || {}).map(([k, arr]) => [
-            k,
-            Array.isArray(arr) ? arr.length : 1
-          ])
-        )
-      );
-    }
-  } catch {}
+    const { doc, loan } = await createDraftReturnLoan(session, {
+      body: req.body,
+      files: req.files
+    });
 
-  try {
-    // 1) Buat Draft (pakai helper; sudah auto-fallback borrower dari Loan)
-    const { doc, loan } = await (async () => {
-      // panggil helper createDraftReturnLoan tapi kita override fallback meta di dalamnya
-      // jadi cukup panggil seperti biasa
-      const created = await createDraftReturnLoan(session, {
-        body: req.body,
-        files: req.files
-      });
-
-      // safety log
-      console.log('[RETURN-ONE] draft.created:', {
-        id: created.doc?._id?.toString(),
-        items: created.doc?.returned_items?.length,
-        borrower: created.doc?.borrower?.toString?.() || created.doc?.borrower
-      });
-
-      return created;
-    })();
-
-    // 2) Finalize langsung
     const actor = await resolveActor(req, session);
-    console.log('[RETURN-ONE] actor:', actor);
-
     const result = await finalizeReturnLoanCore(session, { loan, doc, actor });
-    console.log('[RETURN-ONE] finalize.result:', result);
 
     await session.commitTransaction();
     res.status(201).json({
@@ -782,14 +699,12 @@ const finalizeReturnLoanOneShot = asyncHandler(async (req, res) => {
     });
   } catch (err) {
     await session.abortTransaction();
-    console.error('[RETURN-ONE] error:', err?.message, err?.stack);
     throw err;
   } finally {
     session.endSession();
   }
 });
 
-/** REOPEN (Dikembalikan → Draft) + rollback stok & log */
 const reopenReturnLoan = asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -798,7 +713,10 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
     const doc = await ReturnLoan.findById(req.params.id).session(session);
     if (!doc) throwError('Data pengembalian tidak ditemukan', 404);
     if (doc.status !== 'Dikembalikan')
-      throwError('Hanya batch "Dikembalikan" yang bisa Reopen', 400);
+      throwError(
+        'Hanya batch "Dikembalikan" yang bisa dibuka ulang datanya',
+        400
+      );
 
     const loan = await Loan.findOne({ loan_number: doc.loan_number }).session(
       session
@@ -978,26 +896,23 @@ const getAllReturnLoan = asyncHandler(async (req, res) => {
 
   const totalItems = await ReturnLoan.countDocuments(filter);
   const rows = await ReturnLoan.find(filter)
-    .populate('borrower', 'name')
-    .populate('returned_items.product', 'product_code brand')
-    .populate(
-      'returned_items.warehouse_return',
-      'warehouse_name warehouse_code'
+    .select(
+      'loan_number borrower returned_items report_date return_date status pv_locked'
     )
-    .populate('returned_items.shelf_return', 'shelf_name shelf_code')
-    .populate('returned_items.project', 'project_name')
+    .populate('borrower', 'name')
     .skip(skip)
     .limit(limit)
     .sort({ createdAt: -1 })
     .lean();
 
-  // Progress per loan_number: total dari circulation vs final approved
+  // Progress: total dari circulation vs final approved
   const loanNumbers = [...new Set(rows.map((r) => r.loan_number))];
   const circs = await LoanCirculation.find({
     loan_number: { $in: loanNumbers }
   })
     .select('loan_number borrowed_items.quantity')
     .lean();
+
   const totalsMap = new Map(
     circs.map((c) => [
       c.loan_number,
@@ -1035,6 +950,7 @@ const getAllReturnLoan = asyncHandler(async (req, res) => {
       }
     }
   ]);
+
   const approvedMap = new Map(
     approvedAgg.map((r) => [
       r._id,
@@ -1045,8 +961,15 @@ const getAllReturnLoan = asyncHandler(async (req, res) => {
   const data = rows.map((r) => {
     const total = totalsMap.get(r.loan_number) || 0;
     const approved = approvedMap.get(r.loan_number) || 0;
+
     return {
-      ...r,
+      loan_number: r.loan_number,
+      borrower_name: r.borrower?.name || '-',
+      report_date: r.report_date,
+      return_date: r.return_date,
+      total_item: r.returned_items?.length || 0,
+      status: r.status,
+      pv_locked: r.pv_locked || false,
       progress: { approved, total },
       progress_label: `${approved}/${total || 0}`
     };

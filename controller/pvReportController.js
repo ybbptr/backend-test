@@ -35,7 +35,7 @@ const getEmployeeId = async (req) => {
 };
 
 const ensureNotLocked = (pv) => {
-  if (pv.pv_locked) throwError('PV terkunci (pv_locked = true)', 403);
+  if (pv.pv_locked) throwError('Data pertanggungjawaban sudah terkunci', 403);
 };
 
 const ensureRole = (req, role = 'admin') => {
@@ -362,7 +362,7 @@ const ensureNoDoubleClaim = async (
 
   if (clash)
     throwError(
-      'Beberapa item sudah diklaim di batch lain. Gunakan batch tersebut (reopen) atau buat batch baru untuk item sisa.',
+      'Beberapa item sudah diklaim di batch lain. Gunakan batch tersebut (buka ulang datanya) atau buat batch baru untuk item sisa.',
       400
     );
 };
@@ -382,7 +382,7 @@ const addPVReport = asyncHandler(async (req, res) => {
   })
     .select('name project expense_type details createdAt')
     .lean();
-  if (!expenseReq) throwError('Pengajuan biaya (ER) tidak ditemukan', 404);
+  if (!expenseReq) throwError('Pengajuan biaya tidak ditemukan', 404);
 
   const erIndex = new Map(
     (expenseReq.details || []).map((d) => [String(d._id), d])
@@ -410,7 +410,7 @@ const addPVReport = asyncHandler(async (req, res) => {
     if (req.user?.role === 'admin' && req.body.created_by) {
       ensureObjectId(req.body.created_by, 'created_by');
       const chosen = await Employee.findById(req.body.created_by).select('_id');
-      if (!chosen) throwError('Karyawan (created_by) tidak ditemukan', 404);
+      if (!chosen) throwError('Karyawan tidak ditemukan', 404);
       createdById = chosen._id;
     } else {
       const me = await Employee.findOne({ user: req.user.id }).select('_id');
@@ -441,7 +441,7 @@ const addPVReport = asyncHandler(async (req, res) => {
         throwError(`Nota (bukti) untuk item #${i + 1} wajib diupload`, 400);
 
       const ext = path.extname(file.originalname);
-      const key = `Pertanggungjawaban Dana/${pv_number}/nota_${
+      const key = `pertanggungjawaban_dana/${pv_number}/nota_${
         i + 1
       }_${formatDate()}${ext}`;
       await uploadBuffer(key, file.buffer, { contentType: file.mimetype });
@@ -636,20 +636,20 @@ const updatePVReport = asyncHandler(async (req, res) => {
 
   try {
     const pv = await PVReport.findById(id).session(session);
-    if (!pv) throwError('PV Report tidak ditemukan', 404);
+    if (!pv) throwError('Data pertanggungjawaban tidak ditemukan', 404);
 
     await ensureOwnershipOrAdmin(req, pv);
     ensureNotLocked(pv);
 
     // === HARD GUARD: tidak boleh edit saat sudah Disetujui ===
     if (pv.status === 'Disetujui') {
-      throwError('Batch sudah Disetujui. Gunakan Reopen untuk koreksi.', 400);
+      throwError('Batch sudah Disetujui. Buka ulang data untuk koreksi.', 400);
     }
 
     // === Ditolak: harus self-reopen dulu (biar audit & flow rapi)
     if (pv.status === 'Ditolak') {
       throwError(
-        'PV Ditolak tidak bisa diedit. Gunakan Perbaiki & Kirim Ulang (Reopen).',
+        'Pertanggungjawaban sudah Ditolak tidak bisa diedit. Gunakan "Perbaiki & Kirim Ulang" untuk membuka data.',
         400
       );
     }
@@ -724,7 +724,7 @@ const updatePVReport = asyncHandler(async (req, res) => {
             } catch {}
           }
           const ext = path.extname(file.originalname);
-          const key = `Pertanggungjawaban Dana/${pv.pv_number}/nota_${
+          const key = `pertanggungjawaban_dana/${pv.pv_number}/nota_${
             i + 1
           }_${formatDate()}${ext}`;
           await uploadBuffer(key, file.buffer, { contentType: file.mimetype });
@@ -789,16 +789,19 @@ const approvePVReport = asyncHandler(async (req, res) => {
 
   try {
     const pv = await PVReport.findById(id).session(session);
-    if (!pv) throwError('PV Report tidak ditemukan', 404);
+    if (!pv) throwError('Data pertanggungjawaban tidak ditemukan', 404);
 
     ensureNotLocked(pv);
     if (pv.status !== 'Diproses')
-      throwError('PV harus berstatus Diproses untuk Approve', 400);
+      throwError(
+        'Data pertanggungjawaban harus berstatus Diproses untuk Disetujui',
+        400
+      );
 
     for (const it of pv.items) {
       if (toNum(it.aktual) > toNum(it.amount)) {
         throwError(
-          `Aktual untuk "${it.purpose}" melebihi pengajuan (${toNum(
+          `Aktual untuk "${it.purpose}" melebihi biaya pengajuan (${toNum(
             it.amount
           )})`,
           400
@@ -834,18 +837,21 @@ const rejectPVReport = asyncHandler(async (req, res) => {
   ensureObjectId(id);
   ensureRole(req, 'admin');
 
-  if (!note) throwError('Catatan (note) wajib diisi saat Reject', 400);
+  if (!note) throwError('Catatan wajib diisi saat Ditolak', 400);
 
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
     const pv = await PVReport.findById(id).session(session);
-    if (!pv) throwError('PV Report tidak ditemukan', 404);
+    if (!pv) throwError('Data pertanggungjawaban tidak ditemukan', 404);
 
     ensureNotLocked(pv);
     if (pv.status !== 'Diproses')
-      throwError('PV harus berstatus Diproses untuk Reject', 400);
+      throwError(
+        'Data pertanggungjawaban harus berstatus Diproses untuk bisa Ditolak',
+        400
+      );
 
     pv.status = 'Ditolak';
     pv.note = note;
@@ -878,7 +884,7 @@ const reopenPVReport = asyncHandler(async (req, res) => {
 
   try {
     const pv = await PVReport.findById(id).session(session);
-    if (!pv) throwError('PV Report tidak ditemukan', 404);
+    if (!pv) throwError('Data pertanggungjawaban tidak ditemukan', 404);
 
     ensureNotLocked(pv);
 
@@ -901,7 +907,10 @@ const reopenPVReport = asyncHandler(async (req, res) => {
 
     ensureRole(req, 'admin');
     if (pv.status !== 'Disetujui')
-      throwError('PV harus Ditolak/Disetujui untuk Reopen', 400);
+      throwError(
+        'Data pertanggungjawaban harus Ditolak/Disetujui untuk bisa membuka ulang data ini',
+        400
+      );
 
     const bag = buildRapIncBagFromItems(pv.items);
     for (const k of Object.keys(bag)) bag[k] = -Math.abs(bag[k]);
@@ -942,7 +951,7 @@ const deletePVReport = asyncHandler(async (req, res) => {
 
     if (pv.status === 'Disetujui') {
       throwError(
-        'PV Disetujui tidak boleh dihapus. Reopen dulu jika perlu.',
+        'Data pertanggungjawaban yang sudah Disetujui tidak bisa dihapus.',
         403
       );
     }

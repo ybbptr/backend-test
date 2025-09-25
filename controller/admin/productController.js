@@ -46,20 +46,20 @@ const addProduct = asyncHandler(async (req, res) => {
 
       const list = files[fieldName];
       if (!list || !list[0]) {
-        throwError(`File ${displayName} wajib diupload.`, 400);
+        throwError(`${displayName} wajib diupload.`, 400);
       }
       const f = list[0];
 
       // Robust check ukuran
       const size = typeof f.size === 'number' ? f.size : f.buffer?.length ?? 0;
       if (!f.buffer || size <= 0) {
-        throwError(`File ${displayName} tidak boleh kosong atau korup.`, 400);
+        throwError(`${displayName} tidak boleh kosong.`, 400);
       }
       if (!f.mimetype) {
-        throwError(`File ${displayName} tidak valid.`, 400);
+        throwError(`${displayName} tidak valid.`, 400);
       }
       if (!f.originalname) {
-        throwError(`File ${displayName} tidak valid (nama file kosong).`, 400);
+        throwError(`${displayName} tidak valid (nama file kosong).`, 400);
       }
 
       return f;
@@ -126,10 +126,7 @@ const addProduct = asyncHandler(async (req, res) => {
     if (initial_stock) {
       const { warehouse, shelf, condition, quantity } = initial_stock;
       if (!warehouse || !shelf || !quantity) {
-        throwError(
-          'Stok awal harus menyertakan warehouse, shelf, dan quantity',
-          400
-        );
+        throwError('Stok awal harus menyertakan gudang, lemari, dan stok', 400);
       }
 
       inventory = await Inventory.findOneAndUpdate(
@@ -152,13 +149,13 @@ const addProduct = asyncHandler(async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'Produk berhasil ditambahkan',
+      message: 'Barang berhasil ditambahkan',
       product,
       inventory
     });
   } catch (err) {
     await session.abortTransaction();
-    throwError(err.message || 'Gagal menambahkan produk', 400);
+    throwError(err.message || 'Gagal menambahkan barang', 400);
   } finally {
     session.endSession();
   }
@@ -344,7 +341,7 @@ const removeProduct = asyncHandler(async (req, res) => {
 
       if (totals.total_on_hand > 0 || totals.total_on_loan > 0) {
         throwError(
-          `Tidak bisa menghapus produk karena masih ada stok (on_hand=${totals.total_on_hand}) atau sedang dipinjam (on_loan=${totals.total_on_loan}). Kosongkan/kembalikan dulu.`,
+          `Tidak bisa menghapus barang karena masih ada stok tersedia ${totals.total_on_hand}) atau sedang dipinjam (stok dipinjam = ${totals.total_on_loan}). Kosongkan stok/kembalikan barang terlebih dahulu.`,
           400
         );
       }
@@ -374,10 +371,10 @@ const removeProduct = asyncHandler(async (req, res) => {
       }
     }
 
-    res.status(200).json({ message: 'Barang berhasil dihapus.' });
+    res.status(200).json({ message: 'Data barang berhasil dihapus.' });
   } catch (err) {
     console.error('removeProduct error:', err?.message);
-    throwError(err?.message || 'Gagal menghapus barang', 400);
+    throwError(err?.message || 'Gagal menghapus data barang', 400);
   } finally {
     session.endSession();
   }

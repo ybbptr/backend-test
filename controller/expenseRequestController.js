@@ -179,14 +179,13 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
     if (req.user?.role === 'admin') {
       if (req.body.name) {
         if (!mongoose.Types.ObjectId.isValid(req.body.name))
-          throwError('ID requester tidak valid', 400);
+          throwError('ID pemohon tidak valid', 400);
         const emp = await Employee.findById(req.body.name).select('_id');
-        if (!emp) throwError('Requester tidak ditemukan', 404);
+        if (!emp) throwError('Pemohon tidak ditemukan', 404);
         requesterId = emp._id;
       } else {
         const me = await Employee.findOne({ user: req.user.id }).select('_id');
-        if (!me)
-          throwError('Requester (name) wajib dipilih atau tersedia', 400);
+        if (!me) throwError('Nama pemohon wajib dipilih atau tersedia', 400);
         requesterId = me._id;
       }
     } else {
@@ -526,12 +525,15 @@ const approveExpenseRequest = asyncHandler(async (req, res) => {
     if (!er) throwError('Pengajuan biaya tidak ditemukan', 404);
 
     if (er.pv_locked)
-      throwError('Tidak bisa disetujui karena sudah dipakai di PV final', 409);
+      throwError(
+        'Tidak bisa disetujui karena sudah dipakai di pertanggungjawaban dan sudah final',
+        409
+      );
     if (er.status !== 'Diproses')
-      throwError('Hanya bisa menyetujui dokumen yang Diproses', 409);
+      throwError('Hanya bisa menyetujui dokumen yang sedang Diproses', 409);
 
     const rap = await RAP.findById(er.project).session(session);
-    if (!rap) throwError('RAP tidak ditemukan', 404);
+    if (!rap) throwError('Project tidak ditemukan', 404);
 
     const bag = buildBagFromER(er);
     applyBagToRAP(rap, bag, +1);
@@ -599,8 +601,8 @@ const rejectExpenseRequest = asyncHandler(async (req, res) => {
     if (!er) throwError('Pengajuan biaya tidak ditemukan', 404);
 
     if (er.status !== 'Diproses')
-      throwError('Hanya bisa menolak dokumen yang Diproses', 409);
-    if (!note) throwError('Alasan penolakan (note) wajib diisi', 400);
+      throwError('Hanya bisa menolak dokumen yang sedang Diproses', 409);
+    if (!note) throwError('Alasan penolakan wajib diisi', 400);
 
     er.status = 'Ditolak';
     er.request_status = 'Ditolak';
@@ -638,7 +640,7 @@ const reopenExpenseRequest = asyncHandler(async (req, res) => {
 
     if (er.pv_locked)
       throwError(
-        'Tidak bisa dibuka ulang karena sudah dipakai di PV final',
+        'Tidak bisa dibuka ulang karena sudah dipakai di pertanggungjawaban dan sudah final',
         409
       );
     if (er.status === 'Diproses')
@@ -671,7 +673,7 @@ const reopenExpenseRequest = asyncHandler(async (req, res) => {
     requireAdmin(req);
 
     const rap = await RAP.findById(er.project).session(session);
-    if (!rap) throwError('RAP tidak ditemukan', 404);
+    if (!rap) throwError('Project tidak ditemukan', 404);
 
     const bag =
       er.applied_bag_snapshot && Object.keys(er.applied_bag_snapshot).length
@@ -816,7 +818,7 @@ const getCategoriesByExpenseType = asyncHandler(async (req, res) => {
   const { expense_type } = req.query;
 
   const rap = await RAP.findById(id).lean();
-  if (!rap) throwError('RAP tidak ditemukan', 404);
+  if (!rap) throwError('Project tidak ditemukan', 404);
 
   let keys = [];
   switch (expense_type) {

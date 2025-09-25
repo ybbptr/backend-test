@@ -135,6 +135,7 @@ const getEmployees = asyncHandler(async (req, res) => {
   }
 
   const employees = await Employee.find(filter)
+    .select('nik name phone position address employment_type')
     .populate('user', 'email')
     .skip(skip)
     .limit(limit)
@@ -144,28 +145,13 @@ const getEmployees = asyncHandler(async (req, res) => {
   const totalItems = await Employee.countDocuments(filter);
   const totalPages = Math.ceil(totalItems / limit);
 
-  const employeesWithUrl = await Promise.all(
-    employees.map(async (emp) => {
-      const docsWithUrl = {};
-      for (const [key, value] of Object.entries(emp.documents || {})) {
-        if (value && value.key) {
-          docsWithUrl[key] = {
-            ...value,
-            url: await getFileUrl(value.key)
-          };
-        }
-      }
-      return { ...emp, documents: docsWithUrl };
-    })
-  );
-
   res.status(200).json({
     page,
     limit,
     totalItems,
     totalPages,
     sort: sortOption,
-    data: employeesWithUrl
+    data: employees
   });
 });
 

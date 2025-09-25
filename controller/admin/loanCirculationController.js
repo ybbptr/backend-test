@@ -39,7 +39,7 @@ const getLoanCirculations = asyncHandler(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 10;
   const skip = (page - 1) * limit;
-  const { borrower, project, search, sort, with_images } = req.query;
+  const { borrower, project, search, sort } = req.query;
 
   const filter = {};
   if (search) {

@@ -60,11 +60,11 @@ const getStockAdjustment = asyncHandler(async (req, res) => {
   const actionLabel = (code) =>
     ({
       LOAN_OUT: 'Peminjaman',
-      REVERT_LOAN_OUT: 'Buka ulang peminjaman',
-      RETURN_IN: 'Pengembalian',
-      REVERT_RETURN: 'Batal pengembalian',
-      MARK_LOST: 'Ditandai hilang',
-      REVERT_MARK_LOST: 'Batalkan penandaan hilang',
+      REVERT_LOAN_OUT: 'Buka ulang data peminjaman',
+      RETURN_IN: 'Pengembalian barang',
+      REVERT_RETURN: 'Membatalkan pengembalian barang',
+      MARK_LOST: 'Barang hilang',
+      REVERT_MARK_LOST: 'Batalkan penandaan barang hilang',
       MOVE_INTERNAL: 'Transfer internal',
       MANUAL_EDIT: 'Penyesuaian manual',
       MANUAL_CORRECTION: 'Koreksi manual',

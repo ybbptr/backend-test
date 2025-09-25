@@ -50,20 +50,20 @@ const addNewProductInInventory = asyncHandler(async (req, res) => {
 
       const list = files[fieldName];
       if (!list || !list[0]) {
-        throwError(`File ${displayName} wajib diupload.`, 400);
+        throwError(`${displayName} wajib diupload.`, 400);
       }
       const f = list[0];
 
       // Robust check ukuran
       const size = typeof f.size === 'number' ? f.size : f.buffer?.length ?? 0;
       if (!f.buffer || size <= 0) {
-        throwError(`File ${displayName} tidak boleh kosong atau korup.`, 400);
+        throwError(`${displayName} tidak boleh kosong atau korup.`, 400);
       }
       if (!f.mimetype) {
-        throwError(`File ${displayName} tidak valid.`, 400);
+        throwError(`${displayName} tidak valid.`, 400);
       }
       if (!f.originalname) {
-        throwError(`File ${displayName} tidak valid (nama file kosong).`, 400);
+        throwError(`${displayName} tidak valid (nama file kosong).`, 400);
       }
 
       return f;
@@ -131,7 +131,7 @@ const addNewProductInInventory = asyncHandler(async (req, res) => {
       const { warehouse, shelf, condition, quantity } = initial_stock;
       if (!warehouse || !shelf || !quantity) {
         throwError(
-          'Stok awal harus menyertakan warehouse, shelf, dan quantity',
+          'Stok awal harus menyertakan gudang, lemari, dan stok awal',
           400
         );
       }
@@ -580,7 +580,7 @@ const moveInventory = asyncHandler(async (req, res) => {
   if (!Number.isFinite(qty) || qty <= 0) {
     throwError('Jumlah barang yang dipindah harus > 0', 400);
   }
-  if (!warehouse_to) throwError('warehouse_to wajib diisi', 400);
+  if (!warehouse_to) throwError('Gudang tujuan wajib diisi', 400);
 
   // Normalisasi shelf_to: izinkan null
   const targetWarehouse = warehouse_to;
@@ -598,17 +598,15 @@ const moveInventory = asyncHandler(async (req, res) => {
 
     if (!src) throwError('Inventory asal tidak ditemukan', 404);
     if (qty > src.on_hand) {
-      throwError(`Stok tidak mencukupi. Maks pindah ${src.on_hand}`, 400);
+      throwError(`Stok tidak mencukupi. Stok tersisa : ${src.on_hand}`, 400);
     }
 
-    // Cegah no-op: lokasi tujuan sama persis dengan asal
     const isSameWarehouse = sameId(targetWarehouse, src.warehouse?._id);
     const isSameShelf = sameId(targetShelf, src.shelf?._id);
     if (isSameWarehouse && isSameShelf) {
       throwError('Lokasi tujuan sama dengan lokasi asal.', 400);
     }
 
-    // Cari/siapkan inventory tujuan dengan produk & kondisi sama, lokasi baru
     let dst = await Inventory.findOne({
       product: src.product._id,
       warehouse: targetWarehouse,
@@ -688,7 +686,7 @@ const moveInventory = asyncHandler(async (req, res) => {
       [
         {
           movement_type: 'TRANSFER',
-          reason_note: 'Pindah lokasi internal',
+          reason_note: 'Barang di pindah secara internal',
           product: src.product._id,
           product_code: src.product.product_code,
           product_name: src.product.brand,

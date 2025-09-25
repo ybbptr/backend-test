@@ -49,7 +49,7 @@ const googleCallback = asyncHandler(async (req, res, next) => {
           secure: true,
           maxAge: 168 * 60 * 60 * 1000,
           sameSite: 'none',
-          path: '/users'
+          path: '/'
         })
         .redirect(`${process.env.FRONTEND_REDIRECT_URL}`);
     }

@@ -8,7 +8,7 @@ const MEMBER_ROLES = ['owner', 'admin', 'member'];
 
 const MemberSchema = new Schema(
   {
-    user: { type: Types.ObjectId, ref: 'UserManagement', required: true },
+    user: { type: Types.ObjectId, ref: 'User', required: true },
     role: { type: String, enum: MEMBER_ROLES, default: 'member' },
     lastReadAt: { type: Date, default: null },
     pinned: { type: Boolean, default: false }

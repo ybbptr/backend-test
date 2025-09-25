@@ -93,14 +93,14 @@ const createLoan = asyncHandler(async (req, res) => {
     const processed = [];
     for (const it of items) {
       if (!it.inventory || !it.quantity)
-        throwError('inventory & quantity wajib', 400);
+        throwError('Barang & stok yang ingin dipinjam wajib diisi', 400);
 
       const inv = await Inventory.findById(it.inventory)
         .populate('product', 'product_code brand')
         .populate('warehouse', 'warehouse_name warehouse_code')
         .populate('shelf', 'shelf_name shelf_code')
         .session(session);
-      if (!inv) throwError('Inventory tidak ditemukan', 404);
+      if (!inv) throwError('Barang tidak ditemukan', 404);
 
       processed.push({
         inventory: inv._id,
@@ -158,7 +158,7 @@ const updateLoan = asyncHandler(async (req, res) => {
 
   try {
     const loan = await Loan.findById(id).session(session);
-    if (!loan) throwError('Pengajuan alat tidak ditemukan', 404);
+    if (!loan) throwError('Data pengajuan alat tidak ditemukan', 404);
 
     if (loan.loan_locked || loan.approval !== 'Diproses') {
       throwError('Tidak bisa edit: batch terkunci atau bukan Diproses', 400);
@@ -196,7 +196,7 @@ const updateLoan = asyncHandler(async (req, res) => {
             .populate('warehouse', 'warehouse_name warehouse_code')
             .populate('shelf', 'shelf_name shelf_code')
             .session(session);
-          if (!inv) throwError('Inventory tidak ditemukan', 404);
+          if (!inv) throwError('Barang tidak ditemukan', 404);
 
           rebuilt.push({
             inventory: inv._id,
@@ -228,7 +228,7 @@ const updateLoan = asyncHandler(async (req, res) => {
 
 const approveLoan = asyncHandler(async (req, res) => {
   if (req.user?.role !== 'admin')
-    throwError('Hanya admin yang bisa approve', 403);
+    throwError('Hanya admin yang bisa menyetujui pengajuan ini', 403);
 
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -237,7 +237,7 @@ const approveLoan = asyncHandler(async (req, res) => {
     const loan = await Loan.findById(req.params.id)
       .populate('borrowed_items.inventory')
       .session(session);
-    if (!loan) throwError('Pengajuan alat tidak ditemukan', 404);
+    if (!loan) throwError('Data pengajuan alat tidak ditemukan', 404);
 
     if (loan.approval === 'Disetujui') throwError('Sudah Disetujui', 400);
     if (loan.approval === 'Ditolak') throwError('Dokumen Ditolak', 400);
@@ -245,13 +245,13 @@ const approveLoan = asyncHandler(async (req, res) => {
     // Validasi stok & kondisi baik
     for (const it of loan.borrowed_items || []) {
       const inv = await Inventory.findById(it.inventory).session(session);
-      if (!inv) throwError('Inventory tidak ditemukan', 404);
+      if (!inv) throwError('Barang tidak ditemukan', 404);
       if (inv.on_hand < it.quantity) {
         throwError(`Stok tidak cukup untuk ${it.product_code}`, 400);
       }
       if (inv.condition !== 'Baik') {
         throwError(
-          `Barang (${it.product_code}) kondisi ${inv.condition}, tidak bisa dipinjam`,
+          `Barang (${it.product_code}) dengan kondisi ${inv.condition}, tidak bisa dipinjam`,
           400
         );
       }
@@ -334,7 +334,7 @@ const approveLoan = asyncHandler(async (req, res) => {
 
 const rejectLoan = asyncHandler(async (req, res) => {
   if (req.user?.role !== 'admin')
-    throwError('Hanya admin yang bisa reject', 403);
+    throwError('Hanya admin yang bisa tolak pengajuan ini', 403);
 
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -346,7 +346,7 @@ const rejectLoan = asyncHandler(async (req, res) => {
       throwError('Hanya dokumen Diproses yang bisa Ditolak', 400);
 
     const reason = (req.body?.note ?? req.body?.reason ?? '').toString().trim();
-    if (!reason) throwError('Alasan penolakan (note) wajib diisi', 400);
+    if (!reason) throwError('Alasan penolakan wajib diisi', 400);
 
     loan.approval = 'Ditolak';
     loan.circulation_status = computeCirculationStatus('Ditolak');
@@ -361,7 +361,7 @@ const rejectLoan = asyncHandler(async (req, res) => {
     await session.commitTransaction();
     res
       .status(200)
-      .json({ message: 'Loan ditolak', id: loan._id, note: loan.note });
+      .json({ message: 'Pengajuan ditolak', id: loan._id, note: loan.note });
   } catch (err) {
     await session.abortTransaction();
     throw err;
@@ -405,16 +405,22 @@ const reopenLoan = asyncHandler(async (req, res) => {
       await session.commitTransaction();
       return res
         .status(200)
-        .json({ message: 'Loan dibuka ulang (Diproses)', id: loan._id });
+        .json({
+          message: 'Pengajuan peminjaman alat dibuka ulang (Diproses)',
+          id: loan._id
+        });
     }
 
     // dari DISETUJUI → ADMIN only
     if (req.user?.role !== 'admin')
-      throwError('Hanya admin yang bisa reopen dari Disetujui', 403);
+      throwError('Hanya admin yang bisa buka ulang data dari Disetujui', 403);
 
     // blok kalau sudah ada ReturnLoan approved
     if (await hasApprovedReturn(loan.loan_number, session)) {
-      throwError('Tidak bisa Reopen: sudah ada ReturnLoan Disetujui', 409);
+      throwError(
+        'Tidak bisa buka ulang data: data terkait sudah dikembalikan',
+        409
+      );
     }
 
     const actor = await resolveActor(req, session);
@@ -491,7 +497,7 @@ const deleteLoan = asyncHandler(async (req, res) => {
     await loan.deleteOne({ session });
 
     await session.commitTransaction();
-    res.status(200).json({ message: 'Loan dihapus' });
+    res.status(200).json({ message: 'Pengajuan alat berhasil dihapus' });
   } catch (err) {
     await session.abortTransaction();
     throw err;
