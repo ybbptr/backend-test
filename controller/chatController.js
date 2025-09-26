@@ -316,7 +316,7 @@ const openCustomerChat = asyncHandler(async (req, res) => {
 
   const userId = asId(req.user.id);
 
-  const adminUser = await User.findOne({ role: 'Admin' }).lean();
+  const adminUser = await User.findOne({ role: 'admin' }).lean();
   if (!adminUser) throwError('Tidak ada admin tersedia', 404);
 
   let conv = await Conversation.findOne({
