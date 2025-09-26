@@ -33,12 +33,13 @@ const listConversations = asyncHandler(async (req, res) => {
 
   const match = { 'members.user': asId(actor.userId) };
 
-  // Customer hanya boleh lihat percakapan type 'customer'
   if (roleLower === 'user') {
     match.type = 'customer';
   } else if (type) {
     match.type = type;
   }
+
+  if (q) match.title = { $regex: q, $options: 'i' };
 
   if (cursor) {
     const c = readCursor(cursor);
@@ -50,44 +51,38 @@ const listConversations = asyncHandler(async (req, res) => {
     }
   }
 
-  const pipeline = [
-    { $match: match },
-    ...(q ? [{ $match: { title: { $regex: q, $options: 'i' } } }] : []),
-    { $sort: { lastMessageAt: -1, _id: -1 } },
-    { $limit: lim + 1 },
-    {
-      $lookup: {
-        from: 'messages',
-        localField: 'lastMessage',
-        foreignField: '_id',
-        as: 'lastMsg'
-      }
-    },
-    { $addFields: { lastMsg: { $first: '$lastMsg' } } },
-    {
-      $project: {
-        type: 1,
-        title: 1,
-        members: 1,
-        lastMessageAt: 1,
-        expireAt: 1,
-        createdBy: 1,
-        createdAt: 1,
-        updatedAt: 1,
-        lastMessage: {
-          _id: '$lastMsg._id',
-          text: '$lastMsg.text',
-          sender: '$lastMsg.sender',
-          createdAt: '$lastMsg.createdAt',
-          attachments: '$lastMsg.attachments'
-        }
-      }
-    }
-  ];
+  const rows = await Conversation.find(match)
+    .sort({ lastMessageAt: -1, _id: -1 })
+    .limit(lim + 1)
+    .select(
+      'type title members lastMessageAt expireAt createdBy createdAt updatedAt lastMessage'
+    )
+    .populate({
+      path: 'members.user',
+      select: 'name email role' // ← di sini nama/email/role user
+    })
+    .populate({
+      path: 'lastMessage',
+      select: 'text sender createdAt attachments',
+      populate: { path: 'sender', select: 'name email role' } // ← nama pengirim lastMessage
+    })
+    .lean();
 
-  const rows = await Conversation.aggregate(pipeline);
   const hasMore = rows.length > lim;
   const items = hasMore ? rows.slice(0, lim) : rows;
+
+  // (opsional) server-side computed title utk direct/customer:
+  const myId = String(actor.userId);
+  for (const c of items) {
+    if (c.type !== 'group') {
+      const others = (c.members || []).filter(
+        (m) => String(m.user?._id || m.user) !== myId
+      );
+      const other = others[0];
+      const display = other?.user?.name || other?.user?.email || 'Tanpa Nama';
+      c.displayTitle = display; // front-end bisa pakai ini kalau c.title kosong
+    }
+  }
 
   const ref = items[items.length - 1];
   const refTime = ref?.lastMessageAt || ref?.createdAt;
@@ -96,7 +91,6 @@ const listConversations = asyncHandler(async (req, res) => {
 
   res.json({ items, nextCursor, hasMore });
 });
-
 /* ========== CREATE CONVERSATION (direct/group) ========== */
 // POST /chat/conversations
 const createConversation = asyncHandler(async (req, res) => {
@@ -293,11 +287,12 @@ const getMessages = asyncHandler(async (req, res) => {
   const rows = await Message.find(find)
     .sort(sort)
     .limit(lim + 1)
+    .select('text sender createdAt attachments')
+    .populate({ path: 'sender', select: 'name email role' })
     .lean();
 
   const hasMore = rows.length > lim;
   const items = hasMore ? rows.slice(0, lim) : rows;
-
   const normalized = dir === 'back' ? items.reverse() : items;
 
   const last = normalized[normalized.length - 1];
