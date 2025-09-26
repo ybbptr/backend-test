@@ -43,10 +43,10 @@ function parseBorrowedItems(raw) {
 }
 
 async function hasApprovedReturn(loan_number, session) {
-  const x = await ReturnLoan.findOne({ loan_number, status: 'Disetujui' })
-    .select('_id')
-    .lean()
-    .session(session);
+  const q = ReturnLoan.findOne({ loan_number, status: 'Dikembalikan' }).select(
+    '_id'
+  );
+  const x = session ? await q.session(session) : await q;
   return !!x;
 }
 
@@ -247,7 +247,10 @@ const approveLoan = asyncHandler(async (req, res) => {
       const inv = await Inventory.findById(it.inventory).session(session);
       if (!inv) throwError('Barang tidak ditemukan', 404);
       if (inv.on_hand < it.quantity) {
-        throwError(`Stok tidak cukup untuk ${it.product_code}`, 400);
+        throwError(
+          `Stok terkini tidak cukup untuk dipinjam, barang: ${it.product_code}`,
+          400
+        );
       }
       if (inv.condition !== 'Baik') {
         throwError(
@@ -378,10 +381,21 @@ const reopenLoan = asyncHandler(async (req, res) => {
     const loan = await Loan.findById(req.params.id).session(session);
     if (!loan) throwError('Pengajuan alat tidak ditemukan', 404);
 
+    const hasAnyReturn = await ReturnLoan.exists({
+      loan_number: loan.loan_number
+    }).session(session);
+    if (hasAnyReturn) {
+      throwError(
+        'Tidak bisa buka ulang data: terdapat data pengembalian terkait (Draft/Dikembalikan).',
+        409
+      );
+    }
+
     if (loan.approval === 'Diproses') {
       throwError('Dokumen sudah Diproses', 400);
     }
 
+    // Reopen dari "Ditolak"
     if (loan.approval === 'Ditolak') {
       if (req.user?.role !== 'admin') {
         const me = await Employee.findOne({ user: req.user.id })
@@ -403,32 +417,32 @@ const reopenLoan = asyncHandler(async (req, res) => {
       await loan.save({ session });
 
       await session.commitTransaction();
-      return res
-        .status(200)
-        .json({
-          message: 'Pengajuan peminjaman alat dibuka ulang (Diproses)',
-          id: loan._id
-        });
+      return res.status(200).json({
+        message: 'Pengajuan peminjaman alat dibuka ulang (Diproses)',
+        id: loan._id
+      });
     }
 
-    // dari DISETUJUI → ADMIN only
-    if (req.user?.role !== 'admin')
+    // Reopen dari "Disetujui" → ADMIN only
+    if (req.user?.role !== 'admin') {
       throwError('Hanya admin yang bisa buka ulang data dari Disetujui', 403);
-
-    // blok kalau sudah ada ReturnLoan approved
-    if (await hasApprovedReturn(loan.loan_number, session)) {
-      throwError(
-        'Tidak bisa buka ulang data: data terkait sudah dikembalikan',
-        409
-      );
     }
 
     const actor = await resolveActor(req, session);
 
-    // rollback stok
+    // Rollback stok (membalik LOAN_OUT)
     for (const it of loan.borrowed_items || []) {
       const inv = await Inventory.findById(it.inventory).session(session);
       if (!inv) continue;
+
+      // Guard biar tidak negatif
+      if (inv.on_loan - it.quantity < 0) {
+        throwError(
+          `Buka ulang data gagal: stok terkini akan menjadi negatif`,
+          400
+        );
+      }
+
       inv.on_hand += it.quantity;
       inv.on_loan -= it.quantity;
       inv.last_in_at = new Date();
@@ -439,7 +453,7 @@ const reopenLoan = asyncHandler(async (req, res) => {
         bucket: 'ON_HAND',
         delta: +it.quantity,
         reason_code: 'REVERT_LOAN_OUT',
-        reason_note: `Buka ulang data peminjaman ${loan.loan_number}`,
+        reason_note: `Buka ulang data peminjaman, ${loan.loan_number}`,
         actor,
         correlation: { loan_id: loan._id, loan_number: loan.loan_number }
       });
@@ -448,16 +462,18 @@ const reopenLoan = asyncHandler(async (req, res) => {
         bucket: 'ON_LOAN',
         delta: -it.quantity,
         reason_code: 'REVERT_LOAN_OUT',
-        reason_note: `Buka ulang data peminjaman ${loan.loan_number}`,
+        reason_note: `Buka ulang data peminjaman, ${loan.loan_number}`,
         actor,
         correlation: { loan_id: loan._id, loan_number: loan.loan_number }
       });
     }
 
+    // Hapus snapshot sirkulasi karena dibatalkan
     await LoanCirculation.deleteOne({ loan_number: loan.loan_number }).session(
       session
     );
 
+    // Kembalikan status dokumen
     loan.approval = 'Diproses';
     loan.circulation_status = computeCirculationStatus('Diproses'); // Pending
     loan.loan_locked = false;

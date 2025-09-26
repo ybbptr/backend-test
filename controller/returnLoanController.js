@@ -710,16 +710,17 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
   try {
     const doc = await ReturnLoan.findById(req.params.id).session(session);
     if (!doc) throwError('Data pengembalian tidak ditemukan', 404);
-    if (doc.status !== 'Dikembalikan')
+    if (doc.status !== 'Dikembalikan') {
       throwError(
         'Hanya batch "Dikembalikan" yang bisa dibuka ulang datanya',
         400
       );
+    }
 
     const loan = await Loan.findOne({ loan_number: doc.loan_number }).session(
       session
     );
-    if (!loan) throwError('Loan tidak ditemukan', 404);
+    if (!loan) throwError('Data peminjaman tidak ditemukan', 404);
 
     const circulation = await LoanCirculation.findOne({
       loan_number: doc.loan_number
@@ -728,20 +729,25 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
 
     const actor = await resolveActor(req, session);
 
-    // rollback efek finalisasi sebelumnya
     for (const item of doc.returned_items || []) {
-      const inv = await Inventory.findById(item.inventory).session(session);
-      if (!inv) continue;
+      const sourceInv = await Inventory.findById(item.inventory).session(
+        session
+      );
+      if (!sourceInv) continue;
 
       const circItem = circulation.borrowed_items.id(item._id);
 
       if (item.condition_new === 'Hilang') {
+        // Revert "mark lost" → kembalikan ke ON_LOAN (snapshot & ledger)
+        sourceInv.on_loan += item.quantity;
+        await sourceInv.save({ session });
+
         await applyAdjustment(session, {
-          inventoryId: inv._id,
+          inventoryId: sourceInv._id,
           bucket: 'ON_LOAN',
           delta: +item.quantity,
           reason_code: 'REVERT_MARK_LOST',
-          reason_note: `Buka ulang data pengembalian`,
+          reason_note: `Buka ulang data pengembalian, ${loan.loan_number}`,
           actor,
           correlation: {
             loan_id: loan._id,
@@ -750,30 +756,26 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
           }
         });
       } else {
-        inv.on_hand -= item.quantity;
-        inv.on_loan += item.quantity;
-        inv.last_out_at = new Date();
-        await inv.save({ session });
+        // Normal return yang harus di-revert
+        const targetWarehouse = item.warehouse_return;
+        const targetShelf = item.shelf_return ?? null;
+        const targetCond = item.condition_new;
+
+        const sameIdentity =
+          String(targetWarehouse || '') === String(sourceInv.warehouse || '') &&
+          String(targetShelf || '') === String(sourceInv.shelf || '') &&
+          targetCond === sourceInv.condition;
+
+        // 1) Kembalikan ON_LOAN di sumber (snapshot & ledger)
+        sourceInv.on_loan += item.quantity;
+        await sourceInv.save({ session });
 
         await applyAdjustment(session, {
-          inventoryId: inv._id,
-          bucket: 'ON_HAND',
-          delta: -item.quantity,
-          reason_code: 'REVERT_RETURN',
-          reason_note: `Buka ulang data pengembalian`,
-          actor,
-          correlation: {
-            loan_id: loan._id,
-            loan_number: loan.loan_number,
-            return_loan_id: doc._id
-          }
-        });
-        await applyAdjustment(session, {
-          inventoryId: inv._id,
+          inventoryId: sourceInv._id,
           bucket: 'ON_LOAN',
           delta: +item.quantity,
           reason_code: 'REVERT_RETURN',
-          reason_note: `Buka ulang data pengembalian`,
+          reason_note: `Buka ulang data pengembalian, ${loan.loan_number}`,
           actor,
           correlation: {
             loan_id: loan._id,
@@ -781,6 +783,79 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
             return_loan_id: doc._id
           }
         });
+
+        // 2) Turunkan ON_HAND dari lokasi yang dituju saat finalisasi
+        if (sameIdentity) {
+          // Semula ditaruh di inventory yang sama
+          if (sourceInv.on_hand - item.quantity < 0) {
+            throwError(
+              'Rollback gagal: stok terkini menjadi negatif pada sumber.',
+              400
+            );
+          }
+          sourceInv.on_hand -= item.quantity;
+          sourceInv.last_out_at = new Date();
+          await sourceInv.save({ session });
+
+          await applyAdjustment(session, {
+            inventoryId: sourceInv._id,
+            bucket: 'ON_HAND',
+            delta: -item.quantity,
+            reason_code: 'REVERT_RETURN',
+            reason_note: `Buka ulang data pengembalian, ${loan.loan_number}`,
+            actor,
+            correlation: {
+              loan_id: loan._id,
+              loan_number: loan.loan_number,
+              return_loan_id: doc._id
+            }
+          });
+        } else {
+          // Semula ditaruh di inventory target (warehouse_return/shelf_return/condition_new)
+          let targetInv = await Inventory.findOne({
+            product: sourceInv.product,
+            warehouse: targetWarehouse,
+            shelf: targetShelf,
+            condition: targetCond
+          }).session(session);
+
+          if (!targetInv) {
+            throwError(
+              'Rollback gagal: inventory target pengembalian tidak ditemukan.',
+              409
+            );
+          }
+          if (targetInv.on_hand - item.quantity < 0) {
+            throwError(
+              'Rollback gagal: stok terkini menjadi negatif pada inventory target.',
+              400
+            );
+          }
+
+          targetInv.on_hand -= item.quantity;
+          targetInv.last_out_at = new Date();
+          await targetInv.save({ session });
+
+          // Ledger ON_HAND -qty ke inventory target (bukan sumber)
+          await applyAdjustment(session, {
+            inventoryId: targetInv._id,
+            bucket: 'ON_HAND',
+            delta: -item.quantity,
+            reason_code: 'REVERT_RETURN',
+            reason_note: `Buka ulang data pengembalian, ${loan.loan_number}`,
+            actor,
+            correlation: {
+              loan_id: loan._id,
+              loan_number: loan.loan_number,
+              return_loan_id: doc._id
+            }
+          });
+
+          // Bila target kosong total, boleh dibersihkan
+          if ((targetInv.on_hand || 0) <= 0 && (targetInv.on_loan || 0) <= 0) {
+            await Inventory.deleteOne({ _id: targetInv._id }).session(session);
+          }
+        }
       }
 
       if (circItem) {
@@ -788,7 +863,7 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
       }
     }
 
-    // bersihkan log/ledger batch ini
+    // Bersihkan log/ledger batch ini
     await ProductCirculation.deleteMany({ return_loan_id: doc._id }).session(
       session
     );
@@ -796,22 +871,23 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
       'correlation.return_loan_id': doc._id
     }).session(session);
 
-    // recompute sirkulasi & loan
+    // Recompute sirkulasi & loan
     await recomputeCirculationAndLoan({ session, loan, circulation });
 
-    // atur lock Loan: tetap true jika masih ada batch lain yang final
+    // Tetap lock loan jika masih ada batch final lain
     const stillFinal = await ReturnLoan.exists({
       loan_number: loan.loan_number,
       status: 'Dikembalikan',
       _id: { $ne: doc._id }
     }).session(session);
+
     await Loan.updateOne(
       { _id: loan._id },
       { $set: { loan_locked: !!stillFinal } },
       { session }
     );
 
-    // set batch ini kembali ke Draft
+    // Set batch ini kembali Draft
     doc.status = 'Draft';
     doc.loan_locked = false;
     doc.needs_review = false;
@@ -961,6 +1037,7 @@ const getAllReturnLoan = asyncHandler(async (req, res) => {
     const approved = approvedMap.get(r.loan_number) || 0;
 
     return {
+      _id: r._id,
       loan_number: r.loan_number,
       borrower_name: r.borrower?.name || '-',
       report_date: r.report_date,
@@ -1156,7 +1233,6 @@ const getAvailableLoanNumbers = asyncHandler(async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 200);
   const search = (req.query.search || '').trim();
 
-  // filter dasar sesuai rule
   const filter = {
     approval: 'Disetujui',
     circulation_status: { $in: ['Aktif', 'Pending'] }
@@ -1182,13 +1258,13 @@ const getAvailableLoanNumbers = asyncHandler(async (req, res) => {
     return res.status(200).json({ success: true, loans: [] });
   }
 
-  // ambil sirkulasi untuk semua loan_number sekaligus
   const loanNumbers = loans.map((l) => l.loan_number);
   const circs = await LoanCirculation.find({
     loan_number: { $in: loanNumbers }
   })
     .select('loan_number borrowed_items')
     .lean();
+
   const circMap = new Map(circs.map((c) => [c.loan_number, c]));
 
   const result = [];
@@ -1205,7 +1281,10 @@ const getAvailableLoanNumbers = asyncHandler(async (req, res) => {
     for (const b of circ.borrowed_items) {
       const qty = Number(b.quantity) || 0;
       totalQty += qty;
-      const used = retMap.get(String(b._id)) || 0;
+
+      const u = retMap.get(String(b._id)) || { returned: 0, lost: 0 };
+      const used = (Number(u.returned) || 0) + (Number(u.lost) || 0);
+
       const remain = Math.max(qty - used, 0);
       if (remain > 0) {
         remainingItems += 1;
