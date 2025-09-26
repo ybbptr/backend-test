@@ -57,30 +57,71 @@ const listConversations = asyncHandler(async (req, res) => {
     .select(
       'type title members lastMessageAt expireAt createdBy createdAt updatedAt lastMessage'
     )
-    .populate({
-      path: 'members.user',
-      select: 'name email role' // ← di sini nama/email/role user
-    })
+    .populate({ path: 'members.user', select: 'name email role' })
     .populate({
       path: 'lastMessage',
       select: 'text sender createdAt attachments',
-      populate: { path: 'sender', select: 'name email role' } // ← nama pengirim lastMessage
+      populate: { path: 'sender', select: 'name email role' }
     })
     .lean();
 
   const hasMore = rows.length > lim;
   const items = hasMore ? rows.slice(0, lim) : rows;
 
-  // (opsional) server-side computed title utk direct/customer:
+  const karyawanIds = new Set();
+  for (const c of items) {
+    for (const m of c.members || []) {
+      const u = m.user;
+      if (u && u.role === 'karyawan') karyawanIds.add(String(u._id || u));
+    }
+    const s = c.lastMessage?.sender;
+    if (s && s.role === 'karyawan') karyawanIds.add(String(s._id || s));
+  }
+
+  let empMap = new Map();
+  if (karyawanIds.size > 0) {
+    const emps = await Employee.find({ user: { $in: Array.from(karyawanIds) } })
+      .select('user name')
+      .lean();
+    empMap = new Map(emps.map((e) => [String(e.user), e.name]));
+  }
+
+  // 4) Helper nama tampilan
+  const pickDisplayName = (userDoc) => {
+    if (!userDoc) return 'Tanpa Nama';
+    const uid = String(userDoc._id || userDoc);
+    if (userDoc.role === 'karyawan') {
+      return empMap.get(uid) || userDoc.name || userDoc.email || 'Tanpa Nama';
+    }
+    // admin / user (customer) pakai nama user
+    return userDoc.name || userDoc.email || 'Tanpa Nama';
+  };
+
+  // 5) Tambahkan displayName ke members & lastMessage, serta displayTitle utk non-group
   const myId = String(actor.userId);
   for (const c of items) {
+    // members[i].displayName
+    c.members = (c.members || []).map((m) => {
+      const u = m.user;
+      return {
+        ...m,
+        displayName: pickDisplayName(u)
+      };
+    });
+
+    // lastMessage.displaySenderName
+    if (c.lastMessage?.sender) {
+      c.lastMessage.displaySenderName = pickDisplayName(c.lastMessage.sender);
+    }
+
+    // displayTitle untuk direct/customer (pakai lawan bicara)
     if (c.type !== 'group') {
       const others = (c.members || []).filter(
         (m) => String(m.user?._id || m.user) !== myId
       );
       const other = others[0];
-      const display = other?.user?.name || other?.user?.email || 'Tanpa Nama';
-      c.displayTitle = display; // front-end bisa pakai ini kalau c.title kosong
+      c.displayTitle =
+        other?.displayName || pickDisplayName(other?.user) || 'Tanpa Nama';
     }
   }
 

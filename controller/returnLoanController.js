@@ -195,15 +195,18 @@ async function recomputeCirculationAndLoan({ session, loan, circulation }) {
   await loan.save({ session });
 }
 
-// Validasi struktur & sisa kuantitas
-async function validateReturnPayloadAndSisa({ session, loan_number, items }) {
+async function validateReturnPayloadAndSisa({
+  session,
+  loan_number,
+  items,
+  excludeId = null
+}) {
   const circulation = await LoanCirculation.findOne({ loan_number })
     .select('borrowed_items')
     .session(session);
   if (!circulation) throwError('Sirkulasi tidak ditemukan!', 404);
 
   const idSet = new Set(circulation.borrowed_items.map((b) => String(b._id)));
-
   items.forEach((it, idx) => {
     if (!it || !it._id)
       throwError(`returned_items[#${idx + 1}] tidak punya _id sirkulasi`, 400);
@@ -227,16 +230,38 @@ async function validateReturnPayloadAndSisa({ session, loan_number, items }) {
     }
   });
 
-  // Cek sisa vs batch FINAL lain
-  const totalMap = await buildReturnedMap(loan_number, { session });
+  const finalMap = await buildReturnedMap(loan_number, { session }); // Map<circItemId, {returned,lost}>
+
+  const matchDraft = { loan_number, status: 'Draft' };
+  if (excludeId) matchDraft._id = { $ne: excludeId };
+
+  const draftAgg = await ReturnLoan.aggregate([
+    { $match: matchDraft },
+    { $unwind: '$returned_items' },
+    {
+      $group: {
+        _id: '$returned_items._id',
+        qty_draft: { $sum: '$returned_items.quantity' } // "Hilang" juga tetap reservasi
+      }
+    }
+  ]).session(session);
+  const draftMap = new Map(
+    draftAgg.map((r) => [String(r._id), Number(r.qty_draft) || 0])
+  );
+
+  // 3) Validasi sisa efektif (quantity - usedFinal - usedDraft)
   for (const it of items) {
     const circItem = circulation.borrowed_items.id(it._id);
-    const agg = totalMap.get(String(it._id)) || { returned: 0, lost: 0 };
-    const used = agg.returned + agg.lost;
-    const available = (circItem?.quantity || 0) - used;
-    if (it.quantity > available) {
+    const fin = finalMap.get(String(it._id)) || { returned: 0, lost: 0 };
+    const usedFinal = (Number(fin.returned) || 0) + (Number(fin.lost) || 0);
+    const usedDraft = draftMap.get(String(it._id)) || 0;
+
+    const available = (Number(circItem?.quantity) || 0) - usedFinal - usedDraft;
+    if (Number(it.quantity) > available) {
       throwError(
-        `Stok yang dikembalikan kelebihan untuk barang ${it.product_code}. Barang yang dipinjam hanya tersisa ${available}`,
+        `Stok yang dikembalikan kelebihan untuk barang ${
+          it.product_code || ''
+        }. Tersisa ${available} (setelah memperhitungkan draft lain).`,
         400
       );
     }
@@ -554,7 +579,6 @@ const createReturnLoan = asyncHandler(async (req, res) => {
   }
 });
 
-/** UPDATE Draft */
 const updateReturnLoan = asyncHandler(async (req, res) => {
   const { id } = req.params;
   ensureObjectId(id);
@@ -568,10 +592,13 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
     if (doc.status !== 'Draft') throwError('Hanya Draft yang bisa diubah', 400);
 
     const items = parseReturnedItemsFromRequest(req);
+
+    // ⬅️ perbaikan: validasi sisa pakai FINAL + DRAFT lain (exclude draft ini sendiri)
     await validateReturnPayloadAndSisa({
       session,
       loan_number: doc.loan_number,
-      items
+      items,
+      excludeId: doc._id
     });
 
     // Hapus bukti lama yang tidak ada di payload baru
@@ -1172,7 +1199,6 @@ const getMyLoanNumbers = asyncHandler(async (req, res) => {
   res.status(200).json({ borrower: me.name, loan_numbers: result });
 });
 
-/** FE: return form (list item + remaining) */
 const getReturnForm = asyncHandler(async (req, res) => {
   const { loan_number } = req.params;
 
@@ -1187,23 +1213,56 @@ const getReturnForm = asyncHandler(async (req, res) => {
     .lean();
   if (!circulation) throwError('Sirkulasi tidak ditemukan!', 404);
 
-  const map = await buildReturnedMap(loan_number);
+  // 1) Final "Dikembalikan"
+  const finalMap = await buildReturnedMap(loan_number); // Map<circItemId, {returned,lost}>
+
+  // 2) Reservasi dari semua Draft yang masih ada
+  const draftAgg = await ReturnLoan.aggregate([
+    { $match: { loan_number, status: 'Draft' } },
+    { $unwind: '$returned_items' },
+    {
+      $group: {
+        _id: '$returned_items._id',
+        qty_draft: { $sum: '$returned_items.quantity' }
+      }
+    }
+  ]);
+  const draftMap = new Map(
+    draftAgg.map((r) => [String(r._id), Number(r.qty_draft) || 0])
+  );
+
+  // 3) Susun item + remaining (qty - usedFinal - usedDraft)
+  let totalBorrowed = 0;
+  let totalUsedFinal = 0;
+  let totalReservedDraft = 0;
+
   const items = (circulation.borrowed_items || [])
     .map((it) => {
-      const agg = map.get(String(it._id)) || { returned: 0, lost: 0 };
-      const used = (agg.returned || 0) + (agg.lost || 0);
-      const remaining = (it.quantity || 0) - used;
+      const qty = Number(it.quantity) || 0;
+      totalBorrowed += qty;
+
+      const fin = finalMap.get(String(it._id)) || { returned: 0, lost: 0 };
+      const usedFinal = (Number(fin.returned) || 0) + (Number(fin.lost) || 0);
+      const usedDraft = draftMap.get(String(it._id)) || 0;
+
+      totalUsedFinal += usedFinal;
+      totalReservedDraft += usedDraft;
+
+      const remaining = Math.max(qty - usedFinal - usedDraft, 0);
+
       return {
         _id: it._id,
         inventory: it.inventory,
         product: it.product,
         product_code: it.product_code,
         brand: it.brand,
-        quantity: it.quantity,
+        quantity: qty,
+        used_final: usedFinal,
+        reserved_draft: usedDraft,
         remaining,
         item_status: it.item_status,
         project: it.project?._id || it.project,
-        project_name: it.project?.project_name
+        project_name: it.project?.project_name || null
       };
     })
     .filter((row) => row.remaining > 0);
@@ -1213,6 +1272,17 @@ const getReturnForm = asyncHandler(async (req, res) => {
     borrower: loan.borrower,
     position: loan.position || loan.borrower?.position || null,
     inventory_manager: loan.inventory_manager,
+    // ringkasan progress
+    progress: {
+      total_borrowed: totalBorrowed,
+      used_final: totalUsedFinal,
+      reserved_draft: totalReservedDraft,
+      available_for_new_batch: Math.max(
+        totalBorrowed - totalUsedFinal - totalReservedDraft,
+        0
+      )
+    },
+    progress_label: `${totalUsedFinal}+${totalReservedDraft}/${totalBorrowed}`,
     items
   });
 });

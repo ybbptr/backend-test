@@ -593,10 +593,54 @@ const getLoan = asyncHandler(async (req, res) => {
         { path: 'warehouse_from', select: 'warehouse_name warehouse_code' },
         { path: 'shelf_from', select: 'shelf_name shelf_code' }
       ]
-    });
+    })
+    .lean();
 
   if (!loan) throwError('Pengajuan alat tidak terdaftar!', 404);
-  res.status(200).json(loan);
+
+  // Ambil sirkulasi & peta pengembalian final
+  const circulation = await LoanCirculation.findOne({
+    loan_number: loan.loan_number
+  })
+    .select('borrowed_items')
+    .lean();
+
+  // Index-kan item sirkulasi by inventory (ubah jika perlu kunci lain)
+  const circByInv = new Map(
+    (circulation?.borrowed_items || []).map((ci) => [String(ci.inventory), ci])
+  );
+
+  const retMap = await buildReturnedMap(loan.loan_number);
+
+  let totalBorrowed = 0;
+  let totalUsed = 0;
+
+  // Tambahkan used/remaining ke setiap item pinjaman (berdasarkan sirkulasi)
+  loan.borrowed_items = (loan.borrowed_items || []).map((it) => {
+    const qty = Number(it.quantity) || 0;
+    totalBorrowed += qty;
+
+    const circ = circByInv.get(String(it.inventory));
+    const usage = circ ? retMap.get(String(circ._id)) : null;
+    const used = (Number(usage?.returned) || 0) + (Number(usage?.lost) || 0);
+    totalUsed += used;
+
+    const remaining = Math.max(qty - used, 0);
+
+    return {
+      ...it,
+      circulation_item_id: circ?._id || null,
+      item_status: circ?.item_status || null,
+      used,
+      remaining
+    };
+  });
+
+  res.status(200).json({
+    ...loan,
+    progress: { approved: totalUsed, total: totalBorrowed },
+    progress_label: `${totalUsed}/${totalBorrowed}`
+  });
 });
 
 const getLoansByEmployee = asyncHandler(async (req, res) => {
