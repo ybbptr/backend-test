@@ -582,7 +582,6 @@ const moveInventory = asyncHandler(async (req, res) => {
   }
   if (!warehouse_to) throwError('Gudang tujuan wajib diisi', 400);
 
-  // Normalisasi shelf_to: izinkan null
   const targetWarehouse = warehouse_to;
   const targetShelf = shelf_to ?? null;
 
@@ -640,7 +639,13 @@ const moveInventory = asyncHandler(async (req, res) => {
     dst.last_in_at = new Date();
     await dst.save({ session });
 
-    // Ledger (dua sisi) – catat arah yang benar di reason_note
+    // 🔽 Resolve actor (admin → User, karyawan → Employee)
+    const actor = await resolveActor(req, session);
+    if (!actor.model || !actor.id) {
+      throwError('Aktor tidak terdeteksi. Pastikan login.', 401);
+    }
+
+    // Ledger
     await applyAdjustment(session, {
       inventoryId: src._id,
       bucket: 'ON_HAND',
@@ -674,7 +679,7 @@ const moveInventory = asyncHandler(async (req, res) => {
       }
     });
 
-    // ProductCirculation – TRANSFER dengan path & kondisi lengkap
+    // ProductCirculation
     await ProductCirculation.create(
       [
         {
@@ -700,15 +705,15 @@ const moveInventory = asyncHandler(async (req, res) => {
           loan_number: null,
           return_loan_id: null,
 
-          moved_by: req.user.id,
-          moved_by_model: 'User',
-          moved_by_name: req.user.name
+          // 🔽 isi dari resolveActor
+          moved_by: actor.id,
+          moved_by_model: actor.model,
+          moved_by_name: actor.name
         }
       ],
       { session }
     );
 
-    // Bersihkan src jika 0/0
     if (src.on_hand <= 0 && src.on_loan <= 0) {
       await Inventory.deleteOne({ _id: src._id }, { session });
     }
@@ -793,7 +798,6 @@ const changeCondition = asyncHandler(async (req, res) => {
       dst = created;
     }
 
-    // Update stok fisik
     src.on_hand -= qty;
     src.last_out_at = new Date();
     await src.save({ session });
@@ -809,7 +813,12 @@ const changeCondition = asyncHandler(async (req, res) => {
       movedWarehouse || movedShelf ? ' & pindah lokasi' : ''
     }`;
 
-    // Ledger (dua sisi) – alasan konsisten
+    // 🔽 Resolve actor
+    const actor = await resolveActor(req, session);
+    if (!actor.model || !actor.id) {
+      throwError('Aktor tidak terdeteksi. Pastikan login.', 401);
+    }
+
     await applyAdjustment(session, {
       inventoryId: src._id,
       bucket: 'ON_HAND',
@@ -839,7 +848,6 @@ const changeCondition = asyncHandler(async (req, res) => {
       }
     });
 
-    // ProductCirculation – selalu catat CONDITION_CHANGE (baik pindah lokasi atau tidak)
     await ProductCirculation.create(
       [
         {
@@ -866,15 +874,15 @@ const changeCondition = asyncHandler(async (req, res) => {
           loan_number: null,
           return_loan_id: null,
 
-          moved_by: req.user.id,
-          moved_by_model: 'User',
-          moved_by_name: req.user.name
+          // 🔽 isi dari resolveActor
+          moved_by: actor.id,
+          moved_by_model: actor.model,
+          moved_by_name: actor.name
         }
       ],
       { session }
     );
 
-    // Bersihkan src kalau 0/0
     if (src.on_hand <= 0 && src.on_loan <= 0) {
       await Inventory.deleteOne({ _id: src._id }, { session });
     }

@@ -39,7 +39,7 @@ async function resolveActor(req, session) {
   // fallback
   return {
     model: 'User',
-    userId: new mongoose.Types.ObjectId(String(userId)),
+    id: new mongoose.Types.ObjectId(String(userId)),
     name
   };
 }
