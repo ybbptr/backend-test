@@ -598,48 +598,136 @@ const getLoan = asyncHandler(async (req, res) => {
 
   if (!loan) throwError('Pengajuan alat tidak terdaftar!', 404);
 
-  // Ambil sirkulasi & peta pengembalian final
+  // Ambil sirkulasi utk mapping item pinjam -> item sirkulasi
   const circulation = await LoanCirculation.findOne({
     loan_number: loan.loan_number
   })
     .select('borrowed_items')
     .lean();
 
-  // Index-kan item sirkulasi by inventory (ubah jika perlu kunci lain)
-  const circByInv = new Map(
-    (circulation?.borrowed_items || []).map((ci) => [String(ci.inventory), ci])
+  // Key stabil pakai kombinasi inventory + project (ubah jika perlu)
+  const keyOf = (invId, projId) =>
+    `${String(invId)}|${projId ? String(projId) : '-'}`;
+  const circByKey = new Map(
+    (circulation?.borrowed_items || []).map((ci) => [
+      keyOf(ci.inventory, ci.project),
+      ci
+    ])
   );
 
-  const retMap = await buildReturnedMap(loan.loan_number);
+  // Aggregasi FINAL (status: Dikembalikan) → returned & lost per circItemId
+  const finalAgg = await ReturnLoan.aggregate([
+    { $match: { loan_number: loan.loan_number, status: 'Dikembalikan' } },
+    { $unwind: '$returned_items' },
+    {
+      $group: {
+        _id: '$returned_items._id',
+        returned: {
+          $sum: {
+            $cond: [
+              { $ne: ['$returned_items.condition_new', 'Hilang'] },
+              '$returned_items.quantity',
+              0
+            ]
+          }
+        },
+        lost: {
+          $sum: {
+            $cond: [
+              { $eq: ['$returned_items.condition_new', 'Hilang'] },
+              '$returned_items.quantity',
+              0
+            ]
+          }
+        }
+      }
+    }
+  ]);
+  const finalMap = new Map(
+    finalAgg.map((r) => [
+      String(r._id),
+      { returned: Number(r.returned) || 0, lost: Number(r.lost) || 0 }
+    ])
+  );
 
+  // Aggregasi DRAFT → reservasi per circItemId
+  const draftAgg = await ReturnLoan.aggregate([
+    { $match: { loan_number: loan.loan_number, status: 'Draft' } },
+    { $unwind: '$returned_items' },
+    {
+      $group: {
+        _id: '$returned_items._id',
+        qty_draft: { $sum: '$returned_items.quantity' }
+      }
+    }
+  ]);
+  const draftMap = new Map(
+    draftAgg.map((r) => [String(r._id), Number(r.qty_draft) || 0])
+  );
+
+  // Susun item: borrowed, returned_final, lost_final, reserved_draft, remaining_effective
   let totalBorrowed = 0;
-  let totalUsed = 0;
+  let totalReturnedFinal = 0;
+  let totalLostFinal = 0;
+  let totalReservedDraft = 0;
 
-  // Tambahkan used/remaining ke setiap item pinjaman (berdasarkan sirkulasi)
   loan.borrowed_items = (loan.borrowed_items || []).map((it) => {
-    const qty = Number(it.quantity) || 0;
-    totalBorrowed += qty;
+    const qtyBorrowed = Number(it.quantity) || 0;
+    totalBorrowed += qtyBorrowed;
 
-    const circ = circByInv.get(String(it.inventory));
-    const usage = circ ? retMap.get(String(circ._id)) : null;
-    const used = (Number(usage?.returned) || 0) + (Number(usage?.lost) || 0);
-    totalUsed += used;
+    const key = keyOf(it.inventory, it.project?._id || it.project);
+    const circ = circByKey.get(key);
 
-    const remaining = Math.max(qty - used, 0);
+    const fin = circ ? finalMap.get(String(circ._id)) : null;
+    const returnedFinal = Number(fin?.returned) || 0;
+    const lostFinal = Number(fin?.lost) || 0;
+    const usedFinalTotal = returnedFinal + lostFinal;
+
+    const reservedDraft = circ
+      ? Number(draftMap.get(String(circ._id))) || 0
+      : 0;
+
+    totalReturnedFinal += returnedFinal;
+    totalLostFinal += lostFinal;
+    totalReservedDraft += reservedDraft;
+
+    const remainingEffective = Math.max(
+      qtyBorrowed - usedFinalTotal - reservedDraft,
+      0
+    );
 
     return {
       ...it,
       circulation_item_id: circ?._id || null,
       item_status: circ?.item_status || null,
-      used,
-      remaining
+
+      borrowed_quantity: qtyBorrowed,
+      returned_final: returnedFinal,
+      lost_final: lostFinal,
+      used_final_total: usedFinalTotal,
+      reserved_draft: reservedDraft,
+      remaining_effective: remainingEffective
     };
   });
 
   res.status(200).json({
     ...loan,
-    progress: { approved: totalUsed, total: totalBorrowed },
-    progress_label: `${totalUsed}/${totalBorrowed}`
+    progress: {
+      total_borrowed: totalBorrowed,
+      returned_final: totalReturnedFinal,
+      lost_final: totalLostFinal,
+      used_final_total: totalReturnedFinal + totalLostFinal,
+      reserved_draft: totalReservedDraft,
+      available_for_new_batch: Math.max(
+        totalBorrowed -
+          (totalReturnedFinal + totalLostFinal) -
+          totalReservedDraft,
+        0
+      )
+    },
+    progress_label: `${
+      totalReturnedFinal + totalLostFinal
+    }+${totalReservedDraft}/${totalBorrowed}`
   });
 });
 
