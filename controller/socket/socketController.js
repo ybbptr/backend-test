@@ -37,7 +37,7 @@ const mapMessage = (m) => ({
 
 const isValidId = (v) => Types.ObjectId.isValid(String(v));
 
-/** COOKIE ONLY */
+/* ================== AUTH HELPERS (COOKIE ONLY) ================== */
 function getTokenFromHandshake(handshake) {
   const raw = handshake.headers?.cookie || '';
   const cookies = cookie.parse(raw || '');
@@ -55,6 +55,93 @@ function getUserFromHandshake(handshake) {
   return { id, role, name };
 }
 
+/* ================== PRESENCE (IN-MEMORY, PER NAMESPACE) ================== */
+// Map<userId, Set<socketId>>
+function getPresenceStore(nsp) {
+  if (!nsp._presence) nsp._presence = new Map();
+  return nsp._presence;
+}
+function markOnline(nsp, userId, socketId) {
+  const presence = getPresenceStore(nsp);
+  const set = presence.get(userId) || new Set();
+  const first = set.size === 0;
+  set.add(socketId);
+  presence.set(userId, set);
+  return { first };
+}
+function markOffline(nsp, userId, socketId) {
+  const presence = getPresenceStore(nsp);
+  const set = presence.get(userId);
+  if (!set) return { last: true };
+  set.delete(socketId);
+  if (set.size === 0) {
+    presence.delete(userId);
+    return { last: true };
+  }
+  return { last: false };
+}
+function presenceSnapshot(nsp) {
+  return Array.from(getPresenceStore(nsp).keys());
+}
+
+/* ================== ATTACHMENT PROMOTION ================== */
+async function promoteAttachments(convType, attachments = []) {
+  const cleaned = (attachments || [])
+    .map((a) => ({
+      key: a?.key,
+      contentType: a?.contentType,
+      size: a?.size,
+      uploadedAt: a?.uploadedAt ? new Date(a.uploadedAt) : new Date()
+    }))
+    .filter((x) => x.key && x.contentType && typeof x.size === 'number');
+
+  if (cleaned.length === 0) return [];
+
+  const promoted = [];
+  for (const a of cleaned) {
+    const isCustomerConv = convType === 'customer';
+    if (isCustomerConv) {
+      if (a.key.startsWith('customer/')) {
+        promoted.push(a);
+      } else {
+        const dest = a.key.startsWith('tmp/')
+          ? a.key
+              .replace(/^tmp\/customer\//, 'customer/')
+              .replace(/^tmp\//, 'customer/')
+          : a.key.replace(/^chat\//, 'customer/');
+        await copyObject(a.key, dest, a.contentType);
+        await deleteFile(a.key);
+        promoted.push({ ...a, key: dest });
+      }
+    } else {
+      if (a.key.startsWith('tmp/')) {
+        const dest = a.key
+          .replace(/^tmp\/customer\//, 'chat/')
+          .replace(/^tmp\//, 'chat/');
+        await copyObject(a.key, dest, a.contentType);
+        await deleteFile(a.key);
+        promoted.push({ ...a, key: dest });
+      } else {
+        promoted.push(a);
+      }
+    }
+  }
+  return promoted;
+}
+
+/* ================== JOIN ROOMS ================== */
+async function joinUserRooms(socket, actor) {
+  const convs = await Conversation.find({ 'members.user': actor.userId })
+    .select('_id')
+    .lean();
+  convs.forEach((c) => socket.join(String(c._id)));
+
+  const roleLower = String(actor.role || '').toLowerCase();
+  if (roleLower === 'karyawan') socket.join('role:employee');
+  if (roleLower === 'admin') socket.join('role:admin');
+}
+
+/* ================== CONNECTION HANDLER ================== */
 async function onConnection(nsp, socket) {
   try {
     const user = getUserFromHandshake(socket.handshake);
@@ -63,29 +150,37 @@ async function onConnection(nsp, socket) {
     const actor = await resolveChatActor(socket.req);
     socket.actor = actor;
 
-    // presence online
-    nsp.emit('user:online', {
-      userId: String(actor.userId),
-      name: actor.name,
-      role: actor.role
+    const uid = String(actor.userId);
+    const name = actor.name || user.name || 'User';
+    const role = actor.role;
+
+    // Presence: mark online (multi-socket aware)
+    const { first } = markOnline(nsp, uid, socket.id);
+
+    // Kirim snapshot awal ke klien ini
+    socket.emit('presence:init', {
+      me: { userId: uid, name, role },
+      online: presenceSnapshot(nsp)
     });
 
-    log('connected:', String(actor.userId), actor.role);
+    // Umumkan ke klien lain kalau ini koneksi pertama user tersebut
+    if (first) {
+      socket.broadcast.emit('user:online', { userId: uid, name, role });
+    }
 
-    // join all conversations
-    const convs = await Conversation.find({ 'members.user': actor.userId })
-      .select('_id')
-      .lean();
-    convs.forEach((c) => socket.join(String(c._id)));
+    log('connected:', uid, role);
 
-    // role rooms
-    const roleLower = String(actor.role || '').toLowerCase();
-    if (roleLower === 'karyawan') socket.join('role:employee');
-    if (roleLower === 'admin') socket.join('role:admin');
+    // Join rooms (percakapan & role)
+    await joinUserRooms(socket, actor);
 
-    /* ================== EVENTS ================== */
+    /* =============== EVENTS =============== */
 
-    // kirim pesan
+    // On-demand: ambil daftar online terbaru
+    socket.on('presence:list', (ack) => {
+      ackOk(ack, { online: presenceSnapshot(nsp) });
+    });
+
+    // Kirim pesan
     socket.on('chat:send', async (payload, ack) => {
       try {
         const {
@@ -107,7 +202,7 @@ async function onConnection(nsp, socket) {
         if (!conv)
           throw new Error('Percakapan tidak ditemukan / bukan anggota');
 
-        // idempotent by clientId
+        // Idempotent by clientId
         if (clientId) {
           const dup = await Message.findOne({
             conversation: conv._id,
@@ -120,51 +215,14 @@ async function onConnection(nsp, socket) {
           }
         }
 
-        // sanitize attachments
-        const cleaned = (attachments || [])
-          .map((a) => ({
-            key: a?.key,
-            contentType: a?.contentType,
-            size: a?.size,
-            uploadedAt: a?.uploadedAt ? new Date(a.uploadedAt) : new Date()
-          }))
-          .filter((x) => x.key && x.contentType && typeof x.size === 'number');
-
-        if (!String(text || '').trim() && cleaned.length === 0) {
+        if (
+          !String(text || '').trim() &&
+          (!attachments || !attachments.length)
+        ) {
           throw new Error('Pesan kosong');
         }
 
-        // PROMOTION RULE
-        const promoted = [];
-        for (const a of cleaned) {
-          const isCustomerConv = conv.type === 'customer';
-
-          if (isCustomerConv) {
-            if (a.key.startsWith('customer/')) {
-              promoted.push(a);
-            } else {
-              const dest = a.key.startsWith('tmp/')
-                ? a.key
-                    .replace(/^tmp\/customer\//, 'customer/')
-                    .replace(/^tmp\//, 'customer/')
-                : a.key.replace(/^chat\//, 'customer/');
-              await copyObject(a.key, dest, a.contentType);
-              await deleteFile(a.key);
-              promoted.push({ ...a, key: dest });
-            }
-          } else {
-            if (a.key.startsWith('tmp/')) {
-              const dest = a.key
-                .replace(/^tmp\/customer\//, 'chat/')
-                .replace(/^tmp\//, 'chat/');
-              await copyObject(a.key, dest, a.contentType);
-              await deleteFile(a.key);
-              promoted.push({ ...a, key: dest });
-            } else {
-              promoted.push(a);
-            }
-          }
-        }
+        const promoted = await promoteAttachments(conv.type, attachments);
 
         const msg = await Message.create({
           conversation: conv._id,
@@ -184,10 +242,10 @@ async function onConnection(nsp, socket) {
         // broadcast ke seluruh anggota room
         nsp.to(String(conversationId)).emit('chat:new', dto);
 
-        // ack langsung jadi delivered (✓✓ abu-abu)
+        // ack: delivered (✓✓ abu-abu)
         ackOk(ack, { message: dto });
 
-        // broadcast delivered ke semua anggota
+        // broadcast delivered
         nsp.to(String(conversationId)).emit('chat:delivered', {
           conversationId: String(conversationId),
           messageIds: [String(msg._id)],
@@ -198,7 +256,7 @@ async function onConnection(nsp, socket) {
       }
     });
 
-    // delivered event manual dari FE
+    // Delivered manual dari FE
     socket.on('chat:delivered', async ({ conversationId, messageIds }) => {
       try {
         if (!conversationId || !isValidId(conversationId)) return;
@@ -211,7 +269,6 @@ async function onConnection(nsp, socket) {
         if (!exists) return;
 
         const at = new Date();
-
         nsp.to(String(conversationId)).emit('chat:delivered', {
           conversationId,
           userId: String(actor.userId),
@@ -223,7 +280,7 @@ async function onConnection(nsp, socket) {
       }
     });
 
-    // typing indikator
+    // Typing indikator
     socket.on('chat:typing', ({ conversationId, isTyping }) => {
       if (!conversationId || !isValidId(conversationId)) return;
       socket.to(String(conversationId)).emit('chat:typing', {
@@ -234,7 +291,7 @@ async function onConnection(nsp, socket) {
       });
     });
 
-    // read receipt
+    // Read receipt
     socket.on('chat:read', async ({ conversationId }) => {
       try {
         if (!conversationId || !isValidId(conversationId)) return;
@@ -260,7 +317,6 @@ async function onConnection(nsp, socket) {
       } catch (_) {}
     });
 
-    // hapus pesan
     socket.on('chat:delete', async ({ messageId }, ack) => {
       try {
         if (!messageId || !isValidId(messageId)) {
@@ -311,7 +367,6 @@ async function onConnection(nsp, socket) {
       }
     });
 
-    // join room baru
     socket.on('conv:join', async ({ conversationId }, ack) => {
       try {
         if (!conversationId || !isValidId(conversationId)) {
@@ -335,8 +390,11 @@ async function onConnection(nsp, socket) {
     });
 
     socket.on('disconnect', () => {
-      nsp.emit('user:offline', { userId: String(actor.userId) });
-      log('disconnected:', String(actor.userId));
+      const { last } = markOffline(nsp, uid, socket.id);
+      if (last) {
+        socket.broadcast.emit('user:offline', { userId: uid });
+      }
+      log('disconnected:', uid);
     });
   } catch (e) {
     try {

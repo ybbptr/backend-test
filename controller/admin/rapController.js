@@ -226,7 +226,7 @@ const getAllRAP = asyncHandler(async (req, res) => {
   const totalItems = await RAP.countDocuments(filter);
   const raps = await RAP.find(filter)
     .select(
-      'project_name client lokasi nomor_kontrak nilai_pekerjaan nilai_fix_pekerjaan createdAt updatedAt'
+      'project_name client lokation nomor_kontrak nilai_pekerjaan nilai_fix_pekerjaan createdAt updatedAt'
     )
     .populate('client', 'name') // ambil nama client aja
     .skip(skip)

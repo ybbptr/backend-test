@@ -22,6 +22,7 @@ const UserManagement = require('../../model/userModel');
 const StockLog = require('../../model/stockAdjustmentModel');
 const ExpenseLog = require('../../model/expenseLogModel');
 const ProfitReport = require('../../model/profitReportModel');
+const Announcement = require('../../model/announcementModel');
 
 const getAdminDashboard = asyncHandler(async (req, res) => {
   try {
@@ -46,7 +47,8 @@ const getAdminDashboard = asyncHandler(async (req, res) => {
       usersCount,
       stockLogsCount,
       expenseLogsCount,
-      profitReportsCount
+      profitReportsCount,
+      announcementCount
     ] = await Promise.all([
       Client.countDocuments(),
       ProgressProject.countDocuments(),
@@ -68,7 +70,8 @@ const getAdminDashboard = asyncHandler(async (req, res) => {
       UserManagement.countDocuments({ role: { $ne: 'admin' } }),
       StockLog.countDocuments(),
       ExpenseLog.countDocuments(),
-      ProfitReport.countDocuments()
+      ProfitReport.countDocuments(),
+      Announcement.countDocuments()
     ]);
 
     res.status(200).json({
@@ -92,7 +95,8 @@ const getAdminDashboard = asyncHandler(async (req, res) => {
       users: usersCount,
       stock_logs: stockLogsCount,
       expense_logs: expenseLogsCount,
-      profit_reports: profitReportsCount
+      profit_reports: profitReportsCount,
+      announcement: announcementCount
     });
   } catch (err) {
     console.error(err);
