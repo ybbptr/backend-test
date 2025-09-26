@@ -47,13 +47,6 @@ const productCirculationSchema = new Schema(
       default: null
     },
 
-    // (Legacy) kompatibilitas FE lama
-    condition: {
-      type: String,
-      enum: ['Baik', 'Rusak', 'Maintenance', 'Hilang'],
-      default: null
-    },
-
     // Korelasi ke batch
     loan_id: { type: ObjectId, ref: 'Loan', default: null },
     loan_number: { type: String, default: null },

@@ -236,9 +236,7 @@ async function validateReturnPayloadAndSisa({ session, loan_number, items }) {
     const available = (circItem?.quantity || 0) - used;
     if (it.quantity > available) {
       throwError(
-        `Stok pengembalian (${it.quantity}) > sisa (${available}) untuk item ${
-          it.product_code || it._id
-        }`,
+        `Stok yang dikembalikan kelebihan untuk barang ${it.product_code}. Barang yang dipinjam hanya tersisa ${available}`,
         400
       );
     }

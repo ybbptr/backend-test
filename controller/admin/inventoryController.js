@@ -640,13 +640,6 @@ const moveInventory = asyncHandler(async (req, res) => {
     dst.last_in_at = new Date();
     await dst.save({ session });
 
-    // Aktor
-    const actor = await resolveActor(req, session);
-    const moved_by_model =
-      actor?.model || (req.user?.role === 'karyawan' ? 'Employee' : 'User');
-    const moved_by = actor?.id || req.user?._id;
-    const moved_by_name = actor?.name || req.user?.name || 'Unknown';
-
     // Ledger (dua sisi) – catat arah yang benar di reason_note
     await applyAdjustment(session, {
       inventoryId: src._id,
@@ -702,15 +695,14 @@ const moveInventory = asyncHandler(async (req, res) => {
 
           from_condition: src.condition,
           to_condition: src.condition,
-          condition: src.condition, // legacy
 
           loan_id: null,
           loan_number: null,
           return_loan_id: null,
 
-          moved_by_model,
-          moved_by,
-          moved_by_name
+          moved_by: req.user.id,
+          moved_by_model: 'User',
+          moved_by_name: req.user.name
         }
       ],
       { session }
@@ -810,13 +802,6 @@ const changeCondition = asyncHandler(async (req, res) => {
     dst.last_in_at = new Date();
     await dst.save({ session });
 
-    // Aktor
-    const actor = await resolveActor(req, session);
-    const moved_by_model =
-      actor?.model || (req.user?.role === 'karyawan' ? 'Employee' : 'User');
-    const moved_by = actor?.id || req.user?._id;
-    const moved_by_name = actor?.name || req.user?.name || 'Unknown';
-
     const movedWarehouse = !sameId(finalWarehouse, src.warehouse?._id);
     const movedShelf = !sameId(finalShelf, src.shelf?._id);
 
@@ -876,15 +861,14 @@ const changeCondition = asyncHandler(async (req, res) => {
 
           from_condition: src.condition,
           to_condition: new_condition,
-          condition: new_condition, // legacy: pakai kondisi baru
 
           loan_id: null,
           loan_number: null,
           return_loan_id: null,
 
-          moved_by_model,
-          moved_by,
-          moved_by_name
+          moved_by: req.user.id,
+          moved_by_model: 'User',
+          moved_by_name: req.user.name
         }
       ],
       { session }
