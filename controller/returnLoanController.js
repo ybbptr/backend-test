@@ -1254,7 +1254,7 @@ const getReturnForm = asyncHandler(async (req, res) => {
         product: it.product,
         product_code: it.product_code,
         brand: it.brand,
-        quantity: qty,
+        quantity: remaining,
         used_final: usedFinal,
         reserved_draft: usedDraft,
         remaining,
@@ -1271,16 +1271,16 @@ const getReturnForm = asyncHandler(async (req, res) => {
     position: loan.position || loan.borrower?.position || null,
     inventory_manager: loan.inventory_manager,
     // ringkasan progress
-    progress: {
-      total_borrowed: totalBorrowed,
-      used_final: totalUsedFinal,
-      reserved_draft: totalReservedDraft,
-      available_for_new_batch: Math.max(
-        totalBorrowed - totalUsedFinal - totalReservedDraft,
-        0
-      )
-    },
-    progress_label: `${totalUsedFinal}+${totalReservedDraft}/${totalBorrowed}`,
+    // progress: {
+    //   total_borrowed: totalBorrowed,
+    //   used_final: totalUsedFinal,
+    //   reserved_draft: totalReservedDraft,
+    //   available_for_new_batch: Math.max(
+    //     totalBorrowed - totalUsedFinal - totalReservedDraft,
+    //     0
+    //   )
+    // },
+    // progress_label: `${totalUsedFinal}+${totalReservedDraft}/${totalBorrowed}`,
     items
   });
 });
