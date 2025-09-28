@@ -370,8 +370,8 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
   for (const ret of doc.returned_items || []) {
     const inv = await Inventory.findById(ret.inventory)
       .populate('product', 'product_code brand')
-      .populate('warehouse', '_id') // antisipasi jika bukan ObjectId murni
-      .populate('shelf', '_id')
+      .populate('warehouse', 'warehouse_name')
+      .populate('shelf', 'shelf_name')
       .session(session);
     if (!inv) throwError('Inventory tidak ditemukan', 404);
 
@@ -386,7 +386,9 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
         bucket: 'ON_LOAN',
         delta: -ret.quantity,
         reason_code: 'MARK_LOST',
-        reason_note: `Barang hilang di peminjaman (${loan.loan_number})`,
+        reason_note: `Barang hilang (${ret.quantity} ${
+          inv.product?.brand || 'item'
+        }) dari pinjaman ${loan.loan_number}`,
         actor,
         correlation: {
           loan_id: loan._id,
@@ -395,7 +397,6 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
         }
       });
 
-      // Sinkronkan snapshot inventory
       inv.on_loan -= ret.quantity;
       await inv.save({ session });
     } else {
@@ -406,19 +407,22 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
         ret.shelf_return ?? (inv.shelf?._id || inv.shelf || null);
       const targetCond = ret.condition_new || inv.condition;
 
-      // Cek apakah identitas target sama dengan dokumen saat ini (hindari dup key)
       const sameIdentity =
-        String(targetWarehouse) === String(inv.warehouse) &&
-        String(targetShelf || '') === String(inv.shelf || '') &&
+        String(targetWarehouse) ===
+          String(inv.warehouse?._id || inv.warehouse) &&
+        String(targetShelf || '') ===
+          String(inv.shelf?._id || inv.shelf || '') &&
         targetCond === inv.condition;
 
-      // Ledger: ON_LOAN turun, ON_HAND naik
+      // Ledger: ON_LOAN turun
       await applyAdjustment(session, {
         inventoryId: inv._id,
         bucket: 'ON_LOAN',
         delta: -ret.quantity,
         reason_code: 'RETURN_IN',
-        reason_note: `Barang dikembalikan dari peminjaman (${loan.loan_number})`,
+        reason_note: `Mengembalikan ${ret.quantity} ${
+          inv.product?.brand || 'item'
+        } dari pinjaman ${loan.loan_number}`,
         actor,
         correlation: {
           loan_id: loan._id,
@@ -429,17 +433,18 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
 
       if (sameIdentity) {
         inv.on_hand += ret.quantity;
-        inv.on_loan -= ret.quantity; // sudah dikurangi di ledger; ini untuk snapshot
+        inv.on_loan -= ret.quantity;
         inv.last_in_at = new Date();
         await inv.save({ session });
 
-        // Ledger untuk ON_HAND (pakai dokumen yang sama)
         await applyAdjustment(session, {
           inventoryId: inv._id,
           bucket: 'ON_HAND',
           delta: +ret.quantity,
           reason_code: 'RETURN_IN',
-          reason_note: `Barang dikembalikan dari peminjaman (${loan.loan_number})`,
+          reason_note: `Dikembalikan ke ${
+            inv.warehouse?.warehouse_name || 'Gudang'
+          }${inv.shelf?.shelf_name ? ' / ' + inv.shelf.shelf_name : ''}`,
           actor,
           correlation: {
             loan_id: loan._id,
@@ -448,15 +453,12 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
           }
         });
       } else {
-        // Kurangi pinjaman dari sumber (snapshot)
         inv.on_loan -= ret.quantity;
         await inv.save({ session });
-        // Hapus jika kosong total
         if ((inv.on_hand || 0) <= 0 && (inv.on_loan || 0) <= 0) {
           await Inventory.deleteOne({ _id: inv._id }).session(session);
         }
 
-        // Tambahkan ke target (merge jika sudah ada)
         let target = await Inventory.findOne({
           product: inv.product,
           warehouse: targetWarehouse,
@@ -474,7 +476,11 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
             bucket: 'ON_HAND',
             delta: +ret.quantity,
             reason_code: 'RETURN_IN',
-            reason_note: `Barang dikembalikan dari peminjaman (${loan.loan_number})`,
+            reason_note: `Dikembalikan ke ${
+              target.warehouse?.warehouse_name || 'Gudang'
+            }${
+              target.shelf?.shelf_name ? ' / ' + target.shelf.shelf_name : ''
+            }`,
             actor,
             correlation: {
               loan_id: loan._id,
@@ -504,7 +510,9 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
             bucket: 'ON_HAND',
             delta: +ret.quantity,
             reason_code: 'RETURN_IN',
-            reason_note: `Barang dikembalikan dari peminjaman (${loan.loan_number})`,
+            reason_note: `Dikembalikan ke ${targetWarehouse || 'Gudang'}${
+              targetShelf ? ' / ' + targetShelf : ''
+            }`,
             actor,
             correlation: {
               loan_id: loan._id,
@@ -531,7 +539,7 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
         warehouse_to: ret.warehouse_return,
         shelf_to: ret.shelf_return,
 
-        moved_by: borrowerId, // ObjectId (Employee)
+        moved_by: borrowerId,
         moved_by_model: 'Employee',
         moved_by_name: borrowerName,
 
@@ -541,7 +549,6 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
       });
     }
 
-    // Tanggal return per item (untuk tracking)
     circItem.return_date_circulation = new Date();
   }
 
@@ -549,10 +556,8 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
     await ProductCirculation.insertMany(circulationLogs, { session });
   }
 
-  // Recompute status sirkulasi & loan
   await recomputeCirculationAndLoan({ session, loan, circulation });
 
-  // Tandai batch final
   doc.status = 'Dikembalikan';
   doc.needs_review = !!hasLost;
   doc.loan_locked = true;

@@ -25,10 +25,20 @@ const parseRemember = (req) => {
   return v === true || v === 'true' || v === 1 || v === '1';
 };
 const isProd = process.env.NODE_ENV === 'production';
+
+const sameSite = process.env.COOKIE_SAMESITE || 'none';
+const secure =
+  process.env.COOKIE_SECURE?.toLowerCase() === 'true'
+    ? true
+    : process.env.COOKIE_SECURE?.toLowerCase() === 'false'
+    ? false
+    : isProd; // default ikut production
+
 const baseCookie = {
   httpOnly: true,
-  secure: isProd,
-  sameSite: isProd ? 'none' : 'lax'
+  secure, // true = https only
+  sameSite, // none kalau cross-site
+  path: '/' // global scope
 };
 
 const OTP_TTL_MS = Number(process.env.OTP_TTL_MINUTES || 1) * 60 * 1000; // 1 menit
@@ -212,12 +222,10 @@ const verifyRegisterOtp = asyncHandler(async (req, res) => {
   res
     .cookie('accessToken', accessToken, {
       ...baseCookie,
-      path: '/',
       maxAge: 30 * 60 * 1000
     })
     .cookie('refreshToken', refreshToken, {
       ...baseCookie,
-      path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000
     })
     .status(201)
@@ -411,12 +419,10 @@ const verifyEmailUpdateOtp = asyncHandler(async (req, res) => {
   res
     .cookie('accessToken', accessToken, {
       ...baseCookie,
-      path: '/',
       maxAge: 30 * 60 * 1000
     })
     .cookie('refreshToken', refreshToken, {
       ...baseCookie,
-      path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000
     })
     .json({ message: 'Email berhasil diperbarui', email: user.email });
@@ -612,15 +618,12 @@ const resetPasswordWithToken = asyncHandler(async (req, res) => {
   const { accessToken, refreshToken } = await generateTokens(user);
 
   res
-    .clearCookie('refreshToken', { ...baseCookie, path: '/users' })
     .cookie('accessToken', accessToken, {
       ...baseCookie,
-      path: '/',
       maxAge: 30 * 60 * 1000
     })
     .cookie('refreshToken', refreshToken, {
       ...baseCookie,
-      path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000
     })
     .json({ message: 'Password berhasil diperbarui' });
@@ -647,7 +650,7 @@ const resetPasswordWithToken = asyncHandler(async (req, res) => {
 
 //   const { accessToken, refreshToken } = await generateTokens(user);
 
-//   res.clearCookie('refreshToken', { ...baseCookie, path: '/' });
+//   res.clearCookie('refreshToken', { ...baseCookie});
 
 //   res
 //     .cookie('accessToken', accessToken, {
@@ -680,8 +683,8 @@ const loginUser = asyncHandler(async (req, res) => {
     ? { ...baseCookie, maxAge: 7 * 24 * 60 * 60 * 1000 } // persistent 7d
     : { ...baseCookie }; // session cookie (tanpa maxAge)
 
-  res.clearCookie('refreshToken', { ...baseCookie, path: '/' });
-  res.clearCookie('accessToken', { ...baseCookie, path: '/' });
+  res.clearCookie('refreshToken', { ...baseCookie });
+  res.clearCookie('accessToken', { ...baseCookie });
   res
     .cookie('accessToken', accessToken, {
       ...baseCookie,
@@ -760,13 +763,13 @@ const logoutUser = asyncHandler(async (req, res) => {
     }
 
     res
-      .clearCookie('accessToken', { ...baseCookie, path: '/' })
-      .clearCookie('refreshToken', { ...baseCookie, path: '/' })
+      .clearCookie('accessToken', { ...baseCookie })
+      .clearCookie('refreshToken', { ...baseCookie })
       .json({ message: 'Berhasil logout' });
   } catch (_) {
     res
-      .clearCookie('accessToken', { ...baseCookie, path: '/' })
-      .clearCookie('refreshToken', { ...baseCookie, path: '/' })
+      .clearCookie('accessToken', { ...baseCookie })
+      .clearCookie('refreshToken', { ...baseCookie })
       .status(200)
       .json({ message: 'Berhasil logout' });
   }
