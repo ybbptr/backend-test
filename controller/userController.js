@@ -683,19 +683,41 @@ const loginUser = asyncHandler(async (req, res) => {
     ? { ...baseCookie, maxAge: 7 * 24 * 60 * 60 * 1000 } // persistent 7d
     : { ...baseCookie }; // session cookie (tanpa maxAge)
 
-  res.clearCookie('refreshToken', { ...baseCookie });
-  res.clearCookie('accessToken', { ...baseCookie });
-  res
-    .cookie('accessToken', accessToken, {
-      ...baseCookie,
-      maxAge: 30 * 60 * 1000
-    })
-    .cookie('refreshToken', refreshToken, refreshCookieOpts)
-    .json({
-      message: 'Login berhasil',
-      role: user.role,
-      accessExpiresInSec: 1800
-    });
+  console.log('[LOGIN] issuing cookies', {
+    remember,
+    accessMaxAgeMs: 30 * 60 * 1000,
+    refreshPersistent: !!refreshCookieOpts.maxAge,
+    baseCookie: {
+      sameSite: baseCookie.sameSite,
+      secure: baseCookie.secure,
+      path: baseCookie.path
+    }
+  });
+
+  res.cookie('accessToken', accessToken, {
+    ...baseCookie,
+    maxAge: 30 * 60 * 1000
+  });
+  res.cookie('refreshToken', refreshToken, refreshCookieOpts);
+  return res.json({
+    message: 'Login berhasil',
+    role: user.role,
+    accessExpiresInSec: 1800
+  });
+
+  // res.clearCookie('refreshToken', { ...baseCookie });
+  // res.clearCookie('accessToken', { ...baseCookie });
+  // res
+  //   .cookie('accessToken', accessToken, {
+  //     ...baseCookie,
+  //     maxAge: 30 * 60 * 1000
+  //   })
+  //   .cookie('refreshToken', refreshToken, refreshCookieOpts)
+  //   .json({
+  //     message: 'Login berhasil',
+  //     role: user.role,
+  //     accessExpiresInSec: 1800
+  //   });
 });
 
 const getCurrentUser = asyncHandler(async (req, res) => {
@@ -776,18 +798,39 @@ const logoutUser = asyncHandler(async (req, res) => {
 });
 
 const refreshToken = asyncHandler(async (req, res) => {
+  // ---- DEBUG: incoming ----
+  const hasCookieHeader = !!req.headers.cookie;
   const token = req.cookies?.refreshToken;
-  if (!token) return res.status(401).json({ message: 'No refresh token' });
+  console.log('[rt][in]', {
+    url: req.originalUrl,
+    hasCookieHeader,
+    hasRefreshCookie: !!token,
+    cookieKeys: Object.keys(req.cookies || {}),
+    env: {
+      NODE_ENV: process.env.NODE_ENV,
+      COOKIE_SAMESITE: process.env.COOKIE_SAMESITE,
+      COOKIE_SECURE: process.env.COOKIE_SECURE
+    }
+  });
+
+  if (!token) {
+    console.log('[rt] missing refresh cookie');
+    return res.status(401).json({ message: 'No refresh token' });
+  }
 
   try {
     const payload = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
+    console.log('[rt] jwt ok', {
+      sub: payload?.sub,
+      remember: !!payload?.remember
+    });
+
     const user = await User.findById(payload.sub).select(
-      '+refreshToken +prevRefreshToken role'
+      '+refreshToken +prevRefreshToken role name'
     );
 
-    const ok =
-      user && (user.refreshToken === token || user.prevRefreshToken === token);
-    if (!ok) {
+    if (!user) {
+      console.log('[rt] user not found', { sub: payload?.sub });
       return res
         .clearCookie('accessToken', { ...baseCookie })
         .clearCookie('refreshToken', { ...baseCookie })
@@ -795,13 +838,34 @@ const refreshToken = asyncHandler(async (req, res) => {
         .json({ message: 'Refresh token invalid' });
     }
 
+    const matchCurrent = user.refreshToken === token;
+    const matchPrev = user.prevRefreshToken === token;
+
+    console.log('[rt] db match', {
+      matchCurrent,
+      matchPrev,
+      dbCurrent: user.refreshToken ? '<present>' : '<null>',
+      dbPrev: user.prevRefreshToken ? '<present>' : '<null>',
+      providedLen: token.length
+    });
+
+    if (!matchCurrent && !matchPrev) {
+      console.log('[rt] token not found in DB (invalid)');
+      return res
+        .clearCookie('accessToken', { ...baseCookie })
+        .clearCookie('refreshToken', { ...baseCookie })
+        .status(401)
+        .json({ message: 'Refresh token invalid' });
+    }
+
+    const remember = !!payload.remember;
+
     const newAccessToken = jwt.sign(
       { sub: user._id.toString(), role: user.role, name: user.name },
       process.env.ACCESS_TOKEN_SECRET,
       { expiresIn: '30m' }
     );
 
-    const remember = !!payload.remember; // pertahankan preferensi
     const newRefreshToken = jwt.sign(
       { sub: user._id.toString(), role: user.role, name: user.name, remember },
       process.env.REFRESH_TOKEN_SECRET,
@@ -814,28 +878,31 @@ const refreshToken = asyncHandler(async (req, res) => {
     });
 
     const refreshCookieOpts = remember
-      ? { ...baseCookie, maxAge: 7 * 24 * 60 * 60 * 1000 }
+      ? { ...baseCookie, maxAge: 7 * 24 * 60 * 60 * 1000 } // persistent
       : { ...baseCookie }; // session
 
-    console.log('[rt] cookie len=', token?.length);
-    console.log(
-      '[rt] db current len=',
-      user?.refreshToken?.length,
-      'prev len=',
-      user?.prevRefreshToken?.length
-    );
-    console.log('[rt] path cookies:', req.headers.cookie);
+    // ---- DEBUG: outgoing (sebelum kirim) ----
+    console.log('[rt][out]', {
+      setAccessCookie: true,
+      setRefreshCookie: true,
+      accessTTLmin: 30,
+      refreshTTL: remember ? '7d (persistent)' : 'session',
+      cookieCfg: {
+        sameSite: baseCookie.sameSite,
+        secure: baseCookie.secure,
+        path: baseCookie.path
+      }
+    });
 
-    res
+    return res
       .cookie('accessToken', newAccessToken, {
         ...baseCookie,
         maxAge: 30 * 60 * 1000
       })
       .cookie('refreshToken', newRefreshToken, refreshCookieOpts)
-      .json({
-        message: 'Access token berhasil di refresh'
-      });
-  } catch {
+      .json({ message: 'Access token berhasil di refresh' });
+  } catch (e) {
+    console.log('[rt] verify error', e?.message || e);
     return res
       .clearCookie('accessToken', { ...baseCookie })
       .clearCookie('refreshToken', { ...baseCookie })

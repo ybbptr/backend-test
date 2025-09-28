@@ -54,7 +54,7 @@ function pickDisplayNameWithEmp(userDoc, empMap) {
 const listConversations = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const roleLower = String(req.user.role || '').toLowerCase();
-  const { type, q, limit = 30, cursor } = req.query;
+  const { type, q, limit = 50, cursor } = req.query;
   const lim = Math.max(1, Math.min(Number(limit) || 30, 100));
 
   const match = { 'members.user': asId(actor.userId) };

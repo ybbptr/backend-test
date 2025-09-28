@@ -9,12 +9,18 @@ const connectDb = require('./config/dbConnection');
 const errorHandler = require('./middleware/errorHandler');
 const validateToken = require('./middleware/validations/validateTokenHandler');
 const socketController = require('./controller/socket/socketController');
+const authDebugLogger = require('./utils/authDebugLogger');
 
 const app = express();
 const port = process.env.PORT || 3001;
 
 // ---------- DB ----------
 connectDb();
+
+// ---------- App setup ----------
+app.set('trust proxy', 1);
+app.use(express.json({ limit: '10mb' }));
+app.use(cookieParser());
 
 // ---------- CORS ----------
 const allowedOrigins = [
@@ -39,11 +45,7 @@ app.use(
   })
 );
 app.options('*', cors());
-
-// ---------- App setup ----------
-app.set('trust proxy', 1);
-app.use(express.json({ limit: '10mb' }));
-app.use(cookieParser());
+app.use(authDebugLogger);
 
 // Static assets
 app.use('/assets', express.static(path.join(__dirname, 'public/assets')));

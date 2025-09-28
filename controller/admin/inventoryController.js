@@ -809,9 +809,22 @@ const changeCondition = asyncHandler(async (req, res) => {
     const movedWarehouse = !sameId(finalWarehouse, src.warehouse?._id);
     const movedShelf = !sameId(finalShelf, src.shelf?._id);
 
-    const reasonCmp = `Ubah kondisi ${src.condition} → ${new_condition}${
-      movedWarehouse || movedShelf ? ' & pindah lokasi' : ''
-    }`;
+    function formatLocationName(warehouse, shelf) {
+      let loc = '';
+      if (warehouse?.warehouse_name) loc += warehouse.warehouse_name;
+      if (shelf?.shelf_name) loc += (loc ? ' / ' : '') + shelf.shelf_name;
+      return loc || 'Lokasi tidak diketahui';
+    }
+
+    const oldLoc = formatLocationName(src.warehouse, src.shelf);
+    const newLoc = formatLocationName(finalWarehouseDoc, finalShelfDoc);
+
+    let reasonCmp;
+    if (movedWarehouse || movedShelf) {
+      reasonCmp = `Ubah kondisi ${src.condition} → ${new_condition} dan dipindahkan ke ${newLoc}`;
+    } else {
+      reasonCmp = `Ubah kondisi ${src.condition} → ${new_condition} di ${oldLoc}`;
+    }
 
     // 🔽 Resolve actor
     const actor = await resolveActor(req, session);

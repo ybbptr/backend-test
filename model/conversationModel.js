@@ -11,7 +11,6 @@ const MemberSchema = new Schema(
     user: { type: Types.ObjectId, ref: 'User', required: true },
     role: { type: String, enum: MEMBER_ROLES, default: 'member' },
     lastReadAt: { type: Date, default: null }
-    // ⚠️ pinned dihapus → karena sudah pindah ke global
   },
   { _id: false }
 );
