@@ -23,8 +23,6 @@ const readCursor = (cur) => {
   }
 };
 
-/* ========== LIST CONVERSATIONS (sidebar) ========== */
-// GET /chat/conversations?type=&q=&limit=30&cursor=
 const listConversations = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const roleLower = String(req.user.role || '').toLowerCase();
@@ -86,35 +84,26 @@ const listConversations = asyncHandler(async (req, res) => {
     empMap = new Map(emps.map((e) => [String(e.user), e.name]));
   }
 
-  // 4) Helper nama tampilan
   const pickDisplayName = (userDoc) => {
     if (!userDoc) return 'Tanpa Nama';
     const uid = String(userDoc._id || userDoc);
     if (userDoc.role === 'karyawan') {
       return empMap.get(uid) || userDoc.name || userDoc.email || 'Tanpa Nama';
     }
-    // admin / user (customer) pakai nama user
     return userDoc.name || userDoc.email || 'Tanpa Nama';
   };
 
-  // 5) Tambahkan displayName ke members & lastMessage, serta displayTitle utk non-group
   const myId = String(actor.userId);
   for (const c of items) {
-    // members[i].displayName
     c.members = (c.members || []).map((m) => {
       const u = m.user;
-      return {
-        ...m,
-        displayName: pickDisplayName(u)
-      };
+      return { ...m, displayName: pickDisplayName(u) };
     });
 
-    // lastMessage.displaySenderName
     if (c.lastMessage?.sender) {
       c.lastMessage.displaySenderName = pickDisplayName(c.lastMessage.sender);
     }
 
-    // displayTitle untuk direct/customer (pakai lawan bicara)
     if (c.type !== 'group') {
       const others = (c.members || []).filter(
         (m) => String(m.user?._id || m.user) !== myId
@@ -125,6 +114,30 @@ const listConversations = asyncHandler(async (req, res) => {
     }
   }
 
+  const myLastReadByConv = new Map();
+  for (const c of items) {
+    const me = (c.members || []).find(
+      (m) => String(m.user?._id || m.user) === myId
+    );
+    myLastReadByConv.set(String(c._id), me?.lastReadAt || null);
+  }
+
+  await Promise.all(
+    items.map(async (c) => {
+      const lastReadAt = myLastReadByConv.get(String(c._id));
+      const query = {
+        conversation: c._id,
+        sender: { $ne: asId(actor.userId) },
+        $or: [{ deletedAt: { $exists: false } }, { deletedAt: null }]
+      };
+      if (lastReadAt) {
+        query.createdAt = { $gt: new Date(lastReadAt) };
+      }
+      const count = await Message.countDocuments(query);
+      c.unreadCount = count;
+    })
+  );
+
   const ref = items[items.length - 1];
   const refTime = ref?.lastMessageAt || ref?.createdAt;
   const nextCursor =
@@ -132,6 +145,7 @@ const listConversations = asyncHandler(async (req, res) => {
 
   res.json({ items, nextCursor, hasMore });
 });
+
 /* ========== CREATE CONVERSATION (direct/group) ========== */
 // POST /chat/conversations
 const createConversation = asyncHandler(async (req, res) => {

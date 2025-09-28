@@ -86,22 +86,76 @@ const createLoan = asyncHandler(async (req, res) => {
     throwError('Field wajib belum lengkap', 400);
   }
 
+  // Validasi awal format qty & inventory
+  for (const [idx, it] of items.entries()) {
+    const qty = Number(it.quantity);
+    if (!it.inventory) {
+      throwError(`Item #${idx + 1}: inventory wajib diisi`, 400);
+    }
+    if (!Number.isFinite(qty) || qty <= 0) {
+      throwError(`Item #${idx + 1}: quantity harus angka > 0`, 400);
+    }
+  }
+
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
+    // Kumpulkan unique inventoryIds & akumulasi permintaan jika ada duplikat baris
+    const totalsMap = new Map(); // invId -> totalQtyRequested
+    const invIds = new Set();
+    for (const it of items) {
+      const invId = String(it.inventory);
+      invIds.add(invId);
+      const cur = totalsMap.get(invId) || 0;
+      totalsMap.set(invId, cur + Number(it.quantity));
+    }
+
+    // Ambil semua inventory terkait sekali query
+    const invDocs = await Inventory.find({ _id: { $in: [...invIds] } })
+      .populate('product', 'product_code brand')
+      .populate('warehouse', 'warehouse_name warehouse_code')
+      .populate('shelf', 'shelf_name shelf_code')
+      .session(session);
+
+    // Peta inv untuk akses cepat
+    const invMap = new Map(invDocs.map((d) => [String(d._id), d]));
+
+    // Validasi eksistensi + kondisi "Baik" + stok cukup per inventory (setelah agregasi)
+    for (const [invId, totalReq] of totalsMap.entries()) {
+      const inv = invMap.get(invId);
+      if (!inv) {
+        throwError(`Inventory ${invId} tidak ditemukan`, 404);
+      }
+      if (inv.condition !== 'Baik') {
+        throwError(
+          `Barang (${inv.product?.product_code || invId}) dengan kondisi ${
+            inv.condition
+          }, tidak bisa dipinjam`,
+          400
+        );
+      }
+      const onHand = Number(inv.on_hand) || 0;
+      if (totalReq > onHand) {
+        const shelfLabel =
+          inv.shelf?.shelf_name || inv.shelf?.shelf_code || '-';
+        const whLabel =
+          inv.warehouse?.warehouse_name || inv.warehouse?.warehouse_code || '-';
+        throwError(
+          `Stok tidak cukup untuk ${
+            inv.product?.product_code || invId
+          } di gudang "${whLabel}" lemari "${shelfLabel}". ` +
+            `Tersedia: ${onHand}, diminta: ${totalReq}`,
+          400
+        );
+      }
+    }
+
+    // Bangun payload borrowed_items (per baris tetap dipertahankan)
     const processed = [];
     for (const it of items) {
-      if (!it.inventory || !it.quantity)
-        throwError('Barang & stok yang ingin dipinjam wajib diisi', 400);
-
-      const inv = await Inventory.findById(it.inventory)
-        .populate('product', 'product_code brand')
-        .populate('warehouse', 'warehouse_name warehouse_code')
-        .populate('shelf', 'shelf_name shelf_code')
-        .session(session);
-      if (!inv) throwError('Barang tidak ditemukan', 404);
-
+      const inv = invMap.get(String(it.inventory));
+      // inv sudah dijamin ada dari blok validasi di atas
       processed.push({
         inventory: inv._id,
         product: inv.product?._id,
@@ -115,6 +169,7 @@ const createLoan = asyncHandler(async (req, res) => {
       });
     }
 
+    // Simpan Loan (belum mengubah stok; stok dikunci saat approveLoan)
     const [loan] = await Loan.create(
       [
         {
