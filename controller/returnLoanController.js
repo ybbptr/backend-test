@@ -345,14 +345,13 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
   }).session(session);
   if (!circulation) throwError('Sirkulasi tidak ditemukan', 404);
 
-  // Validasi ulang sisa agar race-safe
   await validateReturnPayloadAndSisa({
     session,
     loan_number: doc.loan_number,
-    items: doc.returned_items || []
+    items: doc.returned_items || [],
+    excludeId: doc._id
   });
 
-  // Pastikan identitas peminjam terisi untuk log
   const { borrowerId, borrowerName } = await resolveBorrower(loan, session);
 
   const circulationLogs = [];
@@ -372,7 +371,6 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
     if (ret.condition_new === 'Hilang') {
       hasLost = true;
 
-      // Ledger: turunkan ON_LOAN (barang dipastikan tidak kembali)
       await applyAdjustment(session, {
         inventoryId: inv._id,
         bucket: 'ON_LOAN',
@@ -524,8 +522,8 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
         shelf_to: ret.shelf_return,
 
         moved_by: borrowerId, // ObjectId (Employee)
-        moved_by_model: 'Employee', // nama model referensi
-        moved_by_name: borrowerName, // nama employee
+        moved_by_model: 'Employee',
+        moved_by_name: borrowerName,
 
         loan_id: loan._id,
         loan_number: loan.loan_number,
