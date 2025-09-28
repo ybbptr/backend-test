@@ -7,7 +7,10 @@ const {
   openCustomerChat,
   updateConversation,
   updateMembers,
-  getContacts
+  getContacts,
+  listPinnedMessages,
+  pinMessage,
+  unpinMessage
 } = require('../controller/chatController');
 const up = require('../controller/socket/chatUploadController');
 
@@ -17,6 +20,12 @@ router.delete('/attachments', up.deleteAttachment);
 router.get('/contacts', getContacts); // conatct
 router.get('/conversations', listConversations); // sidebar
 router.post('/conversations', createConversation); // buat direct/group
+
+router.get('/conversations/:id/pins', listPinnedMessages);
+
+router.post('/conversations/:id/pin', pinMessage);
+router.delete('/conversations/:id/pin/:messageId', unpinMessage);
+
 router.patch('/conversations/:id', updateConversation); // rename, pin
 router.patch('/conversations/:id/members', updateMembers); // tambah/keluarin anggota
 

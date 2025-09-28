@@ -10,8 +10,17 @@ const MemberSchema = new Schema(
   {
     user: { type: Types.ObjectId, ref: 'User', required: true },
     role: { type: String, enum: MEMBER_ROLES, default: 'member' },
-    lastReadAt: { type: Date, default: null },
-    pinned: { type: Boolean, default: false }
+    lastReadAt: { type: Date, default: null }
+    // ⚠️ pinned dihapus → karena sudah pindah ke global
+  },
+  { _id: false }
+);
+
+const PinnedMessageSchema = new Schema(
+  {
+    message: { type: Types.ObjectId, ref: 'Message', required: true },
+    pinnedBy: { type: Types.ObjectId, ref: 'User', required: true },
+    pinnedAt: { type: Date, default: Date.now }
   },
   { _id: false }
 );
@@ -19,7 +28,7 @@ const MemberSchema = new Schema(
 const ConversationSchema = new Schema(
   {
     type: { type: String, enum: CONV_TYPES, required: true },
-    title: { type: String, trim: true }, // wajib di FE untuk group/announcement
+    title: { type: String, trim: true },
     createdBy: { type: Types.ObjectId, ref: 'User' },
 
     members: {
@@ -37,11 +46,10 @@ const ConversationSchema = new Schema(
     lastMessage: { type: Types.ObjectId, ref: 'Message' },
     lastMessageAt: { type: Date },
 
-    // TTL untuk customer
     expireAt: { type: Date, default: null },
 
-    // Kunci unik direct "<id1>:<id2>" (urut)
-    memberKey: { type: String, default: null, index: true }
+    memberKey: { type: String, default: null, index: true },
+    pinnedMessages: { type: [PinnedMessageSchema], default: [] }
   },
   { timestamps: true }
 );

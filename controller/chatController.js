@@ -11,6 +11,7 @@ const Employee = require('../model/employeeModel');
 const User = require('../model/userModel');
 
 const asId = (x) => new mongoose.Types.ObjectId(String(x));
+const isValidId = (v) => mongoose.Types.ObjectId.isValid(String(v));
 
 const makeCursor = (date, id) =>
   Buffer.from(`${date.toISOString()}|${id}`).toString('base64');
@@ -23,6 +24,33 @@ const readCursor = (cur) => {
   }
 };
 
+/* ================== Helpers: nama karyawan dari Employee ================== */
+const getUid = (u) => String((u && (u._id || u.id || u)) || '');
+async function buildEmpNameMapFromUsers(users = []) {
+  const ids = new Set();
+  for (const u of users) {
+    if (!u) continue;
+    const role = String(u.role || '').toLowerCase();
+    if (role === 'karyawan') ids.add(getUid(u));
+  }
+  if (!ids.size) return new Map();
+  const emps = await Employee.find({ user: { $in: Array.from(ids) } })
+    .select('user name')
+    .lean();
+  return new Map(emps.map((e) => [String(e.user), e.name]));
+}
+function pickDisplayNameWithEmp(userDoc, empMap) {
+  if (!userDoc) return 'Tanpa Nama';
+  const uid = getUid(userDoc);
+  const role = String(userDoc.role || '').toLowerCase();
+  if (role === 'karyawan') {
+    return empMap.get(uid) || userDoc.name || userDoc.email || 'Tanpa Nama';
+  }
+  return userDoc.name || userDoc.email || 'Tanpa Nama';
+}
+
+/* ========== LIST CONVERSATIONS (sidebar) ========== */
+// GET /chat/conversations?type=&q=&limit=30&cursor=
 const listConversations = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const roleLower = String(req.user.role || '').toLowerCase();
@@ -53,7 +81,7 @@ const listConversations = asyncHandler(async (req, res) => {
     .sort({ lastMessageAt: -1, _id: -1 })
     .limit(lim + 1)
     .select(
-      'type title members lastMessageAt expireAt createdBy createdAt updatedAt lastMessage'
+      'type title members lastMessageAt expireAt createdBy createdAt updatedAt lastMessage pinnedMessages'
     )
     .populate({ path: 'members.user', select: 'name email role' })
     .populate({
@@ -66,6 +94,7 @@ const listConversations = asyncHandler(async (req, res) => {
   const hasMore = rows.length > lim;
   const items = hasMore ? rows.slice(0, lim) : rows;
 
+  // Kumpulkan karyawan untuk override nama
   const karyawanIds = new Set();
   for (const c of items) {
     for (const m of c.members || []) {
@@ -75,7 +104,6 @@ const listConversations = asyncHandler(async (req, res) => {
     const s = c.lastMessage?.sender;
     if (s && s.role === 'karyawan') karyawanIds.add(String(s._id || s));
   }
-
   let empMap = new Map();
   if (karyawanIds.size > 0) {
     const emps = await Employee.find({ user: { $in: Array.from(karyawanIds) } })
@@ -84,24 +112,19 @@ const listConversations = asyncHandler(async (req, res) => {
     empMap = new Map(emps.map((e) => [String(e.user), e.name]));
   }
 
-  const pickDisplayName = (userDoc) => {
-    if (!userDoc) return 'Tanpa Nama';
-    const uid = String(userDoc._id || userDoc);
-    if (userDoc.role === 'karyawan') {
-      return empMap.get(uid) || userDoc.name || userDoc.email || 'Tanpa Nama';
-    }
-    return userDoc.name || userDoc.email || 'Tanpa Nama';
-  };
-
+  // Tambahkan displayName / displayTitle & displaySenderName
   const myId = String(actor.userId);
   for (const c of items) {
     c.members = (c.members || []).map((m) => {
       const u = m.user;
-      return { ...m, displayName: pickDisplayName(u) };
+      return { ...m, displayName: pickDisplayNameWithEmp(u, empMap) };
     });
 
     if (c.lastMessage?.sender) {
-      c.lastMessage.displaySenderName = pickDisplayName(c.lastMessage.sender);
+      c.lastMessage.displaySenderName = pickDisplayNameWithEmp(
+        c.lastMessage.sender,
+        empMap
+      );
     }
 
     if (c.type !== 'group') {
@@ -110,10 +133,13 @@ const listConversations = asyncHandler(async (req, res) => {
       );
       const other = others[0];
       c.displayTitle =
-        other?.displayName || pickDisplayName(other?.user) || 'Tanpa Nama';
+        other?.displayName ||
+        pickDisplayNameWithEmp(other?.user, empMap) ||
+        'Tanpa Nama';
     }
   }
 
+  // Hitung unreadCount per percakapan
   const myLastReadByConv = new Map();
   for (const c of items) {
     const me = (c.members || []).find(
@@ -130,11 +156,8 @@ const listConversations = asyncHandler(async (req, res) => {
         sender: { $ne: asId(actor.userId) },
         $or: [{ deletedAt: { $exists: false } }, { deletedAt: null }]
       };
-      if (lastReadAt) {
-        query.createdAt = { $gt: new Date(lastReadAt) };
-      }
-      const count = await Message.countDocuments(query);
-      c.unreadCount = count;
+      if (lastReadAt) query.createdAt = { $gt: new Date(lastReadAt) };
+      c.unreadCount = await Message.countDocuments(query);
     })
   );
 
@@ -158,7 +181,6 @@ const createConversation = asyncHandler(async (req, res) => {
     throwError('memberIds wajib diisi', 400);
   }
 
-  // Customer tidak boleh create di endpoint ini
   if (roleLower === 'user') {
     throwError(
       'Customer tidak bisa membuat percakapan langsung. Gunakan /chat/customer/open',
@@ -194,8 +216,7 @@ const createConversation = asyncHandler(async (req, res) => {
   const members = uniqIds.map((uid) => ({
     user: asId(uid),
     role: String(uid) === String(actor.userId) ? 'owner' : 'member',
-    lastReadAt: null,
-    pinned: false
+    lastReadAt: null
   }));
 
   const conv = await Conversation.create({
@@ -208,12 +229,12 @@ const createConversation = asyncHandler(async (req, res) => {
   res.status(201).json(conv);
 });
 
-/* ========== UPDATE CONVERSATION (rename/pin) ========== */
+/* ========== UPDATE CONVERSATION (rename) ========== */
 // PATCH /chat/conversations/:id
 const updateConversation = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const { id } = req.params;
-  const { title, pinned } = req.body || {};
+  const { title } = req.body || {};
 
   const conv = await Conversation.findById(id);
   if (!conv) throwError('Percakapan tidak ditemukan', 404);
@@ -232,10 +253,6 @@ const updateConversation = asyncHandler(async (req, res) => {
       throwError('Hanya owner/admin grup yang bisa ganti nama', 403);
     }
     conv.title = title.trim() || conv.title;
-  }
-
-  if (typeof pinned === 'boolean') {
-    me.pinned = pinned;
   }
 
   await conv.save();
@@ -267,8 +284,7 @@ const updateMembers = asyncHandler(async (req, res) => {
       conv.members.push({
         user: asId(uid),
         role: 'member',
-        lastReadAt: null,
-        pinned: false
+        lastReadAt: null
       });
     }
   }
@@ -342,13 +358,23 @@ const getMessages = asyncHandler(async (req, res) => {
   const rows = await Message.find(find)
     .sort(sort)
     .limit(lim + 1)
-    .select('text sender createdAt attachments')
+    .select('text sender createdAt attachments deletedAt type')
     .populate({ path: 'sender', select: 'name email role' })
     .lean();
 
   const hasMore = rows.length > lim;
   const items = hasMore ? rows.slice(0, lim) : rows;
   const normalized = dir === 'back' ? items.reverse() : items;
+
+  // Override nama karyawan pada sender
+  const senders = [];
+  for (const m of normalized) if (m.sender) senders.push(m.sender);
+  const empMap = await buildEmpNameMapFromUsers(senders);
+  for (const m of normalized) {
+    if (m.sender) {
+      m.sender.name = pickDisplayNameWithEmp(m.sender, empMap);
+    }
+  }
 
   const last = normalized[normalized.length - 1];
   const nextCursor =
@@ -426,6 +452,201 @@ const getContacts = asyncHandler(async (req, res) => {
   res.json({ contacts });
 });
 
+/* ================== PIN (GLOBAL) ================== */
+// Izin: group → owner/admin/grand admin; direct → semua anggota; customer → admin global
+function canManagePin(conv, reqRole, userId) {
+  const roleLower = String(reqRole || '').toLowerCase();
+  if (conv.type === 'group') {
+    const me = conv.members.find((m) => String(m.user) === String(userId));
+    return (
+      (me && ['owner', 'admin'].includes(me.role)) || roleLower === 'admin'
+    );
+  }
+  if (conv.type === 'direct') {
+    return conv.members.some((m) => String(m.user) === String(userId));
+  }
+  if (conv.type === 'customer') {
+    return roleLower === 'admin';
+  }
+  return false;
+}
+
+// POST /chat/conversations/:id/pin  { messageId }
+const pinMessage = asyncHandler(async (req, res) => {
+  const actor = await resolveChatActor(req);
+  const { id } = req.params;
+  const { messageId } = req.body || {};
+
+  if (!isValidId(id)) throwError('conversationId tidak valid', 400);
+  if (!isValidId(messageId)) throwError('messageId tidak valid', 400);
+
+  const conv = await Conversation.findOne({
+    _id: id,
+    'members.user': asId(actor.userId)
+  }).select('type members pinnedMessages');
+  if (!conv) throwError('Percakapan tidak ditemukan / bukan anggota', 403);
+
+  if (!canManagePin(conv, req.user.role, actor.userId)) {
+    throwError('Tidak punya izin untuk pin pesan', 403);
+  }
+
+  const msg = await Message.findOne({
+    _id: messageId,
+    conversation: id,
+    $or: [{ deletedAt: { $exists: false } }, { deletedAt: null }]
+  })
+    .select('_id sender type text attachments createdAt')
+    .populate({ path: 'sender', select: 'name email role' })
+    .lean();
+  if (!msg) throwError('Pesan tidak ditemukan / tidak bisa dipin', 404);
+
+  const already = (conv.pinnedMessages || []).some(
+    (p) => String(p.message) === String(msg._id)
+  );
+  if (!already) {
+    conv.pinnedMessages.push({
+      message: asId(msg._id),
+      pinnedBy: asId(actor.userId),
+      pinnedAt: new Date()
+    });
+    await conv.save();
+  }
+
+  // Override nama karyawan (sender & pinnedBy)
+  const pinnedByUserLike = {
+    _id: actor.userId,
+    role: req.user.role,
+    name: actor.name || null
+  };
+  const empMap = await buildEmpNameMapFromUsers([msg.sender, pinnedByUserLike]);
+
+  const dtoMsg = {
+    id: String(msg._id),
+    type: msg.type,
+    text: msg.text,
+    attachments: msg.attachments || [],
+    sender: {
+      id: String(msg.sender?._id || msg.sender),
+      name: pickDisplayNameWithEmp(msg.sender, empMap),
+      role: msg.sender?.role || null
+    },
+    createdAt: msg.createdAt
+  };
+
+  // Broadcast via socket
+  try {
+    const nsp = global.io?.of('/chat');
+    nsp?.to(String(id)).emit('chat:pin', {
+      conversationId: String(id),
+      message: dtoMsg,
+      pinnedBy: String(actor.userId),
+      pinnedAt: new Date()
+    });
+  } catch {}
+
+  return res
+    .status(200)
+    .json({ ok: true, pinned: { messageId: String(msg._id) } });
+});
+
+// DELETE /chat/conversations/:id/pin/:messageId
+const unpinMessage = asyncHandler(async (req, res) => {
+  const actor = await resolveChatActor(req);
+  const { id, messageId } = req.params;
+
+  if (!isValidId(id)) throwError('conversationId tidak valid', 400);
+  if (!isValidId(messageId)) throwError('messageId tidak valid', 400);
+
+  const conv = await Conversation.findOne({
+    _id: id,
+    'members.user': asId(actor.userId)
+  }).select('type members pinnedMessages');
+  if (!conv) throwError('Percakapan tidak ditemukan / bukan anggota', 403);
+
+  if (!canManagePin(conv, req.user.role, actor.userId)) {
+    throwError('Tidak punya izin untuk unpin pesan', 403);
+  }
+
+  const before = conv.pinnedMessages.length;
+  conv.pinnedMessages = (conv.pinnedMessages || []).filter(
+    (p) => String(p.message) !== String(messageId)
+  );
+  if (conv.pinnedMessages.length !== before) await conv.save();
+
+  try {
+    const nsp = global.io?.of('/chat');
+    nsp?.to(String(id)).emit('chat:unpin', {
+      conversationId: String(id),
+      messageId: String(messageId)
+    });
+  } catch {}
+
+  return res
+    .status(200)
+    .json({ ok: true, unpinned: { messageId: String(messageId) } });
+});
+
+// GET /chat/conversations/:id/pins
+const listPinnedMessages = asyncHandler(async (req, res) => {
+  const actor = await resolveChatActor(req);
+  const { id } = req.params;
+
+  if (!isValidId(id)) throwError('conversationId tidak valid', 400);
+
+  const conv = await Conversation.findOne({
+    _id: id,
+    'members.user': asId(actor.userId)
+  })
+    .select('pinnedMessages')
+    .populate({
+      path: 'pinnedMessages.message',
+      select: 'type text attachments sender createdAt deletedAt',
+      populate: { path: 'sender', select: 'name email role' }
+    })
+    .populate({
+      path: 'pinnedMessages.pinnedBy',
+      select: 'name email role'
+    })
+    .lean();
+
+  if (!conv) throwError('Percakapan tidak ditemukan / bukan anggota', 403);
+
+  // Build empMap untuk sender & pinnedBy
+  const userLikes = [];
+  for (const p of conv.pinnedMessages || []) {
+    if (p.message?.sender) userLikes.push(p.message.sender);
+    if (p.pinnedBy) userLikes.push(p.pinnedBy);
+  }
+  const empMap = await buildEmpNameMapFromUsers(userLikes);
+
+  const items = (conv.pinnedMessages || [])
+    .filter((p) => !p.message?.deletedAt)
+    .map((p) => ({
+      messageId: String(p.message?._id),
+      type: p.message?.type || 'text',
+      text: p.message?.text || '',
+      attachments: p.message?.attachments || [],
+      sender: p.message?.sender
+        ? {
+            id: String(p.message.sender._id || p.message.sender),
+            name: pickDisplayNameWithEmp(p.message.sender, empMap),
+            role: p.message.sender.role || null
+          }
+        : null,
+      createdAt: p.message?.createdAt || null,
+      pinnedBy: p.pinnedBy
+        ? {
+            id: String(p.pinnedBy._id || p.pinnedBy),
+            name: pickDisplayNameWithEmp(p.pinnedBy, empMap),
+            role: p.pinnedBy.role || null
+          }
+        : null,
+      pinnedAt: p.pinnedAt || null
+    }));
+
+  return res.status(200).json({ items });
+});
+
 module.exports = {
   listConversations,
   openCustomerChat,
@@ -433,5 +654,10 @@ module.exports = {
   updateMembers,
   updateConversation,
   createConversation,
-  getContacts
+  getContacts,
+
+  // pins
+  pinMessage,
+  unpinMessage,
+  listPinnedMessages
 };
