@@ -670,6 +670,12 @@ const resetPasswordWithToken = asyncHandler(async (req, res) => {
 const loginUser = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
   const remember = parseRemember(req);
+  console.log('[LOGIN][payload]', {
+    bodyKeys: Object.keys(req.body || {}),
+    rememberRaw:
+      req.body?.remember ?? req.body?.rememberMe ?? req.body?.remember_me,
+    rememberParsed: remember
+  });
   const user = await User.findOne({ email }).select('+password');
   if (!user) throwError('Email tidak ditemukan', 401);
   const isValid = await bcrypt.compare(password, user.password);
