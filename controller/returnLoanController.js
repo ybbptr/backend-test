@@ -999,6 +999,13 @@ const getAllReturnLoan = asyncHandler(async (req, res) => {
       'loan_number borrower returned_items report_date return_date status pv_locked'
     )
     .populate('borrower', 'name')
+    .populate('returned_items.product', 'product_code brand')
+    .populate('returned_items.project', 'project_name')
+    .populate(
+      'returned_items.warehouse_return',
+      'warehouse_name warehouse_code'
+    )
+    .populate('returned_items.shelf_return', 'shelf_name shelf_code')
     .skip(skip)
     .limit(limit)
     .sort({ createdAt: -1 })
@@ -1071,7 +1078,22 @@ const getAllReturnLoan = asyncHandler(async (req, res) => {
       status: r.status,
       pv_locked: r.pv_locked || false,
       progress: { approved, total },
-      progress_label: `${approved}/${total || 0}`
+      progress_label: `${approved}/${total || 0}`,
+      returned_items: (r.returned_items || []).map((it) => ({
+        _id: it._id,
+        product: it.product?._id,
+        product_code: it.product?.product_code || it.product_code,
+        brand: it.product?.brand || it.brand,
+        quantity: it.quantity,
+        condition_new: it.condition_new,
+        project: it.project?._id,
+        project_name: it.project?.project_name,
+        warehouse_return: it.warehouse_return?._id,
+        warehouse_name: it.warehouse_return?.warehouse_name,
+        shelf_return: it.shelf_return?._id,
+        shelf_name: it.shelf_return?.shelf_name,
+        proof_image: it.proof_image || null
+      }))
     };
   });
 
