@@ -177,17 +177,27 @@ async function buildReturnedMap(loan_number, { session } = {}) {
   return map;
 }
 
-// Hitung ulang status item & status loan
 async function recomputeCirculationAndLoan({ session, loan, circulation }) {
   const map = await buildReturnedMap(loan.loan_number, { session });
+
+  const DONE_STATUSES = new Set(['Dikembalikan', 'Hilang', 'Selesai']);
+
   let allDone = true;
 
   for (const it of circulation.borrowed_items || []) {
+    const qty = Number(it.quantity) || 0;
     const agg = map.get(String(it._id)) || { returned: 0, lost: 0 };
-    const status = decideItemStatus(it.quantity || 0, agg.returned, agg.lost);
+    const returned = Number(agg.returned) || 0;
+    const lost = Number(agg.lost) || 0;
+
+    const status = decideItemStatus(qty, returned, lost);
     it.item_status = status;
-    if (!['Dikembalikan', 'Hilang'].includes(status)) allDone = false;
+
+    if (!DONE_STATUSES.has(status)) {
+      allDone = false;
+    }
   }
+
   await circulation.save({ session });
 
   loan.circulation_status = allDone ? 'Selesai' : 'Aktif';
@@ -261,7 +271,7 @@ async function validateReturnPayloadAndSisa({
       throwError(
         `Stok yang dikembalikan kelebihan untuk barang ${
           it.product_code || ''
-        }. Tersisa ${available} (setelah memperhitungkan draft lain).`,
+        }. Stok yang harus dikembalikan tersisa : ${available} .`,
         400
       );
     }

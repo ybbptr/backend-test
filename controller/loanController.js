@@ -441,7 +441,7 @@ const reopenLoan = asyncHandler(async (req, res) => {
     }).session(session);
     if (hasAnyReturn) {
       throwError(
-        'Tidak bisa membuka ulang data pengajuan: Pengajuan ini sedang dalam status Draft/Dikembalikan di halaman pengembalian barang.',
+        `Tidak bisa membuka ulang data pengajuan: Pengajuan ini sedang dalam proses pengembalian barang. Silahkan check halaman pengembalian barang dengan kode : ${loan.loan_number}.`,
         409
       );
     }
