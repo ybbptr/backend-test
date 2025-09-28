@@ -21,9 +21,25 @@ const {
 } = require('../utils/authTokens');
 
 const parseRemember = (req) => {
-  const v = req.body?.remember;
-  return v === true || v === 'true' || v === 1 || v === '1';
+  const b = req.body || {};
+  const q = req.query || {};
+  // dukung alias & querystring juga
+  const raw =
+    b.remember ??
+    b.rememberMe ??
+    b.remember_me ??
+    q.remember ??
+    q.rememberMe ??
+    q.remember_me;
+
+  if (raw === undefined || raw === null) return false;
+  if (typeof raw === 'boolean') return raw;
+  if (typeof raw === 'number') return raw === 1;
+
+  const s = String(raw).trim().toLowerCase();
+  return s === 'true' || s === '1' || s === 'on' || s === 'yes' || s === 'y';
 };
+
 const isProd = process.env.NODE_ENV === 'production';
 
 const sameSite = process.env.COOKIE_SAMESITE || 'none';
@@ -672,10 +688,17 @@ const loginUser = asyncHandler(async (req, res) => {
   const remember = parseRemember(req);
   console.log('[LOGIN][payload]', {
     bodyKeys: Object.keys(req.body || {}),
+    queryKeys: Object.keys(req.query || {}),
     rememberRaw:
-      req.body?.remember ?? req.body?.rememberMe ?? req.body?.remember_me,
+      req.body?.remember ??
+      req.body?.rememberMe ??
+      req.body?.remember_me ??
+      req.query?.remember ??
+      req.query?.rememberMe ??
+      req.query?.remember_me,
     rememberParsed: remember
   });
+
   const user = await User.findOne({ email }).select('+password');
   if (!user) throwError('Email tidak ditemukan', 401);
   const isValid = await bcrypt.compare(password, user.password);
