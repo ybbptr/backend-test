@@ -37,7 +37,7 @@ const mapMessage = (m) => ({
 
 const isValidId = (v) => Types.ObjectId.isValid(String(v));
 
-/* ================== AUTH HELPERS (COOKIE ONLY) ================== */
+/* ================== AUTH HELPERS ================== */
 function getTokenFromHandshake(handshake) {
   const raw = handshake.headers?.cookie || '';
   const cookies = cookie.parse(raw || '');
@@ -55,8 +55,7 @@ function getUserFromHandshake(handshake) {
   return { id, role, name };
 }
 
-/* ================== PRESENCE (IN-MEMORY, PER NAMESPACE) ================== */
-// Map<userId, Set<socketId>>
+/* ================== PRESENCE ================== */
 function getPresenceStore(nsp) {
   if (!nsp._presence) nsp._presence = new Map();
   return nsp._presence;
@@ -101,29 +100,25 @@ async function promoteAttachments(convType, attachments = []) {
   for (const a of cleaned) {
     const isCustomerConv = convType === 'customer';
     if (isCustomerConv) {
-      if (a.key.startsWith('customer/')) {
-        promoted.push(a);
-      } else {
-        const dest = a.key.startsWith('tmp/')
-          ? a.key
-              .replace(/^tmp\/customer\//, 'customer/')
-              .replace(/^tmp\//, 'customer/')
-          : a.key.replace(/^chat\//, 'customer/');
+      const dest = a.key.startsWith('tmp/')
+        ? a.key
+            .replace(/^tmp\/customer\//, 'customer/')
+            .replace(/^tmp\//, 'customer/')
+        : a.key.replace(/^chat\//, 'customer/');
+      if (dest !== a.key) {
         await copyObject(a.key, dest, a.contentType);
         await deleteFile(a.key);
-        promoted.push({ ...a, key: dest });
       }
+      promoted.push({ ...a, key: dest });
     } else {
-      if (a.key.startsWith('tmp/')) {
-        const dest = a.key
-          .replace(/^tmp\/customer\//, 'chat/')
-          .replace(/^tmp\//, 'chat/');
+      const dest = a.key.startsWith('tmp/')
+        ? a.key.replace(/^tmp\/customer\//, 'chat/').replace(/^tmp\//, 'chat/')
+        : a.key;
+      if (dest !== a.key) {
         await copyObject(a.key, dest, a.contentType);
         await deleteFile(a.key);
-        promoted.push({ ...a, key: dest });
-      } else {
-        promoted.push(a);
       }
+      promoted.push({ ...a, key: dest });
     }
   }
   return promoted;
@@ -154,28 +149,22 @@ async function onConnection(nsp, socket) {
     const name = actor.name || user.name || 'User';
     const role = actor.role;
 
-    // Presence: mark online (multi-socket aware)
+    // Presence
     const { first } = markOnline(nsp, uid, socket.id);
-
-    // Kirim snapshot awal ke klien ini
     socket.emit('presence:init', {
       me: { userId: uid, name, role },
       online: presenceSnapshot(nsp)
     });
-
-    // Umumkan ke klien lain kalau ini koneksi pertama user tersebut
     if (first) {
       socket.broadcast.emit('user:online', { userId: uid, name, role });
     }
 
     log('connected:', uid, role);
 
-    // Join rooms (percakapan & role)
     await joinUserRooms(socket, actor);
 
     /* =============== EVENTS =============== */
 
-    // On-demand: ambil daftar online terbaru
     socket.on('presence:list', (ack) => {
       ackOk(ack, { online: presenceSnapshot(nsp) });
     });
@@ -239,13 +228,9 @@ async function onConnection(nsp, socket) {
 
         const dto = mapMessage(msg);
 
-        // broadcast ke seluruh anggota room
         nsp.to(String(conversationId)).emit('chat:new', dto);
-
-        // ack: delivered (✓✓ abu-abu)
         ackOk(ack, { message: dto });
 
-        // broadcast delivered
         nsp.to(String(conversationId)).emit('chat:delivered', {
           conversationId: String(conversationId),
           messageIds: [String(msg._id)],
@@ -317,6 +302,7 @@ async function onConnection(nsp, socket) {
       } catch (_) {}
     });
 
+    // Delete message
     socket.on('chat:delete', async ({ messageId }, ack) => {
       try {
         if (!messageId || !isValidId(messageId)) {

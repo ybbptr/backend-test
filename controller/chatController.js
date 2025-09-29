@@ -39,12 +39,17 @@ async function buildEmpNameMapFromUsers(users = []) {
     .lean();
   return new Map(emps.map((e) => [String(e.user), e.name]));
 }
+
 function pickDisplayNameWithEmp(userDoc, empMap) {
   if (!userDoc) return 'Tanpa Nama';
   const uid = getUid(userDoc);
   const role = String(userDoc.role || '').toLowerCase();
+
   if (role === 'karyawan') {
     return empMap.get(uid) || userDoc.name || userDoc.email || 'Tanpa Nama';
+  }
+  if (role === 'bot') {
+    return userDoc.name || 'Soilab Bot';
   }
   return userDoc.name || userDoc.email || 'Tanpa Nama';
 }
@@ -90,7 +95,11 @@ const listConversations = asyncHandler(async (req, res) => {
     .select(
       'type title members lastMessageAt expireAt createdBy createdAt updatedAt lastMessage pinnedMessages'
     )
-    .populate({ path: 'members.user', select: 'name email role' })
+    .populate({
+      path: 'members.user',
+      select: 'name email role',
+      options: { retainNullValues: true }
+    })
     .populate({
       path: 'lastMessage',
       select: 'text sender createdAt attachments',
@@ -177,7 +186,6 @@ const listConversations = asyncHandler(async (req, res) => {
 });
 
 /* ========== CREATE CONVERSATION (direct/group) ========== */
-// POST /chat/conversations
 const createConversation = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const roleLower = String(req.user.role || '').toLowerCase();
@@ -223,15 +231,29 @@ const createConversation = asyncHandler(async (req, res) => {
   const members = uniqIds.map((uid) => ({
     user: asId(uid),
     role: String(uid) === String(actor.userId) ? 'owner' : 'member',
-    lastReadAt: null
+    lastReadAt: null,
+    pinned: false
   }));
 
-  const conv = await Conversation.create({
+  let conv = await Conversation.create({
     type,
     title: type === 'group' ? title : undefined,
     createdBy: asId(actor.userId),
     members
   });
+
+  // Populate supaya FE langsung dapet data lengkap
+  conv = await conv
+    .populate({ path: 'members.user', select: 'name email role' })
+    .execPopulate();
+
+  // Emit realtime ke semua member
+  if (global.io) {
+    const nsp = global.io.of('/chat');
+    for (const m of members) {
+      nsp.to(String(m.user)).emit('conv:new', conv);
+    }
+  }
 
   res.status(201).json(conv);
 });
