@@ -421,9 +421,14 @@ const openCustomerChat = asyncHandler(async (req, res) => {
 
   const userId = asId(req.user.id);
 
-  const adminUser = await User.findOne({ role: 'admin' }).lean();
-  if (!adminUser) throwError('Tidak ada admin tersedia', 404);
+  // ambil admin yang ditandai sebagai inbox customer
+  const adminUser = await User.findOne({
+    role: 'admin',
+    isCustomerInbox: true
+  }).lean();
+  if (!adminUser) throwError('Tidak ada admin inbox customer', 404);
 
+  // cek apakah sudah ada conv customer
   let conv = await Conversation.findOne({
     type: 'customer',
     'members.user': { $all: [userId, asId(adminUser._id)] }
@@ -437,6 +442,12 @@ const openCustomerChat = asyncHandler(async (req, res) => {
         { user: asId(adminUser._id), role: 'admin' }
       ]
     });
+
+    // emit conv:new realtime supaya admin langsung lihat
+    if (global.io) {
+      const nsp = global.io.of('/chat');
+      nsp.to(String(adminUser._id)).emit('conv:new', conv);
+    }
   }
 
   res.json({ conversationId: conv._id });
