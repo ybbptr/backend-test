@@ -40,6 +40,11 @@ const MessageSchema = new Schema(
 MessageSchema.index({ conversation: 1, createdAt: -1 });
 MessageSchema.index({ conversation: 1, sender: 1, createdAt: 1 });
 MessageSchema.index({ expireAt: 1 }, { expireAfterSeconds: 0 });
+MessageSchema.index({
+  conversation: 1,
+  createdAt: -1,
+  'attachments.contentType': 1
+});
 MessageSchema.index(
   { conversation: 1, clientId: 1 },
   {

@@ -57,7 +57,14 @@ const listConversations = asyncHandler(async (req, res) => {
   const { type, q, limit = 50, cursor } = req.query;
   const lim = Math.max(1, Math.min(Number(limit) || 30, 100));
 
-  const match = { 'members.user': asId(actor.userId) };
+  const match = {
+    members: {
+      $elemMatch: {
+        user: asId(actor.userId),
+        $or: [{ deletedAt: null }, { deletedAt: { $exists: false } }]
+      }
+    }
+  };
 
   if (roleLower === 'user') {
     match.type = 'customer';
@@ -94,7 +101,6 @@ const listConversations = asyncHandler(async (req, res) => {
   const hasMore = rows.length > lim;
   const items = hasMore ? rows.slice(0, lim) : rows;
 
-  // Kumpulkan karyawan untuk override nama
   const karyawanIds = new Set();
   for (const c of items) {
     for (const m of c.members || []) {
@@ -104,6 +110,7 @@ const listConversations = asyncHandler(async (req, res) => {
     const s = c.lastMessage?.sender;
     if (s && s.role === 'karyawan') karyawanIds.add(String(s._id || s));
   }
+
   let empMap = new Map();
   if (karyawanIds.size > 0) {
     const emps = await Employee.find({ user: { $in: Array.from(karyawanIds) } })
@@ -112,7 +119,7 @@ const listConversations = asyncHandler(async (req, res) => {
     empMap = new Map(emps.map((e) => [String(e.user), e.name]));
   }
 
-  // Tambahkan displayName / displayTitle & displaySenderName
+  // Tambah displayName & displayTitle
   const myId = String(actor.userId);
   for (const c of items) {
     c.members = (c.members || []).map((m) => {
@@ -139,7 +146,7 @@ const listConversations = asyncHandler(async (req, res) => {
     }
   }
 
-  // Hitung unreadCount per percakapan
+  // Hitung unreadCount
   const myLastReadByConv = new Map();
   for (const c of items) {
     const me = (c.members || []).find(
@@ -647,6 +654,173 @@ const listPinnedMessages = asyncHandler(async (req, res) => {
   return res.status(200).json({ items });
 });
 
+// GET /chat/conversations/:id/media
+const getConversationMedia = asyncHandler(async (req, res) => {
+  const actor = await resolveChatActor(req);
+  const { id } = req.params;
+  const { type = 'all', limit = 50, cursor } = req.query;
+  const lim = Math.max(1, Math.min(Number(limit) || 50, 100));
+
+  // cek membership
+  const conv = await Conversation.findOne({
+    _id: id,
+    'members.user': actor.userId
+  }).select('_id');
+  if (!conv) throwError('Tidak boleh akses percakapan ini', 403);
+
+  // query filter
+  const find = {
+    conversation: conv._id,
+    attachments: { $exists: true, $ne: [] }
+  };
+  if (type === 'image') {
+    find['attachments.contentType'] = { $regex: '^image/' };
+  } else if (type === 'file') {
+    find['attachments.contentType'] = { $not: /^image\// };
+  }
+
+  // cursor pagination
+  if (cursor) {
+    const c = readCursor(cursor);
+    if (c?.date && c?.id) {
+      find.$or = [
+        { createdAt: { $lt: c.date } },
+        { createdAt: c.date, _id: { $lt: asId(c.id) } }
+      ];
+    }
+  }
+
+  const rows = await Message.find(find)
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(lim + 1)
+    .select('attachments sender createdAt')
+    .populate({ path: 'sender', select: 'name email role' })
+    .lean();
+
+  const hasMore = rows.length > lim;
+  const items = hasMore ? rows.slice(0, lim) : rows;
+
+  const ref = items[items.length - 1];
+  const nextCursor = hasMore && ref ? makeCursor(ref.createdAt, ref._id) : null;
+
+  res.json({ items, nextCursor, hasMore });
+});
+
+const URL_REGEX = /(https?:\/\/[^\s]+)/gi;
+
+// GET /chat/conversations/:id/links
+const getConversationLinks = asyncHandler(async (req, res) => {
+  const actor = await resolveChatActor(req);
+  const { id } = req.params;
+  const { limit = 50, cursor } = req.query;
+  const lim = Math.max(1, Math.min(Number(limit) || 50, 100));
+
+  // cek membership
+  const conv = await Conversation.findOne({
+    _id: id,
+    'members.user': actor.userId
+  }).select('_id');
+  if (!conv) throwError('Tidak boleh akses percakapan ini', 403);
+
+  // query pesan yang ada text
+  const find = { conversation: conv._id, text: { $ne: '' } };
+
+  // cursor pagination
+  if (cursor) {
+    const c = readCursor(cursor);
+    if (c?.date && c?.id) {
+      find.$or = [
+        { createdAt: { $lt: c.date } },
+        { createdAt: c.date, _id: { $lt: asId(c.id) } }
+      ];
+    }
+  }
+
+  const rows = await Message.find(find)
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(lim + 1)
+    .select('text sender createdAt')
+    .populate({ path: 'sender', select: 'name email role' })
+    .lean();
+
+  const withLinks = rows
+    .map((m) => {
+      const urls = (m.text || '').match(URL_REGEX) || [];
+      if (urls.length === 0) return null;
+      return {
+        id: String(m._id),
+        conversationId: String(m.conversation),
+        sender: {
+          id: String(m.sender?._id || m.sender),
+          name: m.sender?.name || 'Tanpa Nama'
+        },
+        text: m.text,
+        urls,
+        createdAt: m.createdAt
+      };
+    })
+    .filter(Boolean);
+
+  const hasMore = rows.length > lim;
+  const ref = withLinks[withLinks.length - 1];
+  const nextCursor = hasMore && ref ? makeCursor(ref.createdAt, ref.id) : null;
+
+  res.json({ items: withLinks, nextCursor, hasMore });
+});
+
+// DELETE /chat/conversations/:id
+const deleteConversation = asyncHandler(async (req, res) => {
+  const actor = await resolveChatActor(req);
+  const { id } = req.params;
+  const { mode = 'soft' } = req.query;
+
+  const conv = await Conversation.findById(id);
+  if (!conv) throwError('Percakapan tidak ditemukan', 404);
+
+  const me = conv.members.find((m) => String(m.user) === String(actor.userId));
+  if (!me) throwError('Bukan anggota', 403);
+
+  if (mode === 'soft') {
+    me.deletedAt = new Date();
+    await conv.save();
+    return res.json({ ok: true, mode: 'soft' });
+  }
+
+  if (mode === 'hard') {
+    if (
+      !['owner', 'admin'].includes(me.role) &&
+      String(actor.role).toLowerCase() !== 'admin'
+    ) {
+      throwError('Tidak punya izin menghapus percakapan global', 403);
+    }
+
+    const messages = await Message.find({ conversation: conv._id })
+      .select('attachments')
+      .lean();
+
+    const allKeys = [];
+    for (const msg of messages) {
+      if (Array.isArray(msg.attachments)) {
+        for (const a of msg.attachments) {
+          if (a?.key) allKeys.push(a.key);
+        }
+      }
+    }
+
+    if (allKeys.length > 0) {
+      await Promise.allSettled(allKeys.map((key) => deleteFile(key)));
+    }
+
+    await Message.deleteMany({ conversation: conv._id });
+
+    await conv.deleteOne();
+
+    return res.json({ ok: true, mode: 'hard', deletedFiles: allKeys.length });
+  }
+
+  throwError('Mode tidak valid. Gunakan soft atau hard.', 400);
+});
+
 module.exports = {
   listConversations,
   openCustomerChat,
@@ -655,7 +829,9 @@ module.exports = {
   updateConversation,
   createConversation,
   getContacts,
-
+  getConversationMedia,
+  getConversationLinks,
+  deleteConversation,
   // pins
   pinMessage,
   unpinMessage,

@@ -10,7 +10,8 @@ const MemberSchema = new Schema(
   {
     user: { type: Types.ObjectId, ref: 'User', required: true },
     role: { type: String, enum: MEMBER_ROLES, default: 'member' },
-    lastReadAt: { type: Date, default: null }
+    lastReadAt: { type: Date, default: null },
+    deletedAt: { type: Date, default: null }
   },
   { _id: false }
 );

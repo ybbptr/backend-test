@@ -10,7 +10,10 @@ const {
   getContacts,
   listPinnedMessages,
   pinMessage,
-  unpinMessage
+  unpinMessage,
+  getConversationMedia,
+  getConversationLinks,
+  deleteConversation
 } = require('../controller/chatController');
 const up = require('../controller/socket/chatUploadController');
 
@@ -21,12 +24,15 @@ router.get('/contacts', getContacts); // conatct
 router.get('/conversations', listConversations); // sidebar
 router.post('/conversations', createConversation); // buat direct/group
 
+router.get('/conversations/:id/links', getConversationLinks);
+router.get('/conversations/:id/media', getConversationMedia);
 router.get('/conversations/:id/pins', listPinnedMessages);
 
 router.post('/conversations/:id/pin', pinMessage);
 router.delete('/conversations/:id/pin/:messageId', unpinMessage);
 
 router.patch('/conversations/:id', updateConversation); // rename, pin
+router.delete('/conversations/delete/:id', deleteConversation); // rename, pin
 router.patch('/conversations/:id/members', updateMembers); // tambah/keluarin anggota
 
 router.get('/conversations/:id/messages', getMessages); // riwayat pesan (paging)
