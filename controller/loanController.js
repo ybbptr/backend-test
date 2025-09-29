@@ -16,9 +16,16 @@ const ReturnLoan = require('../model/returnLoanModel');
 const { resolveActor } = require('../utils/actor');
 const { applyAdjustment } = require('../utils/stockAdjustment');
 
-const chatBot = require('../services/chatBot');
+const {
+  notifyLoanCreatedToAdmins,
+  notifyLoanReviewedToBorrower
+} = require('../utils/chatbot');
 
 /* ========================= Helpers ========================= */
+const safeNotify = (p) =>
+  Promise.resolve(p).catch((err) => {
+    console.warn('[notify loan] ', err?.message || err);
+  });
 
 const ensureObjectId = (id, label = 'ID') => {
   if (!mongoose.Types.ObjectId.isValid(id))
@@ -195,11 +202,7 @@ const createLoan = asyncHandler(async (req, res) => {
     );
 
     await session.commitTransaction();
-    try {
-      await chatBot.notifyLoanCreatedToAdmins(loan);
-    } catch (e) {
-      console.warn('[bot] notifyLoanCreatedToAdmins:', e.message);
-    }
+    safeNotify(notifyLoanCreatedToAdmins(loan));
     res.status(201).json(loan);
   } catch (err) {
     await session.abortTransaction();
@@ -387,11 +390,7 @@ const approveLoan = asyncHandler(async (req, res) => {
     loan.circulation_status = computeCirculationStatus('Disetujui'); // Aktif
     await loan.save({ session });
     await session.commitTransaction();
-    try {
-      await chatBot.notifyLoanReviewedToBorrower(loan, { approved: true });
-    } catch (e) {
-      console.warn('[bot] notifyLoanReviewedToBorrower (approve):', e.message);
-    }
+    safeNotify(notifyLoanReviewedToBorrower(loan, { approved: true }));
     res.status(200).json({ message: 'Loan disetujui', id: loan._id });
   } catch (err) {
     await session.abortTransaction();
@@ -428,14 +427,9 @@ const rejectLoan = asyncHandler(async (req, res) => {
     );
 
     await session.commitTransaction();
-    try {
-      await chatBot.notifyLoanReviewedToBorrower(loan, {
-        approved: false,
-        reason: loan.note
-      });
-    } catch (e) {
-      console.warn('[bot] notifyLoanReviewedToBorrower (reject):', e.message);
-    }
+    safeNotify(
+      notifyLoanReviewedToBorrower(loan, { approved: false, reason: loan.note })
+    );
     res
       .status(200)
       .json({ message: 'Pengajuan ditolak', id: loan._id, note: loan.note });

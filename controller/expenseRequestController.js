@@ -9,9 +9,18 @@ const ExpenseLog = require('../model/expenseLogModel');
 const Employee = require('../model/employeeModel');
 const RAP = require('../model/rapModel');
 
-const chatBot = require('../services/chatBot');
+const {
+  notifyERCreatedToAdmins,
+  notifyERReviewedToEmployee
+} = require('../utils/chatbot');
 
 /* ================= Helpers ================= */
+
+const safeNotify = (p) =>
+  Promise.resolve(p).catch((err) => {
+    console.warn('[notify ER] ', err?.message || err);
+  });
+
 function mapPaymentPrefix(voucherPrefix) {
   const mappings = { PDLAP: 'PVLAP', PDOFC: 'PVOFC', PDPYR: 'PVPYR' };
   return mappings[voucherPrefix] || null;
@@ -291,11 +300,7 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
 
     await session.commitTransaction();
 
-    try {
-      await chatBot.notifyERCreatedToAdmins(expenseRequest);
-    } catch (e) {
-      console.warn('[bot] notifyERCreatedToAdmins:', e.message);
-    }
+    safeNotify(notifyERCreatedToAdmins(expenseRequest));
     res.status(201).json({
       message: 'Pengajuan biaya berhasil dibuat',
       data: expenseRequest
@@ -588,11 +593,7 @@ const approveExpenseRequest = asyncHandler(async (req, res) => {
     );
 
     await session.commitTransaction();
-    try {
-      await chatBot.notifyERReviewedToEmployee(er, { approved: true });
-    } catch (e) {
-      console.warn('[bot] notifyERReviewedToEmployee (approve):', e.message);
-    }
+    safeNotify(notifyERReviewedToEmployee(er, { approved: true }));
     res.status(200).json({ message: 'Pengajuan disetujui', data: er });
   } catch (err) {
     await session.abortTransaction();
@@ -635,14 +636,9 @@ const rejectExpenseRequest = asyncHandler(async (req, res) => {
 
     await session.commitTransaction();
 
-    try {
-      await chatBot.notifyERReviewedToEmployee(er, {
-        approved: false,
-        reason: note
-      });
-    } catch (e) {
-      console.warn('[bot] notifyERReviewedToEmployee (reject):', e.message);
-    }
+    safeNotify(
+      notifyERReviewedToEmployee(er, { approved: false, reason: note })
+    );
     res.status(200).json({ message: 'Pengajuan ditolak', data: er });
   } catch (err) {
     await session.abortTransaction();

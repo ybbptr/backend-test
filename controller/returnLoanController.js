@@ -19,11 +19,15 @@ const { applyAdjustment } = require('../utils/stockAdjustment');
 const { uploadBuffer, deleteFile, getFileUrl } = require('../utils/wasabi');
 const formatDate = require('../utils/formatDate');
 
-const chatBot = require('../services/chatBot');
+const { notifyReturnFinalizedToAdmins } = require('../utils/chatbot');
 
 const VALID_CONDS = ['Baik', 'Rusak', 'Maintenance', 'Hilang'];
 
 /* ========================= Helpers ========================= */
+const safeNotify = (p) =>
+  Promise.resolve(p).catch((err) => {
+    console.warn('[notify return] ', err?.message || err);
+  });
 
 async function resolveBorrower(loan, session) {
   const borrowerId =
@@ -704,11 +708,7 @@ const finalizeReturnLoanById = asyncHandler(async (req, res) => {
     await finalizeReturnLoanCore(session, { loan, doc, actor });
 
     await session.commitTransaction();
-    try {
-      await chatBot.notifyReturnFinalizedToAdmins(doc);
-    } catch (e) {
-      console.warn('[bot] notifyReturnFinalizedToAdmins:', e.message);
-    }
+    safeNotify(notifyReturnFinalizedToAdmins(doc));
     res.status(200).json({
       message: 'ReturnLoan difinalisasi',
       id: doc._id,
@@ -737,14 +737,7 @@ const finalizeReturnLoanOneShot = asyncHandler(async (req, res) => {
     const result = await finalizeReturnLoanCore(session, { loan, doc, actor });
 
     await session.commitTransaction();
-    try {
-      await chatBot.notifyReturnFinalizedToAdmins(doc);
-    } catch (e) {
-      console.warn(
-        '[bot] notifyReturnFinalizedToAdmins (one-shot):',
-        e.message
-      );
-    }
+    safeNotify(notifyReturnFinalizedToAdmins(doc));
     res.status(201).json({
       message: 'ReturnLoan dibuat & difinalisasi',
       id: doc._id,

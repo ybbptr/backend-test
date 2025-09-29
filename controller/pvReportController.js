@@ -15,9 +15,16 @@ const RAP = require('../model/rapModel');
 const { uploadBuffer, deleteFile, getFileUrl } = require('../utils/wasabi');
 const formatDate = require('../utils/formatDate');
 
-const chatBot = require('../services/chatBot');
+const {
+  notifyPVBatchCreatedToAdmins,
+  notifyPVReviewedToEmployee
+} = require('../utils/chatbot');
 
 /* ========================= Utils & Guards ========================= */
+const safeNotify = (p) =>
+  Promise.resolve(p).catch((err) => {
+    console.warn('[notify PV] ', err?.message || err);
+  });
 
 const toNum = (v, d = 0) => {
   if (v === '' || v === null || v === undefined) return d;
@@ -480,11 +487,7 @@ const addPVReport = asyncHandler(async (req, res) => {
     );
 
     await session.commitTransaction();
-    try {
-      await chatBot.notifyPVBatchCreatedToAdmins(pv);
-    } catch (e) {
-      console.warn('[bot] notifyPVBatchCreatedToAdmins:', e.message);
-    }
+    safeNotify(notifyPVBatchCreatedToAdmins(pv));
     res.status(201).json(pv);
   } catch (err) {
     await session.abortTransaction();
@@ -830,11 +833,12 @@ const approvePVReport = asyncHandler(async (req, res) => {
     await recomputeCompletionFlag(pv.voucher_number, session);
 
     await session.commitTransaction();
-    try {
-      await chatBot.notifyPVReviewedToEmployee(pv, { approved: true });
-    } catch (e) {
-      console.warn('[bot] notifyPVReviewedToEmployee (approve):', e.message);
-    }
+    safeNotify(
+      notifyPVReviewedToEmployee(pv, {
+        approved: true,
+        employeeId: pv.created_by
+      })
+    );
     res.status(200).json(pv);
   } catch (err) {
     await session.abortTransaction();
@@ -879,14 +883,13 @@ const rejectPVReport = asyncHandler(async (req, res) => {
     );
 
     await session.commitTransaction();
-    try {
-      await chatBot.notifyPVReviewedToEmployee(pv, {
+    safeNotify(
+      notifyPVReviewedToEmployee(pv, {
         approved: false,
-        reason: req.body?.note
-      });
-    } catch (e) {
-      console.warn('[bot] notifyPVReviewedToEmployee (reject):', e.message);
-    }
+        reason: note,
+        employeeId: pv.created_by
+      })
+    );
     res.status(200).json(pv);
   } catch (err) {
     await session.abortTransaction();

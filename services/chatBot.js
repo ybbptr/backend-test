@@ -1,336 +1,348 @@
+// utils/chatbot.js
 'use strict';
 
-const mongoose = require('mongoose');
-const { Types } = mongoose;
-
+const { Types } = require('mongoose');
 const Conversation = require('../model/conversationModel');
-const Message = require('../model/messageModel');
 const User = require('../model/userModel');
 const Employee = require('../model/employeeModel');
+const { chatEmit } = require('./chatEmit'); // <<— gunakan util chatEmit terpisah
 
-const BOT_ID = process.env.BOT_USER_ID;
+/* ===================== ENV & CONSTANTS ===================== */
 
-/* ============ Helpers ============ */
+const FE_URL = process.env.APP_URL || 'http://localhost:5173';
+const BOT_USER_ID = process.env.BOT_USER_ID || ''; // ObjectId string milik user bot
+const FALLBACK_ADMIN_DM =
+  String(process.env.FALLBACK_ADMIN_DM || 'false') === 'true';
 
-function ensureObjectId(id, label = 'ObjectId') {
-  if (!Types.ObjectId.isValid(String(id))) {
-    throw new Error(`${label} tidak valid: ${id}`);
+// FE path mapping (ikuti rute kamu)
+const PATHS = {
+  employee: {
+    loan: '/pengajuan-alat-karyawan',
+    returnLoan: '/pengembalian-alat-karyawan',
+    expense: '/pengajuan-biaya-karyawan',
+    pv: '/pertanggungjawaban-dana'
+  },
+  admin: {
+    loan: '/admin/pengajuan',
+    returnLoan: '/admin/pengembalian-alat',
+    expense: '/admin/pengajuan-biaya',
+    pv: '/admin/pertanggung-jawaban-dana'
   }
+};
+
+/* ===================== URL HELPER ===================== */
+
+function mkUrl(path, q = {}) {
+  const u = new URL(path, FE_URL);
+  Object.entries(q).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') {
+      u.searchParams.set(k, String(v));
+    }
+  });
+  return u.toString();
 }
 
-async function ensureBotUser() {
-  ensureObjectId(BOT_ID, 'BOT_USER_ID');
-  const u = await User.findById(BOT_ID).select('_id name role').lean();
-  if (!u) throw new Error('BOT_USER_ID tidak ditemukan di koleksi users');
-  return u;
-}
+/* ===================== BOT GUARD ===================== */
 
-async function getAdminUserIds() {
-  const admins = await User.find({ role: 'admin' }).select('_id').lean();
-  return admins.map((a) => a._id);
-}
-
-async function employeeIdToUserId(employeeId) {
-  if (!employeeId) return null;
-  const emp = await Employee.findById(employeeId).select('user').lean();
-  return emp?.user || null;
-}
-
-async function ensureGroup({ title, members /* array of userId */ }) {
-  const unique = [...new Set((members || []).map(String))];
-
-  // Coba cari group dg judul sama
-  let conv = await Conversation.findOne({ type: 'group', title });
-  const toMemberObj = (id) => ({ user: id, role: 'member' });
-
-  if (!conv) {
-    conv = await Conversation.create({
-      type: 'group',
-      title,
-      createdBy: BOT_ID,
-      members: unique.map(toMemberObj),
-      lastMessage: null,
-      lastMessageAt: null
-    });
-    console.log('[bot] group created:', title, String(conv._id));
-    return conv;
+function assertBotId() {
+  if (!BOT_USER_ID || !Types.ObjectId.isValid(BOT_USER_ID)) {
+    throw new Error('BOT_USER_ID env tidak valid / belum di-set');
   }
-
-  const existSet = new Set((conv.members || []).map((m) => String(m.user)));
-  const missing = unique.filter((id) => !existSet.has(String(id)));
-  if (missing.length) {
-    await Conversation.updateOne(
-      { _id: conv._id },
-      { $addToSet: { members: { $each: missing.map(toMemberObj) } } }
-    );
-    console.log('[bot] group members added:', title, missing.map(String));
-  }
-
-  return await Conversation.findById(conv._id);
+  // return string saja; biar Mongoose yang auto-cast
+  return String(BOT_USER_ID);
 }
 
-function computeMemberKey(u1, u2) {
-  const a = String(u1);
-  const b = String(u2);
-  return [a, b].sort().join(':');
-}
+/* ===================== CONVERSATION HELPERS ===================== */
 
-async function ensureDirect({ userA, userB }) {
-  const mk = computeMemberKey(userA, userB);
+async function getOrCreateDirect(botId, userId) {
+  const bid = String(botId);
+  const uid = String(userId);
 
-  // Cari direct pakai memberKey (index unik sudah ada di schema)
-  let conv = await Conversation.findOne({ type: 'direct', memberKey: mk });
+  // cari existing (unik by memberKey di schema)
+  let conv = await Conversation.findOne({
+    type: 'direct',
+    'members.user': { $all: [bid, uid] }
+  });
+  if (conv) return conv;
 
-  if (!conv) {
+  try {
     conv = await Conversation.create({
       type: 'direct',
-      title: undefined, // direct tidak pakai title
-      createdBy: BOT_ID,
       members: [
-        { user: userA, role: 'member' },
-        { user: userB, role: 'member' }
+        { user: bid, role: 'member' },
+        { user: uid, role: 'member' }
       ]
     });
-    console.log('[bot] direct created:', mk, String(conv._id));
+    return conv;
+  } catch (e) {
+    // handle race duplicate key
+    if (String(e?.code) === '11000') {
+      const again = await Conversation.findOne({
+        type: 'direct',
+        'members.user': { $all: [bid, uid] }
+      });
+      if (again) return again;
+    }
+    throw e;
   }
+}
+
+async function getAdminIds() {
+  const admins = await User.find({ role: 'admin' }).select('_id').lean();
+  return admins.map((u) => String(u._id));
+}
+
+async function getOrCreateAdminGroup() {
+  const title = 'Internal Admin';
+  let conv = await Conversation.findOne({ type: 'group', title });
+  if (conv) return conv;
+
+  const botId = assertBotId();
+  const adminIds = await getAdminIds();
+
+  conv = await Conversation.create({
+    type: 'group',
+    title,
+    createdBy: botId,
+    members: [
+      { user: botId, role: 'member' },
+      ...adminIds.map((id) => ({ user: id, role: 'admin' }))
+    ]
+  });
+
   return conv;
 }
 
-async function pushMessage({
-  convId,
-  text,
-  type = 'system',
-  attachments = []
-}) {
-  ensureObjectId(convId, 'conversationId');
-  await ensureBotUser();
-
-  const conv = await Conversation.findById(convId).select('_id type').lean();
-  if (!conv) throw new Error('Percakapan tidak ditemukan');
-
-  const msg = await Message.create({
-    conversation: conv._id,
-    sender: BOT_ID,
-    type,
-    text,
-    attachments
-  });
-
-  await Conversation.updateOne(
-    { _id: conv._id },
-    { $set: { lastMessage: msg._id, lastMessageAt: msg.createdAt } }
-  );
-
-  // Emit realtime jika ada socket namespace
-  try {
-    if (global.io) {
-      const nsp = global.io.of('/chat');
-      nsp.to(String(conv._id)).emit('chat:new', {
-        id: String(msg._id),
-        conversationId: String(conv._id),
-        sender: String(BOT_ID),
-        type: msg.type,
-        text: msg.text,
-        attachments: msg.attachments || [],
-        clientId: null,
-        createdAt: msg.createdAt,
-        editedAt: null,
-        deletedAt: null
-      });
+/* ===================== TARGET USER RESOLVER ===================== */
+/**
+ * Bisa terima: UserId string / EmployeeId string / Employee doc (punya field user)
+ * Balikannya: UserId string
+ */
+async function resolveTargetUserId(idOrDoc) {
+  if (!idOrDoc) throw new Error('target user kosong');
+  // Employee doc dengan field user
+  if (typeof idOrDoc === 'object') {
+    if (idOrDoc.user) return String(idOrDoc.user);
+    if (idOrDoc._id) {
+      const emp = await Employee.findById(idOrDoc._id).select('user').lean();
+      return emp?.user ? String(emp.user) : String(idOrDoc._id);
     }
-  } catch (e) {
-    console.warn('[bot] emit error:', e.message);
   }
-
-  console.log(
-    '[bot] message inserted:',
-    String(msg._id),
-    '-> conv',
-    String(conv._id)
-  );
-  return msg;
+  const id = String(idOrDoc);
+  // coba resolve sebagai EmployeeId → ambil user
+  if (Types.ObjectId.isValid(id)) {
+    const emp = await Employee.findById(id).select('user').lean();
+    if (emp?.user) return String(emp.user);
+  }
+  // fallback: anggap sudah userId
+  return id;
 }
 
-/* ============ Message Templates (ringkas & URL FE) ============ */
+/* ===================== SEND HELPERS ===================== */
 
-const FE = {
-  // user/karyawan
-  loanMine: '/pengajuan-alat-karyawan',
-  expenseMine: '/pengajuan-biaya-karyawan',
-  pvMine: '/pertanggungjawaban-dana',
-  // admin
-  adminLoan: '/admin/pengajuan',
-  adminReturn: '/admin/pengembalian-alat',
-  adminExpense: '/admin/pengajuan-biaya',
-  adminPV: '/admin/pertanggung-jawaban-dana'
-};
+async function sendDmToUser(userOrEmployeeId, text, { clientId = null } = {}) {
+  const botId = assertBotId();
+  const targetUserId = await resolveTargetUserId(userOrEmployeeId);
+  const conv = await getOrCreateDirect(botId, targetUserId);
+  return chatEmit({
+    conversationId: String(conv._id),
+    senderId: String(botId),
+    text,
+    type: 'text',
+    clientId
+  });
+}
 
-/* ============ Public API (dipanggil controller) ============ */
+async function sendToAdmins(text, { clientId = null } = {}) {
+  const botId = assertBotId();
+  if (FALLBACK_ADMIN_DM) {
+    const adminIds = await getAdminIds();
+    const results = [];
+    for (const uid of adminIds) {
+      const cid = clientId ? `${clientId}:${uid}` : null; // idempotensi per-DM
+      results.push(await sendDmToUser(uid, text, { clientId: cid }));
+    }
+    return results;
+  }
+  const group = await getOrCreateAdminGroup();
+  return chatEmit({
+    conversationId: String(group._id),
+    senderId: String(botId),
+    text,
+    type: 'text',
+    clientId
+  });
+}
 
-// LOAN
+/* =========================================================
+ * ============== DOMAIN NOTIFICATIONS =====================
+ * =======================================================*/
+
+/** PENGAJUAN ALAT */
+// Karyawan → Admin (pengajuan dibuat)
 async function notifyLoanCreatedToAdmins(loan) {
-  console.log('[bot] notifyLoanCreatedToAdmins called', loan?.loan_number);
-  await ensureBotUser();
-  const adminIds = await getAdminUserIds();
-  const conv = await ensureGroup({
-    title: 'Internal Admin',
-    members: [...adminIds, BOT_ID]
-  });
+  const url = mkUrl(PATHS.admin.loan, { loan: loan?.loan_number });
+  const borrower = loan?.borrower?.name || loan?.borrower_name || 'Karyawan';
+  const total = Array.isArray(loan?.borrowed_items)
+    ? loan.borrowed_items.length
+    : 0;
 
-  const borrowerName = loan?.borrower?.name || '(pemohon)';
-  const text =
-    `🔔 Pengajuan Alat Baru\n` +
-    `• Loan: ${loan.loan_number}\n` +
-    `• Peminjam: ${borrowerName}\n` +
-    `• Tanggal ambil: ${
-      loan.pickup_date
-        ? new Date(loan.pickup_date).toLocaleDateString('id-ID')
+  const msg =
+    `📦 Pengajuan Alat Baru\n` +
+    `• Karyawan : ${borrower}\n` +
+    `• No. Pengajuan : ${loan?.loan_number || '-'}\n` +
+    `• Item : ${total} baris\n` +
+    `• Tanggal Pinjam : ${
+      loan?.loan_date
+        ? new Date(loan.loan_date).toLocaleDateString('id-ID')
         : '-'
-    }\n` +
-    `Buka: ${FE.adminLoan}`;
-  return pushMessage({ convId: conv._id, text });
+    }\n\n` +
+    `Review di: ${url}`;
+
+  return sendToAdmins(msg, { clientId: `loan:create:${loan?.loan_number}` });
 }
 
-async function notifyLoanReviewedToBorrower(loan, { approved, reason } = {}) {
-  console.log(
-    '[bot] notifyLoanReviewedToBorrower called',
-    loan?.loan_number,
-    approved
-  );
-  await ensureBotUser();
-  const userId = await employeeIdToUserId(loan.borrower);
-  if (!userId) throw new Error('User peminjam tidak ditemukan dari employee');
-
-  const conv = await ensureDirect({ userA: BOT_ID, userB: userId });
-
+// Admin → Karyawan (hasil review)
+async function notifyLoanReviewedToBorrower(loan, { approved, reason = null }) {
+  const url = mkUrl(PATHS.employee.loan, { loan: loan?.loan_number });
   const status = approved ? '✅ Disetujui' : '❌ Ditolak';
-  const extra = approved
-    ? `Silakan lanjut proses di: ${FE.loanMine}`
-    : `Alasan: ${reason || '-'}`;
-  const text =
-    `Status pengajuan alat kamu (${loan.loan_number})\n` +
-    `• ${status}\n` +
-    `${extra}`;
-  return pushMessage({ convId: conv._id, text });
-}
+  const reasonLine = approved ? '' : `\nAlasan: ${reason || '-'}`;
 
-// RETURN (final)
-async function notifyReturnFinalizedToAdmins(returnDoc) {
-  console.log(
-    '[bot] notifyReturnFinalizedToAdmins called',
-    String(returnDoc?._id)
-  );
-  await ensureBotUser();
-  const adminIds = await getAdminUserIds();
-  const conv = await ensureGroup({
-    title: 'Internal Admin',
-    members: [...adminIds, BOT_ID]
+  const msg =
+    `📦 Pengajuan Alat ${status}\n` +
+    `• No. Pengajuan : ${loan?.loan_number || '-'}${reasonLine}\n\n` +
+    `Detail: ${url}`;
+
+  // loan.borrower = EmployeeId → auto di-resolve ke UserId
+  return sendDmToUser(loan.borrower, msg, {
+    clientId: `loan:review:${loan?.loan_number}`
   });
-
-  const text =
-    `📦 Pengembalian Alat Final\n` +
-    `• Loan: ${returnDoc.loan_number}\n` +
-    `• Status: ${returnDoc.status}\n` +
-    `Review: ${FE.adminReturn}`;
-  return pushMessage({ convId: conv._id, text });
 }
 
-// EXPENSE REQUEST
+/** PENGEMBALIAN ALAT */
+// Karyawan → Admin (finalisasi batch)
+async function notifyReturnFinalizedToAdmins(ret) {
+  const url = mkUrl(PATHS.admin.returnLoan, { loan: ret?.loan_number });
+  const borrower = ret?.borrower?.name || 'Karyawan';
+  const items = Array.isArray(ret?.returned_items) ? ret.returned_items : [];
+
+  const lostCount = items.filter((it) => it?.condition_new === 'Hilang').length;
+  const lostLine = lostCount > 0 ? `\n• Hilang : ${lostCount} baris` : '';
+
+  const msg =
+    `↩️ Pengembalian Alat (Final)\n` +
+    `• Karyawan : ${borrower}\n` +
+    `• No. Peminjaman : ${ret?.loan_number || '-'}\n` +
+    `• Item : ${items.length} baris${lostLine}\n` +
+    `• Tgl Lapor : ${
+      ret?.report_date
+        ? new Date(ret.report_date).toLocaleDateString('id-ID')
+        : '-'
+    }\n\n` +
+    `Review di: ${url}`;
+
+  return sendToAdmins(msg, { clientId: `return:final:${ret?._id}` });
+}
+
+/** PENGAJUAN BIAYA (Expense Request) */
+// Karyawan → Admin (pengajuan dibuat)
 async function notifyERCreatedToAdmins(er) {
-  console.log('[bot] notifyERCreatedToAdmins called', er?.voucher_number);
-  await ensureBotUser();
-  const adminIds = await getAdminUserIds();
-  const conv = await ensureGroup({
-    title: 'Internal Admin',
-    members: [...adminIds, BOT_ID]
-  });
+  const url = mkUrl(PATHS.admin.expense, { voucher: er?.voucher_number });
+  const emp = er?.name?.name || 'Karyawan';
+  const over = Array.isArray(er?.details)
+    ? er.details.filter((d) => d?.is_overbudget).length
+    : 0;
+  const overLine = over > 0 ? `\n• Overbudget (proyeksi): ${over} item` : '';
 
-  const employeeName = er?.name?.name || '(pemohon)';
-  const text =
-    `📝 Pengajuan Biaya Baru\n` +
-    `• Voucher: ${er.voucher_number}\n` +
-    `• Pemohon: ${employeeName}\n` +
-    `Buka: ${FE.adminExpense}`;
-  return pushMessage({ convId: conv._id, text });
+  const msg =
+    `🧾 Pengajuan Biaya Baru\n` +
+    `• Pemohon : ${emp}\n` +
+    `• Voucher : ${er?.voucher_number || '-'}\n` +
+    `• Jenis : ${er?.expense_type || '-'}\n` +
+    `• Total : Rp ${Number(er?.total_amount || 0).toLocaleString(
+      'id-ID'
+    )}${overLine}\n\n` +
+    `Review di: ${url}`;
+
+  return sendToAdmins(msg, { clientId: `er:create:${er?.voucher_number}` });
 }
 
-async function notifyERReviewedToEmployee(er, { approved, reason } = {}) {
-  console.log(
-    '[bot] notifyERReviewedToEmployee called',
-    er?.voucher_number,
-    approved
-  );
-  await ensureBotUser();
-  const userId = await employeeIdToUserId(er.name);
-  if (!userId) throw new Error('User pemohon tidak ditemukan dari employee');
-
-  const conv = await ensureDirect({ userA: BOT_ID, userB: userId });
-
+// Admin → Karyawan (hasil review)
+async function notifyERReviewedToEmployee(er, { approved, reason = null }) {
+  const url = mkUrl(PATHS.employee.expense, { voucher: er?.voucher_number });
   const status = approved ? '✅ Disetujui' : '❌ Ditolak';
-  const extra = approved
-    ? `PV akan diproses. Cek: ${FE.expenseMine}`
-    : `Alasan: ${reason || '-'}`;
-  const text =
-    `Status pengajuan biaya (${er.voucher_number})\n` +
-    `• ${status}\n` +
-    `${extra}`;
-  return pushMessage({ convId: conv._id, text });
-}
+  const reasonLine = approved ? '' : `\nAlasan: ${reason || '-'}`;
 
-// PV REPORT (batch)
-async function notifyPVBatchCreatedToAdmins(pv) {
-  console.log('[bot] notifyPVBatchCreatedToAdmins called', pv?.pv_number);
-  await ensureBotUser();
-  const adminIds = await getAdminUserIds();
-  const conv = await ensureGroup({
-    title: 'Internal Admin',
-    members: [...adminIds, BOT_ID]
+  const msg =
+    `🧾 Pengajuan Biaya ${status}\n` +
+    `• Voucher : ${er?.voucher_number || '-'}${reasonLine}\n\n` +
+    `Detail: ${url}`;
+
+  // er.name = EmployeeId
+  return sendDmToUser(er.name, msg, {
+    clientId: `er:review:${er?.voucher_number}`
   });
-
-  const text =
-    `🧾 PV Batch Baru\n` +
-    `• PV: ${pv.pv_number}\n` +
-    `• Voucher: ${pv.voucher_number}\n` +
-    `Review: ${FE.adminPV}`;
-  return pushMessage({ convId: conv._id, text });
 }
 
+/** PERTANGGUNGJAWABAN DANA (PV Report) */
+// Karyawan → Admin (batch dibuat)
+async function notifyPVBatchCreatedToAdmins(pv) {
+  const url = mkUrl(PATHS.admin.pv, {
+    voucher: pv?.voucher_number,
+    pv: pv?.pv_number
+  });
+  const itemsCount = Array.isArray(pv?.items) ? pv.items.length : 0;
+
+  const msg =
+    `🧾📎 Pertanggungjawaban Dana - Batch Baru\n` +
+    `• PV : ${pv?.pv_number || '-'}\n` +
+    `• Voucher : ${pv?.voucher_number || '-'}\n` +
+    `• Item : ${itemsCount} baris\n\n` +
+    `Review di: ${url}`;
+
+  return sendToAdmins(msg, { clientId: `pv:create:${pv?.pv_number}` });
+}
+
+// Admin → Karyawan (hasil review)
 async function notifyPVReviewedToEmployee(
   pv,
-  { approved, reason, employeeId } = {}
+  { approved, reason = null, employeeId = null }
 ) {
-  console.log(
-    '[bot] notifyPVReviewedToEmployee called',
-    pv?.pv_number,
-    approved
-  );
-  await ensureBotUser();
-
-  // pv.created_by = employeeId (Employee._id)
-  const empId = employeeId || pv.created_by;
-  const userId = await employeeIdToUserId(empId);
-  if (!userId) throw new Error('User pembuat PV tidak ditemukan dari employee');
-
-  const conv = await ensureDirect({ userA: BOT_ID, userB: userId });
-
+  const url = mkUrl(PATHS.employee.pv, {
+    voucher: pv?.voucher_number,
+    pv: pv?.pv_number
+  });
   const status = approved ? '✅ Disetujui' : '❌ Ditolak';
-  const extra = approved
-    ? `Terima kasih. Cek riwayat: ${FE.pvMine}`
-    : `Catatan: ${reason || '-'}`;
-  const text = `Status PV (${pv.pv_number})\n` + `• ${status}\n` + `${extra}`;
-  return pushMessage({ convId: conv._id, text });
+  const reasonLine = approved ? '' : `\nCatatan: ${reason || '-'}`;
+
+  // pv.created_by = EmployeeId
+  const target = employeeId || pv?.created_by;
+
+  const msg =
+    `🧾📎 Pertanggungjawaban ${status}\n` +
+    `• PV : ${pv?.pv_number || '-'}\n` +
+    `• Voucher : ${pv?.voucher_number || '-'}${reasonLine}\n\n` +
+    `Detail: ${url}`;
+
+  return sendDmToUser(target, msg, { clientId: `pv:review:${pv?.pv_number}` });
 }
 
+/* ===================== EXPORTS ===================== */
+
 module.exports = {
-  // Loan
+  // utils
+  mkUrl,
+
+  // sends
+  sendDmToUser,
+  sendToAdmins,
+
+  // notifications
   notifyLoanCreatedToAdmins,
   notifyLoanReviewedToBorrower,
-  // Return
   notifyReturnFinalizedToAdmins,
-  // Expense Request
   notifyERCreatedToAdmins,
   notifyERReviewedToEmployee,
-  // PV
   notifyPVBatchCreatedToAdmins,
   notifyPVReviewedToEmployee
 };
