@@ -808,6 +808,13 @@ const changeCondition = asyncHandler(async (req, res) => {
 
     const movedWarehouse = !sameId(finalWarehouse, src.warehouse?._id);
     const movedShelf = !sameId(finalShelf, src.shelf?._id);
+    const finalWarehouseDoc = finalWarehouse
+      ? await Warehouse.findById(finalWarehouse).select('warehouse_name').lean()
+      : null;
+
+    const finalShelfDoc = finalShelf
+      ? await Shelf.findById(finalShelf).select('shelf_name').lean()
+      : null;
 
     function formatLocationName(warehouse, shelf) {
       let loc = '';
