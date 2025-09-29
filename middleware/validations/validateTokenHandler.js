@@ -42,7 +42,12 @@ const validateToken = asyncHandler(async (req, res, next) => {
     return res.status(401).json({
       success: false,
       title: 'Unauthorized',
-      message: 'Token tidak valid atau expired'
+      message: 'Token tidak valid atau expired',
+      code: 'ACCESS_MISSING',
+      hint: {
+        hasAccessCookie: false,
+        hasRefreshCookie: !!req.cookies?.refreshToken
+      }
     });
   }
 });

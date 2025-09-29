@@ -830,7 +830,6 @@ const logoutUser = asyncHandler(async (req, res) => {
 });
 
 const refreshToken = asyncHandler(async (req, res) => {
-  // ---- DEBUG: incoming ----
   const hasCookieHeader = !!req.headers.cookie;
   const token = req.cookies?.refreshToken;
   console.log('[rt][in]', {
@@ -860,7 +859,6 @@ const refreshToken = asyncHandler(async (req, res) => {
     const user = await User.findById(payload.sub).select(
       '+refreshToken +prevRefreshToken role name'
     );
-
     if (!user) {
       console.log('[rt] user not found', { sub: payload?.sub });
       return res
@@ -910,10 +908,9 @@ const refreshToken = asyncHandler(async (req, res) => {
     });
 
     const refreshCookieOpts = remember
-      ? { ...baseCookie, maxAge: 7 * 24 * 60 * 60 * 1000 } // persistent
-      : { ...baseCookie }; // session
+      ? { ...baseCookie, maxAge: 7 * 24 * 60 * 60 * 1000 } // persistent 7d
+      : { ...baseCookie };
 
-    // ---- DEBUG: outgoing (sebelum kirim) ----
     console.log('[rt][out]', {
       setAccessCookie: true,
       setRefreshCookie: true,
