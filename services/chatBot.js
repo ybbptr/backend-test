@@ -5,7 +5,7 @@ const { Types } = require('mongoose');
 const Conversation = require('../model/conversationModel');
 const User = require('../model/userModel');
 const Employee = require('../model/employeeModel');
-const { chatEmit } = require('./chatEmit'); // util emit pesan (DB + socket)
+const { chatEmit } = require('./chatEmit'); // DB + socket emitter
 
 /* ===================== ENV & CONSTANTS ===================== */
 
@@ -14,7 +14,6 @@ const BOT_USER_ID = process.env.BOT_USER_ID || ''; // ObjectId string milik user
 const FALLBACK_ADMIN_DM =
   String(process.env.FALLBACK_ADMIN_DM || 'false') === 'true';
 
-// FE path mapping (ikuti rute kamu)
 const PATHS = {
   employee: {
     loan: '/pengajuan-alat-karyawan',
@@ -28,6 +27,71 @@ const PATHS = {
     expense: '/admin/pengajuan-biaya',
     pv: '/admin/pertanggung-jawaban-dana'
   }
+};
+
+const SEP = '────────────────────────────────';
+
+/* ===================== FORMAT HELPERS ===================== */
+
+const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('id-ID') : null);
+
+const fmtDateTime = (d) => (d ? new Date(d).toLocaleString('id-ID') : null);
+
+const fmtCurrency = (n) =>
+  typeof n === 'number'
+    ? n.toLocaleString('id-ID')
+    : (Number(n || 0) || 0).toLocaleString('id-ID');
+
+const line = (label, value) =>
+  value === undefined || value === null || value === ''
+    ? null
+    : `• ${label} : ${value}`;
+
+const joinLines = (parts) => parts.filter(Boolean).join('\n');
+
+const summarizeItems = (items, opts = {}) => {
+  const arr = Array.isArray(items) ? items : [];
+  if (!arr.length) return null;
+  const {
+    nameKey = 'name', // fallback kunci nama item
+    descKey = 'description',
+    qtyKey = 'qty',
+    amountKey = 'amount', // fallback kunci nominal
+    max = 3,
+    title = 'Ringkasan Item'
+  } = opts;
+
+  const head = `🔎 ${title}`;
+  const sample = arr.slice(0, max).map((it, i) => {
+    const name =
+      it?.[nameKey] ||
+      it?.[descKey] ||
+      it?.item_name ||
+      it?.desc ||
+      `Item ${i + 1}`;
+    const qty = it?.[qtyKey];
+    const amt = it?.[amountKey] ?? it?.price ?? it?.subtotal ?? null;
+    const parts = [];
+    parts.push(`  ${i + 1}. ${name}`);
+    if (qty !== undefined) parts.push(` (Qty: ${qty})`);
+    if (amt !== null && amt !== undefined)
+      parts.push(` — Rp ${fmtCurrency(amt)}`);
+    return parts.join('');
+  });
+
+  const more =
+    arr.length > max ? `  … dan ${arr.length - max} item lain` : null;
+  return [head, ...sample, more].filter(Boolean).join('\n');
+};
+
+const countBy = (items, key, expected) => {
+  const arr = Array.isArray(items) ? items : [];
+  return arr.filter((it) => it?.[key] === expected).length;
+};
+
+const sumBy = (items, key) => {
+  const arr = Array.isArray(items) ? items : [];
+  return arr.reduce((acc, it) => acc + (Number(it?.[key] ?? 0) || 0), 0);
 };
 
 /* ===================== URL HELPER ===================== */
@@ -48,15 +112,13 @@ function assertBotId() {
   if (!BOT_USER_ID || !Types.ObjectId.isValid(BOT_USER_ID)) {
     throw new Error('BOT_USER_ID env tidak valid / belum di-set');
   }
-  // return string saja; biar Mongoose yang auto-cast
-  return String(BOT_USER_ID);
+  return String(BOT_USER_ID); // biar Mongoose auto-cast
 }
 
-/* ===================== EMPLOYEE NAME RESOLVER ===================== */
-/** Terima: ObjectId | Employee doc | { name } | null → balikkan string nama atau null */
+/* ===================== EMPLOYEE RESOLVER ===================== */
+
 async function getEmployeeName(ref) {
   if (!ref) return null;
-  // jika doc punya field name langsung
   if (typeof ref === 'object') {
     if (typeof ref.name === 'string' && ref.name) return ref.name;
     if (ref._id) {
@@ -71,13 +133,29 @@ async function getEmployeeName(ref) {
   return null;
 }
 
+async function resolveTargetUserId(idOrDoc) {
+  if (!idOrDoc) throw new Error('target user kosong');
+  if (typeof idOrDoc === 'object') {
+    if (idOrDoc.user) return String(idOrDoc.user);
+    if (idOrDoc._id) {
+      const emp = await Employee.findById(idOrDoc._id).select('user').lean();
+      return emp?.user ? String(emp.user) : String(idOrDoc._id);
+    }
+  }
+  const id = String(idOrDoc);
+  if (Types.ObjectId.isValid(id)) {
+    const emp = await Employee.findById(id).select('user').lean();
+    if (emp?.user) return String(emp.user);
+  }
+  return id; // already userId
+}
+
 /* ===================== CONVERSATION HELPERS ===================== */
 
 async function getOrCreateDirect(botId, userId) {
   const bid = String(botId);
   const uid = String(userId);
 
-  // cari existing (unik by memberKey di schema)
   let conv = await Conversation.findOne({
     type: 'direct',
     'members.user': { $all: [bid, uid] }
@@ -94,7 +172,6 @@ async function getOrCreateDirect(botId, userId) {
     });
     return conv;
   } catch (e) {
-    // handle race duplicate key
     if (String(e?.code) === '11000') {
       const again = await Conversation.findOne({
         type: 'direct',
@@ -128,33 +205,7 @@ async function getOrCreateAdminGroup() {
       ...adminIds.map((id) => ({ user: id, role: 'admin' }))
     ]
   });
-
   return conv;
-}
-
-/* ===================== TARGET USER RESOLVER ===================== */
-/**
- * Bisa terima: UserId string / EmployeeId string / Employee doc (punya field user)
- * Balikannya: UserId string
- */
-async function resolveTargetUserId(idOrDoc) {
-  if (!idOrDoc) throw new Error('target user kosong');
-  // Employee doc dengan field user
-  if (typeof idOrDoc === 'object') {
-    if (idOrDoc.user) return String(idOrDoc.user);
-    if (idOrDoc._id) {
-      const emp = await Employee.findById(idOrDoc._id).select('user').lean();
-      return emp?.user ? String(emp.user) : String(idOrDoc._id);
-    }
-  }
-  const id = String(idOrDoc);
-  // coba resolve sebagai EmployeeId → ambil user
-  if (Types.ObjectId.isValid(id)) {
-    const emp = await Employee.findById(id).select('user').lean();
-    if (emp?.user) return String(emp.user);
-  }
-  // fallback: anggap sudah userId
-  return id;
 }
 
 /* ===================== SEND HELPERS ===================== */
@@ -178,7 +229,7 @@ async function sendToAdmins(text, { clientId = null } = {}) {
     const adminIds = await getAdminIds();
     const results = [];
     for (const uid of adminIds) {
-      const cid = clientId ? `${clientId}:${uid}` : null; // idempotensi per-DM
+      const cid = clientId ? `${clientId}:${uid}` : null;
       results.push(await sendDmToUser(uid, text, { clientId: cid }));
     }
     return results;
@@ -193,6 +244,11 @@ async function sendToAdmins(text, { clientId = null } = {}) {
   });
 }
 
+/* =========================================================
+ * ============== DOMAIN NOTIFICATIONS (detailed) ===========
+ * =======================================================*/
+
+/** PENGAJUAN ALAT */
 // Karyawan → Admin (pengajuan dibuat)
 async function notifyLoanCreatedToAdmins(loan) {
   const url = mkUrl(PATHS.admin.loan, { loan: loan?.loan_number });
@@ -200,21 +256,28 @@ async function notifyLoanCreatedToAdmins(loan) {
     (await getEmployeeName(loan?.borrower)) ||
     loan?.borrower_name ||
     'Karyawan';
-  const total = Array.isArray(loan?.borrowed_items)
-    ? loan.borrowed_items.length
-    : 0;
+  const items = Array.isArray(loan?.borrowed_items) ? loan.borrowed_items : [];
+  const total = items.length;
 
-  const msg =
-    `📦 Pengajuan Alat Baru\n` +
-    `• Karyawan : ${borrower}\n` +
-    `• No. Pengajuan : ${loan?.loan_number || '-'}\n` +
-    `• Item : ${total} baris\n` +
-    `• Tanggal Pinjam : ${
-      loan?.loan_date
-        ? new Date(loan.loan_date).toLocaleDateString('id-ID')
-        : '-'
-    }\n\n` +
-    `Review di: ${url}`;
+  const msg = joinLines([
+    `📦 Pengajuan Alat — Baru`,
+    SEP,
+    line('No. Pengajuan', loan?.loan_number || '-'),
+    line('Karyawan', borrower),
+    line('Tanggal Pinjam', fmtDate(loan?.loan_date)),
+    line('Rencana Kembali', fmtDate(loan?.expected_return_date)),
+    line('Total Item', `${total} baris`),
+    loan?.project ? line('Proyek', loan.project) : null,
+    loan?.department ? line('Departemen', loan.department) : null,
+    SEP,
+    summarizeItems(items, {
+      title: 'Ringkasan Item Dipinjam',
+      nameKey: 'item_name',
+      qtyKey: 'qty'
+    }),
+    SEP,
+    `🔗 Review: ${url}`
+  ]);
 
   return sendToAdmins(msg, { clientId: `loan:create:${loan?.loan_number}` });
 }
@@ -223,15 +286,24 @@ async function notifyLoanCreatedToAdmins(loan) {
 async function notifyLoanReviewedToBorrower(loan, { approved, reason = null }) {
   const url = mkUrl(PATHS.employee.loan, { loan: loan?.loan_number });
   const status = approved ? '✅ Disetujui' : '❌ Ditolak';
-  const reasonLine = approved ? '' : `\nAlasan: ${reason || '-'}`;
+  const next = approved
+    ? 'Silakan ambil/melanjutkan proses sesuai instruksi gudang.'
+    : 'Silakan lengkapi/ajukan ulang sesuai catatan berikut.';
 
-  const msg =
-    `📦 Pengajuan Alat ${status}\n` +
-    `• No. Pengajuan : ${loan?.loan_number || '-'}${reasonLine}\n\n` +
-    `Detail: ${url}`;
+  const msg = joinLines([
+    `📦 Pengajuan Alat — ${status}`,
+    SEP,
+    line('No. Pengajuan', loan?.loan_number || '-'),
+    !approved ? line('Alasan/Catatan', reason || '-') : null,
+    SEP,
+    line('Diajukan', fmtDateTime(loan?.createdAt)),
+    line('Diputuskan', fmtDateTime(loan?.updatedAt)),
+    SEP,
+    `🧭 Tindak Lanjut: ${next}`,
+    `🔗 Detail: ${url}`
+  ]);
 
-  // loan.borrower = EmployeeId → auto di-resolve ke UserId
-  return sendDmToUser(loan.borrower, msg, {
+  return sendDmToUser(loan?.borrower, msg, {
     clientId: `loan:review:${loan?.loan_number}`
   });
 }
@@ -243,20 +315,34 @@ async function notifyReturnFinalizedToAdmins(ret) {
   const borrower = (await getEmployeeName(ret?.borrower)) || 'Karyawan';
   const items = Array.isArray(ret?.returned_items) ? ret.returned_items : [];
 
-  const lostCount = items.filter((it) => it?.condition_new === 'Hilang').length;
-  const lostLine = lostCount > 0 ? `\n• Hilang : ${lostCount} baris` : '';
+  const lost = countBy(items, 'condition_new', 'Hilang');
+  const broken = countBy(items, 'condition_new', 'Rusak');
+  const good = countBy(items, 'condition_new', 'Baik');
 
-  const msg =
-    `↩️ Pengembalian Alat (Final)\n` +
-    `• Karyawan : ${borrower}\n` +
-    `• No. Peminjaman : ${ret?.loan_number || '-'}\n` +
-    `• Item : ${items.length} baris${lostLine}\n` +
-    `• Tgl Lapor : ${
-      ret?.report_date
-        ? new Date(ret.report_date).toLocaleDateString('id-ID')
-        : '-'
-    }\n\n` +
-    `Review di: ${url}`;
+  const msg = joinLines([
+    `↩️ Pengembalian Alat — Final`,
+    SEP,
+    line('No. Peminjaman', ret?.loan_number || '-'),
+    line('Karyawan', borrower),
+    line('Tanggal Lapor', fmtDate(ret?.report_date)),
+    line('Total Item', `${items.length} baris`),
+    lost + broken + good > 0
+      ? joinLines([
+          '• Kondisi :',
+          `  - Baik  : ${good}`,
+          `  - Rusak : ${broken}`,
+          `  - Hilang: ${lost}`
+        ])
+      : null,
+    SEP,
+    summarizeItems(items, {
+      title: 'Ringkasan Item Dikembalikan',
+      nameKey: 'item_name',
+      qtyKey: 'qty'
+    }),
+    SEP,
+    `🔗 Review: ${url}`
+  ]);
 
   return sendToAdmins(msg, { clientId: `return:final:${ret?._id}` });
 }
@@ -266,20 +352,30 @@ async function notifyReturnFinalizedToAdmins(ret) {
 async function notifyERCreatedToAdmins(er) {
   const url = mkUrl(PATHS.admin.expense, { voucher: er?.voucher_number });
   const emp = (await getEmployeeName(er?.name)) || 'Karyawan';
-  const over = Array.isArray(er?.details)
-    ? er.details.filter((d) => d?.is_overbudget).length
-    : 0;
-  const overLine = over > 0 ? `\n• Overbudget (proyeksi): ${over} item` : '';
+  const details = Array.isArray(er?.details) ? er.details : [];
+  const overCount = details.filter((d) => d?.is_overbudget).length;
+  const totalAmount = er?.total_amount ?? sumBy(details, 'amount');
 
-  const msg =
-    `🧾 Pengajuan Biaya Baru\n` +
-    `• Pemohon : ${emp}\n` +
-    `• Voucher : ${er?.voucher_number || '-'}\n` +
-    `• Jenis : ${er?.expense_type || '-'}\n` +
-    `• Total : Rp ${Number(er?.total_amount || 0).toLocaleString(
-      'id-ID'
-    )}${overLine}\n\n` +
-    `Review di: ${url}`;
+  const msg = joinLines([
+    `🧾 Pengajuan Biaya — Baru`,
+    SEP,
+    line('Voucher', er?.voucher_number || '-'),
+    line('Pemohon', emp),
+    line('Jenis', er?.expense_type),
+    line('Total Diminta', `Rp ${fmtCurrency(totalAmount)}`),
+    line('Jumlah Rincian', `${details.length} item`),
+    overCount ? line('Overbudget (proyeksi)', `${overCount} item`) : null,
+    er?.needed_by ? line('Dibutuhkan Pada', fmtDate(er.needed_by)) : null,
+    SEP,
+    summarizeItems(details, {
+      title: 'Ringkasan Rincian',
+      nameKey: 'title',
+      descKey: 'description',
+      amountKey: 'amount'
+    }),
+    SEP,
+    `🔗 Review: ${url}`
+  ]);
 
   return sendToAdmins(msg, { clientId: `er:create:${er?.voucher_number}` });
 }
@@ -288,15 +384,24 @@ async function notifyERCreatedToAdmins(er) {
 async function notifyERReviewedToEmployee(er, { approved, reason = null }) {
   const url = mkUrl(PATHS.employee.expense, { voucher: er?.voucher_number });
   const status = approved ? '✅ Disetujui' : '❌ Ditolak';
-  const reasonLine = approved ? '' : `\nAlasan: ${reason || '-'}`;
+  const next = approved
+    ? 'Tim keuangan akan memproses sesuai SOP.'
+    : 'Silakan revisi pengajuan sesuai catatan, lalu ajukan ulang.';
 
-  const msg =
-    `🧾 Pengajuan Biaya ${status}\n` +
-    `• Voucher : ${er?.voucher_number || '-'}${reasonLine}\n\n` +
-    `Detail: ${url}`;
+  const msg = joinLines([
+    `🧾 Pengajuan Biaya — ${status}`,
+    SEP,
+    line('Voucher', er?.voucher_number || '-'),
+    !approved ? line('Alasan/Catatan', reason || '-') : null,
+    SEP,
+    line('Jenis', er?.expense_type),
+    line('Total Disetujui/Diminta', `Rp ${fmtCurrency(er?.total_amount)}`),
+    SEP,
+    `🧭 Tindak Lanjut: ${next}`,
+    `🔗 Detail: ${url}`
+  ]);
 
-  // er.name = EmployeeId
-  return sendDmToUser(er.name, msg, {
+  return sendDmToUser(er?.name, msg, {
     clientId: `er:review:${er?.voucher_number}`
   });
 }
@@ -308,14 +413,26 @@ async function notifyPVBatchCreatedToAdmins(pv) {
     voucher: pv?.voucher_number,
     pv: pv?.pv_number
   });
-  const itemsCount = Array.isArray(pv?.items) ? pv.items.length : 0;
+  const items = Array.isArray(pv?.items) ? pv.items : [];
+  const totalAmount = sumBy(items, 'amount');
 
-  const msg =
-    `🧾📎 Pertanggungjawaban Dana - Batch Baru\n` +
-    `• PV : ${pv?.pv_number || '-'}\n` +
-    `• Voucher : ${pv?.voucher_number || '-'}\n` +
-    `• Item : ${itemsCount} baris\n\n` +
-    `Review di: ${url}`;
+  const msg = joinLines([
+    `🧾📎 Pertanggungjawaban Dana — Batch Baru`,
+    SEP,
+    line('PV', pv?.pv_number || '-'),
+    line('Voucher', pv?.voucher_number || '-'),
+    line('Total Item', `${items.length} baris`),
+    line('Total Nilai', `Rp ${fmtCurrency(totalAmount)}`),
+    pv?.period ? line('Periode', pv.period) : null,
+    SEP,
+    summarizeItems(items, {
+      title: 'Ringkasan Bukti/Item',
+      nameKey: 'title',
+      amountKey: 'amount'
+    }),
+    SEP,
+    `🔗 Review: ${url}`
+  ]);
 
   return sendToAdmins(msg, { clientId: `pv:create:${pv?.pv_number}` });
 }
@@ -330,17 +447,22 @@ async function notifyPVReviewedToEmployee(
     pv: pv?.pv_number
   });
   const status = approved ? '✅ Disetujui' : '❌ Ditolak';
-  const reasonLine = approved ? '' : `\nCatatan: ${reason || '-'}`;
+  const next = approved
+    ? 'Terima kasih, PV telah disetujui.'
+    : 'Silakan lengkapi/benahi bukti & keterangan sesuai catatan berikut.';
 
-  // pv.created_by = EmployeeId
+  const msg = joinLines([
+    `🧾📎 Pertanggungjawaban Dana — ${status}`,
+    SEP,
+    line('PV', pv?.pv_number || '-'),
+    line('Voucher', pv?.voucher_number || '-'),
+    !approved ? line('Catatan', reason || '-') : null,
+    SEP,
+    `🧭 Tindak Lanjut: ${next}`,
+    `🔗 Detail: ${url}`
+  ]);
+
   const target = employeeId || pv?.created_by;
-
-  const msg =
-    `🧾📎 Pertanggungjawaban ${status}\n` +
-    `• PV : ${pv?.pv_number || '-'}\n` +
-    `• Voucher : ${pv?.voucher_number || '-'}${reasonLine}\n\n` +
-    `Detail: ${url}`;
-
   return sendDmToUser(target, msg, { clientId: `pv:review:${pv?.pv_number}` });
 }
 
