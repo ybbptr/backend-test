@@ -19,7 +19,7 @@ const { applyAdjustment } = require('../utils/stockAdjustment');
 const { uploadBuffer, deleteFile, getFileUrl } = require('../utils/wasabi');
 const formatDate = require('../utils/formatDate');
 
-const { notifyReturnFinalizedToAdmins } = require('../utils/chatbot');
+const { notifyReturnFinalizedToAdmins } = require('../services/chatBot');
 
 const VALID_CONDS = ['Baik', 'Rusak', 'Maintenance', 'Hilang'];
 

@@ -19,7 +19,7 @@ const { applyAdjustment } = require('../utils/stockAdjustment');
 const {
   notifyLoanCreatedToAdmins,
   notifyLoanReviewedToBorrower
-} = require('../utils/chatbot');
+} = require('../services/chatBot');
 
 /* ========================= Helpers ========================= */
 const safeNotify = (p) =>

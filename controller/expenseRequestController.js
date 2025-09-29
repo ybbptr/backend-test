@@ -12,7 +12,7 @@ const RAP = require('../model/rapModel');
 const {
   notifyERCreatedToAdmins,
   notifyERReviewedToEmployee
-} = require('../utils/chatbot');
+} = require('../services/chatBot');
 
 /* ================= Helpers ================= */
 

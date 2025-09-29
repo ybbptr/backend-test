@@ -18,7 +18,7 @@ const formatDate = require('../utils/formatDate');
 const {
   notifyPVBatchCreatedToAdmins,
   notifyPVReviewedToEmployee
-} = require('../utils/chatbot');
+} = require('../services/chatBot');
 
 /* ========================= Utils & Guards ========================= */
 const safeNotify = (p) =>
