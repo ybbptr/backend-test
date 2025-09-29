@@ -5,7 +5,7 @@ const { Types } = require('mongoose');
 const Conversation = require('../model/conversationModel');
 const User = require('../model/userModel');
 const Employee = require('../model/employeeModel');
-const { chatEmit } = require('./chatEmit'); // <<— gunakan util chatEmit terpisah
+const { chatEmit } = require('./chatEmit'); // util emit pesan (DB + socket)
 
 /* ===================== ENV & CONSTANTS ===================== */
 
@@ -34,7 +34,7 @@ const PATHS = {
 
 function mkUrl(path, q = {}) {
   const u = new URL(path, FE_URL);
-  Object.entries(q).forEach(([k, v]) => {
+  Object.entries(q || {}).forEach(([k, v]) => {
     if (v !== undefined && v !== null && v !== '') {
       u.searchParams.set(k, String(v));
     }
@@ -50,6 +50,25 @@ function assertBotId() {
   }
   // return string saja; biar Mongoose yang auto-cast
   return String(BOT_USER_ID);
+}
+
+/* ===================== EMPLOYEE NAME RESOLVER ===================== */
+/** Terima: ObjectId | Employee doc | { name } | null → balikkan string nama atau null */
+async function getEmployeeName(ref) {
+  if (!ref) return null;
+  // jika doc punya field name langsung
+  if (typeof ref === 'object') {
+    if (typeof ref.name === 'string' && ref.name) return ref.name;
+    if (ref._id) {
+      const row = await Employee.findById(ref._id).select('name').lean();
+      return row?.name || null;
+    }
+  }
+  if (Types.ObjectId.isValid(String(ref))) {
+    const row = await Employee.findById(ref).select('name').lean();
+    return row?.name || null;
+  }
+  return null;
 }
 
 /* ===================== CONVERSATION HELPERS ===================== */
@@ -174,15 +193,13 @@ async function sendToAdmins(text, { clientId = null } = {}) {
   });
 }
 
-/* =========================================================
- * ============== DOMAIN NOTIFICATIONS =====================
- * =======================================================*/
-
-/** PENGAJUAN ALAT */
 // Karyawan → Admin (pengajuan dibuat)
 async function notifyLoanCreatedToAdmins(loan) {
   const url = mkUrl(PATHS.admin.loan, { loan: loan?.loan_number });
-  const borrower = loan?.borrower?.name || loan?.borrower_name || 'Karyawan';
+  const borrower =
+    (await getEmployeeName(loan?.borrower)) ||
+    loan?.borrower_name ||
+    'Karyawan';
   const total = Array.isArray(loan?.borrowed_items)
     ? loan.borrowed_items.length
     : 0;
@@ -223,7 +240,7 @@ async function notifyLoanReviewedToBorrower(loan, { approved, reason = null }) {
 // Karyawan → Admin (finalisasi batch)
 async function notifyReturnFinalizedToAdmins(ret) {
   const url = mkUrl(PATHS.admin.returnLoan, { loan: ret?.loan_number });
-  const borrower = ret?.borrower?.name || 'Karyawan';
+  const borrower = (await getEmployeeName(ret?.borrower)) || 'Karyawan';
   const items = Array.isArray(ret?.returned_items) ? ret.returned_items : [];
 
   const lostCount = items.filter((it) => it?.condition_new === 'Hilang').length;
@@ -248,7 +265,7 @@ async function notifyReturnFinalizedToAdmins(ret) {
 // Karyawan → Admin (pengajuan dibuat)
 async function notifyERCreatedToAdmins(er) {
   const url = mkUrl(PATHS.admin.expense, { voucher: er?.voucher_number });
-  const emp = er?.name?.name || 'Karyawan';
+  const emp = (await getEmployeeName(er?.name)) || 'Karyawan';
   const over = Array.isArray(er?.details)
     ? er.details.filter((d) => d?.is_overbudget).length
     : 0;
