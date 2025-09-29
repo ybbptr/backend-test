@@ -99,7 +99,6 @@ app.use('/employee/profile', require('./routes/employee/editProfileRouter'));
 
 // ---------- CHAT ROUTES (protected) ----------
 app.use('/chat', require('./routes/chatRouter'));
-
 app.use(errorHandler);
 
 const server = http.createServer(app);

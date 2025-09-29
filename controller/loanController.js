@@ -16,10 +16,7 @@ const ReturnLoan = require('../model/returnLoanModel');
 const { resolveActor } = require('../utils/actor');
 const { applyAdjustment } = require('../utils/stockAdjustment');
 
-const {
-  notifyLoanCreatedToAdmins,
-  notifyLoanReviewedToBorrower
-} = require('../services/chatBot');
+const chatBot = require('../services/chatBot');
 
 /* ========================= Helpers ========================= */
 
@@ -198,9 +195,12 @@ const createLoan = asyncHandler(async (req, res) => {
     );
 
     await session.commitTransaction();
+    try {
+      await chatBot.notifyLoanCreatedToAdmins(loan);
+    } catch (e) {
+      console.warn('[bot] notifyLoanCreatedToAdmins:', e.message);
+    }
     res.status(201).json(loan);
-
-    notifyLoanCreatedToAdmins(loan).catch(() => {});
   } catch (err) {
     await session.abortTransaction();
     throw err;
@@ -386,10 +386,13 @@ const approveLoan = asyncHandler(async (req, res) => {
     loan.approval = 'Disetujui';
     loan.circulation_status = computeCirculationStatus('Disetujui'); // Aktif
     await loan.save({ session });
-
     await session.commitTransaction();
+    try {
+      await chatBot.notifyLoanReviewedToBorrower(loan, { approved: true });
+    } catch (e) {
+      console.warn('[bot] notifyLoanReviewedToBorrower (approve):', e.message);
+    }
     res.status(200).json({ message: 'Loan disetujui', id: loan._id });
-    notifyLoanReviewedToBorrower(loan, { approved: true }).catch(() => {});
   } catch (err) {
     await session.abortTransaction();
     throw err;
@@ -425,13 +428,17 @@ const rejectLoan = asyncHandler(async (req, res) => {
     );
 
     await session.commitTransaction();
+    try {
+      await chatBot.notifyLoanReviewedToBorrower(loan, {
+        approved: false,
+        reason: loan.note
+      });
+    } catch (e) {
+      console.warn('[bot] notifyLoanReviewedToBorrower (reject):', e.message);
+    }
     res
       .status(200)
       .json({ message: 'Pengajuan ditolak', id: loan._id, note: loan.note });
-    notifyLoanReviewedToBorrower(loan, {
-      approved: false,
-      reason: loan.note
-    }).catch(() => {});
   } catch (err) {
     await session.abortTransaction();
     throw err;

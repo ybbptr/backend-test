@@ -9,10 +9,7 @@ const ExpenseLog = require('../model/expenseLogModel');
 const Employee = require('../model/employeeModel');
 const RAP = require('../model/rapModel');
 
-const {
-  notifyERCreatedToAdmins,
-  notifyERReviewedToEmployee
-} = require('../services/chatBot');
+const chatBot = require('../services/chatBot');
 
 /* ================= Helpers ================= */
 function mapPaymentPrefix(voucherPrefix) {
@@ -293,12 +290,16 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
     );
 
     await session.commitTransaction();
+
+    try {
+      await chatBot.notifyERCreatedToAdmins(expenseRequest);
+    } catch (e) {
+      console.warn('[bot] notifyERCreatedToAdmins:', e.message);
+    }
     res.status(201).json({
       message: 'Pengajuan biaya berhasil dibuat',
       data: expenseRequest
     });
-
-    notifyERCreatedToAdmins(expenseRequest).catch(() => {});
   } catch (err) {
     await session.abortTransaction();
     throw err;
@@ -587,8 +588,12 @@ const approveExpenseRequest = asyncHandler(async (req, res) => {
     );
 
     await session.commitTransaction();
+    try {
+      await chatBot.notifyERReviewedToEmployee(er, { approved: true });
+    } catch (e) {
+      console.warn('[bot] notifyERReviewedToEmployee (approve):', e.message);
+    }
     res.status(200).json({ message: 'Pengajuan disetujui', data: er });
-    notifyERReviewedToEmployee(er, { approved: true }).catch(() => {});
   } catch (err) {
     await session.abortTransaction();
     throw err;
@@ -629,10 +634,16 @@ const rejectExpenseRequest = asyncHandler(async (req, res) => {
     );
 
     await session.commitTransaction();
+
+    try {
+      await chatBot.notifyERReviewedToEmployee(er, {
+        approved: false,
+        reason: note
+      });
+    } catch (e) {
+      console.warn('[bot] notifyERReviewedToEmployee (reject):', e.message);
+    }
     res.status(200).json({ message: 'Pengajuan ditolak', data: er });
-    notifyERReviewedToEmployee(er, { approved: false, reason: note }).catch(
-      () => {}
-    );
   } catch (err) {
     await session.abortTransaction();
     throw err;

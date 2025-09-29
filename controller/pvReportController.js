@@ -15,10 +15,7 @@ const RAP = require('../model/rapModel');
 const { uploadBuffer, deleteFile, getFileUrl } = require('../utils/wasabi');
 const formatDate = require('../utils/formatDate');
 
-const {
-  notifyPVBatchCreatedToAdmins,
-  notifyPVReviewedToEmployee
-} = require('../services/chatBot');
+const chatBot = require('../services/chatBot');
 
 /* ========================= Utils & Guards ========================= */
 
@@ -483,8 +480,12 @@ const addPVReport = asyncHandler(async (req, res) => {
     );
 
     await session.commitTransaction();
+    try {
+      await chatBot.notifyPVBatchCreatedToAdmins(pv);
+    } catch (e) {
+      console.warn('[bot] notifyPVBatchCreatedToAdmins:', e.message);
+    }
     res.status(201).json(pv);
-    notifyPVBatchCreatedToAdmins(pv).catch(() => {});
   } catch (err) {
     await session.abortTransaction();
     throw err;
@@ -829,11 +830,12 @@ const approvePVReport = asyncHandler(async (req, res) => {
     await recomputeCompletionFlag(pv.voucher_number, session);
 
     await session.commitTransaction();
+    try {
+      await chatBot.notifyPVReviewedToEmployee(pv, { approved: true });
+    } catch (e) {
+      console.warn('[bot] notifyPVReviewedToEmployee (approve):', e.message);
+    }
     res.status(200).json(pv);
-    notifyPVReviewedToEmployee(pv, {
-      approved: true,
-      employeeId: pv.created_by
-    }).catch(() => {});
   } catch (err) {
     await session.abortTransaction();
     throw err;
@@ -877,12 +879,15 @@ const rejectPVReport = asyncHandler(async (req, res) => {
     );
 
     await session.commitTransaction();
+    try {
+      await chatBot.notifyPVReviewedToEmployee(pv, {
+        approved: false,
+        reason: req.body?.note
+      });
+    } catch (e) {
+      console.warn('[bot] notifyPVReviewedToEmployee (reject):', e.message);
+    }
     res.status(200).json(pv);
-    notifyPVReviewedToEmployee(pv, {
-      approved: false,
-      reason: note,
-      employeeId: pv.created_by
-    }).catch(() => {});
   } catch (err) {
     await session.abortTransaction();
     throw err;

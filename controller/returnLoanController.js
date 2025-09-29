@@ -19,7 +19,7 @@ const { applyAdjustment } = require('../utils/stockAdjustment');
 const { uploadBuffer, deleteFile, getFileUrl } = require('../utils/wasabi');
 const formatDate = require('../utils/formatDate');
 
-const { notifyReturnFinalizedToAdmins } = require('../services/chatBot');
+const chatBot = require('../services/chatBot');
 
 const VALID_CONDS = ['Baik', 'Rusak', 'Maintenance', 'Hilang'];
 
@@ -704,13 +704,16 @@ const finalizeReturnLoanById = asyncHandler(async (req, res) => {
     await finalizeReturnLoanCore(session, { loan, doc, actor });
 
     await session.commitTransaction();
+    try {
+      await chatBot.notifyReturnFinalizedToAdmins(doc);
+    } catch (e) {
+      console.warn('[bot] notifyReturnFinalizedToAdmins:', e.message);
+    }
     res.status(200).json({
       message: 'ReturnLoan difinalisasi',
       id: doc._id,
       needs_review: doc.needs_review
     });
-
-    notifyReturnFinalizedToAdmins(doc).catch(() => {});
   } catch (err) {
     await session.abortTransaction();
     throw err;
@@ -734,12 +737,19 @@ const finalizeReturnLoanOneShot = asyncHandler(async (req, res) => {
     const result = await finalizeReturnLoanCore(session, { loan, doc, actor });
 
     await session.commitTransaction();
+    try {
+      await chatBot.notifyReturnFinalizedToAdmins(doc);
+    } catch (e) {
+      console.warn(
+        '[bot] notifyReturnFinalizedToAdmins (one-shot):',
+        e.message
+      );
+    }
     res.status(201).json({
       message: 'ReturnLoan dibuat & difinalisasi',
       id: doc._id,
       needs_review: doc.needs_review
     });
-    notifyReturnFinalizedToAdmins(doc).catch(() => {});
   } catch (err) {
     await session.abortTransaction();
     throw err;
