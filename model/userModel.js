@@ -45,7 +45,7 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ['admin', 'user', 'karyawan'],
+      enum: ['admin', 'user', 'karyawan', 'bot'],
       default: 'user'
     },
     oauthProvider: {

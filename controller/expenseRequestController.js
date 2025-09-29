@@ -9,6 +9,11 @@ const ExpenseLog = require('../model/expenseLogModel');
 const Employee = require('../model/employeeModel');
 const RAP = require('../model/rapModel');
 
+const {
+  notifyERCreatedToAdmins,
+  notifyERReviewedToEmployee
+} = require('../services/chatBot');
+
 /* ================= Helpers ================= */
 function mapPaymentPrefix(voucherPrefix) {
   const mappings = { PDLAP: 'PVLAP', PDOFC: 'PVOFC', PDPYR: 'PVPYR' };
@@ -292,6 +297,8 @@ const addExpenseRequest = asyncHandler(async (req, res) => {
       message: 'Pengajuan biaya berhasil dibuat',
       data: expenseRequest
     });
+
+    notifyERCreatedToAdmins(expenseRequest).catch(() => {});
   } catch (err) {
     await session.abortTransaction();
     throw err;
@@ -581,6 +588,7 @@ const approveExpenseRequest = asyncHandler(async (req, res) => {
 
     await session.commitTransaction();
     res.status(200).json({ message: 'Pengajuan disetujui', data: er });
+    notifyERReviewedToEmployee(er, { approved: true }).catch(() => {});
   } catch (err) {
     await session.abortTransaction();
     throw err;
@@ -622,6 +630,9 @@ const rejectExpenseRequest = asyncHandler(async (req, res) => {
 
     await session.commitTransaction();
     res.status(200).json({ message: 'Pengajuan ditolak', data: er });
+    notifyERReviewedToEmployee(er, { approved: false, reason: note }).catch(
+      () => {}
+    );
   } catch (err) {
     await session.abortTransaction();
     throw err;

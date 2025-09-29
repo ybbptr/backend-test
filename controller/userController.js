@@ -701,6 +701,9 @@ const loginUser = asyncHandler(async (req, res) => {
 
   const user = await User.findOne({ email }).select('+password');
   if (!user) throwError('Email tidak ditemukan', 401);
+  if (user.role === 'bot') {
+    return throwError('Akun bot tidak bisa login', 403);
+  }
   const isValid = await bcrypt.compare(password, user.password);
   if (!isValid) throwError('Password invalid', 401);
 

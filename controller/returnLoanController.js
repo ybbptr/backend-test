@@ -19,6 +19,8 @@ const { applyAdjustment } = require('../utils/stockAdjustment');
 const { uploadBuffer, deleteFile, getFileUrl } = require('../utils/wasabi');
 const formatDate = require('../utils/formatDate');
 
+const { notifyReturnFinalizedToAdmins } = require('../services/chatBot');
+
 const VALID_CONDS = ['Baik', 'Rusak', 'Maintenance', 'Hilang'];
 
 /* ========================= Helpers ========================= */
@@ -707,6 +709,8 @@ const finalizeReturnLoanById = asyncHandler(async (req, res) => {
       id: doc._id,
       needs_review: doc.needs_review
     });
+
+    notifyReturnFinalizedToAdmins(doc).catch(() => {});
   } catch (err) {
     await session.abortTransaction();
     throw err;
@@ -735,6 +739,7 @@ const finalizeReturnLoanOneShot = asyncHandler(async (req, res) => {
       id: doc._id,
       needs_review: doc.needs_review
     });
+    notifyReturnFinalizedToAdmins(doc).catch(() => {});
   } catch (err) {
     await session.abortTransaction();
     throw err;

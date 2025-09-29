@@ -11,8 +11,14 @@ const Employee = require('../model/employeeModel');
 const ExpenseRequest = require('../model/expenseRequestModel');
 const ExpenseLog = require('../model/expenseLogModel');
 const RAP = require('../model/rapModel');
+
 const { uploadBuffer, deleteFile, getFileUrl } = require('../utils/wasabi');
 const formatDate = require('../utils/formatDate');
+
+const {
+  notifyPVBatchCreatedToAdmins,
+  notifyPVReviewedToEmployee
+} = require('../services/chatBot');
 
 /* ========================= Utils & Guards ========================= */
 
@@ -478,6 +484,7 @@ const addPVReport = asyncHandler(async (req, res) => {
 
     await session.commitTransaction();
     res.status(201).json(pv);
+    notifyPVBatchCreatedToAdmins(pv).catch(() => {});
   } catch (err) {
     await session.abortTransaction();
     throw err;
@@ -823,6 +830,10 @@ const approvePVReport = asyncHandler(async (req, res) => {
 
     await session.commitTransaction();
     res.status(200).json(pv);
+    notifyPVReviewedToEmployee(pv, {
+      approved: true,
+      employeeId: pv.created_by
+    }).catch(() => {});
   } catch (err) {
     await session.abortTransaction();
     throw err;
@@ -867,6 +878,11 @@ const rejectPVReport = asyncHandler(async (req, res) => {
 
     await session.commitTransaction();
     res.status(200).json(pv);
+    notifyPVReviewedToEmployee(pv, {
+      approved: false,
+      reason: note,
+      employeeId: pv.created_by
+    }).catch(() => {});
   } catch (err) {
     await session.abortTransaction();
     throw err;

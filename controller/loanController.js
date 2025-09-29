@@ -16,6 +16,11 @@ const ReturnLoan = require('../model/returnLoanModel');
 const { resolveActor } = require('../utils/actor');
 const { applyAdjustment } = require('../utils/stockAdjustment');
 
+const {
+  notifyLoanCreatedToAdmins,
+  notifyLoanReviewedToBorrower
+} = require('../services/chatBot');
+
 /* ========================= Helpers ========================= */
 
 const ensureObjectId = (id, label = 'ID') => {
@@ -194,6 +199,8 @@ const createLoan = asyncHandler(async (req, res) => {
 
     await session.commitTransaction();
     res.status(201).json(loan);
+
+    notifyLoanCreatedToAdmins(loan).catch(() => {});
   } catch (err) {
     await session.abortTransaction();
     throw err;
@@ -382,6 +389,7 @@ const approveLoan = asyncHandler(async (req, res) => {
 
     await session.commitTransaction();
     res.status(200).json({ message: 'Loan disetujui', id: loan._id });
+    notifyLoanReviewedToBorrower(loan, { approved: true }).catch(() => {});
   } catch (err) {
     await session.abortTransaction();
     throw err;
@@ -420,6 +428,10 @@ const rejectLoan = asyncHandler(async (req, res) => {
     res
       .status(200)
       .json({ message: 'Pengajuan ditolak', id: loan._id, note: loan.note });
+    notifyLoanReviewedToBorrower(loan, {
+      approved: false,
+      reason: loan.note
+    }).catch(() => {});
   } catch (err) {
     await session.abortTransaction();
     throw err;
