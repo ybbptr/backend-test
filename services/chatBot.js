@@ -466,6 +466,217 @@ async function notifyPVReviewedToEmployee(
   return sendDmToUser(target, msg, { clientId: `pv:review:${pv?.pv_number}` });
 }
 
+/* ========== EXTRA: Notif UPDATE & REOPEN ========== */
+
+/** ER (Expense Request) */
+async function notifyERUpdatedToAdmins(er) {
+  const url = mkUrl(PATHS.admin.expense, { voucher: er?.voucher_number });
+  const emp = (await getEmployeeName(er?.name)) || 'Karyawan';
+  const details = Array.isArray(er?.details) ? er.details : [];
+  const totalAmount = sumBy(details, 'amount');
+
+  const msg = joinLines([
+    `✏️ Pengajuan Biaya — Diperbarui`,
+    SEP,
+    line('Voucher', er?.voucher_number || '-'),
+    line('Pemohon', emp),
+    line('Jenis', er?.expense_type),
+    line('Total (Proyeksi)', `Rp ${fmtCurrency(totalAmount)}`),
+    line('Jumlah Rincian', `${details.length} item`),
+    er?.over_budget ? '• Status: ⚠️ Berpotensi Overbudget' : null,
+    SEP,
+    summarizeItems(details, {
+      title: 'Ringkasan Rincian',
+      nameKey: 'title',
+      descKey: 'description',
+      amountKey: 'amount'
+    }),
+    SEP,
+    `🔗 Tinjau: ${url}`
+  ]);
+
+  return sendToAdmins(msg, {
+    clientId: `er:update:${er?.voucher_number}:${er?.updatedAt?.getTime?.()}`
+  });
+}
+
+async function notifyERReopenedToAdmins(er, { from = null } = {}) {
+  const url = mkUrl(PATHS.admin.expense, { voucher: er?.voucher_number });
+  const emp = (await getEmployeeName(er?.name)) || 'Karyawan';
+
+  const msg = joinLines([
+    `🔁 Pengajuan Biaya — Dibuka Ulang${from ? ` (dari ${from})` : ''}`,
+    SEP,
+    line('Voucher', er?.voucher_number || '-'),
+    line('Pemohon', emp),
+    line('Jenis', er?.expense_type),
+    SEP,
+    `🔗 Tinjau: ${url}`
+  ]);
+
+  return sendToAdmins(msg, {
+    clientId: `er:reopen:${er?.voucher_number}:${Date.now()}`
+  });
+}
+
+/** LOAN (Peminjaman Alat) */
+async function notifyLoanUpdatedToAdmins(loan) {
+  const url = mkUrl(PATHS.admin.loan, { loan: loan?.loan_number });
+  const borrower =
+    (await getEmployeeName(loan?.borrower)) ||
+    loan?.borrower_name ||
+    'Karyawan';
+  const items = Array.isArray(loan?.borrowed_items) ? loan.borrowed_items : [];
+
+  const msg = joinLines([
+    `✏️ Pengajuan Alat — Diperbarui`,
+    SEP,
+    line('No. Pengajuan', loan?.loan_number || '-'),
+    line('Karyawan', borrower),
+    line('Tgl Ambil', fmtDate(loan?.pickup_date)),
+    line('Total Baris', `${items.length} item`),
+    SEP,
+    summarizeItems(items, {
+      title: 'Ringkasan Item',
+      nameKey: 'product_code',
+      qtyKey: 'quantity'
+    }),
+    SEP,
+    `🔗 Tinjau: ${url}`
+  ]);
+
+  return sendToAdmins(msg, {
+    clientId: `loan:update:${loan?.loan_number}:${loan?.updatedAt?.getTime?.()}`
+  });
+}
+
+async function notifyLoanReopenedToAdmins(loan, { from = null } = {}) {
+  const url = mkUrl(PATHS.admin.loan, { loan: loan?.loan_number });
+  const borrower =
+    (await getEmployeeName(loan?.borrower)) ||
+    loan?.borrower_name ||
+    'Karyawan';
+
+  const msg = joinLines([
+    `🔁 Pengajuan Alat — Dibuka Ulang${from ? ` (dari ${from})` : ''}`,
+    SEP,
+    line('No. Pengajuan', loan?.loan_number || '-'),
+    line('Karyawan', borrower),
+    SEP,
+    `🔗 Tinjau: ${url}`
+  ]);
+
+  return sendToAdmins(msg, {
+    clientId: `loan:reopen:${loan?.loan_number}:${Date.now()}`
+  });
+}
+
+/** PV Report (Pertanggungjawaban Dana) */
+async function notifyPVUpdatedToAdmins(pv) {
+  const url = mkUrl(PATHS.admin.pv, {
+    voucher: pv?.voucher_number,
+    pv: pv?.pv_number
+  });
+  const items = Array.isArray(pv?.items) ? pv.items : [];
+  const totalAktual = sumBy(items, 'aktual');
+
+  const msg = joinLines([
+    `✏️ PV Report — Diperbarui`,
+    SEP,
+    line('PV', pv?.pv_number || '-'),
+    line('Voucher', pv?.voucher_number || '-'),
+    line('Jumlah Item', `${items.length} baris`),
+    line('Total Aktual', `Rp ${fmtCurrency(totalAktual)}`),
+    SEP,
+    summarizeItems(items, {
+      title: 'Ringkasan Item',
+      nameKey: 'purpose',
+      amountKey: 'aktual',
+      max: 5
+    }),
+    SEP,
+    `🔗 Tinjau: ${url}`
+  ]);
+
+  return sendToAdmins(msg, {
+    clientId: `pv:update:${pv?.pv_number}:${pv?.updatedAt?.getTime?.()}`
+  });
+}
+
+async function notifyPVReopenedToAdmins(pv, { from = null } = {}) {
+  const url = mkUrl(PATHS.admin.pv, {
+    voucher: pv?.voucher_number,
+    pv: pv?.pv_number
+  });
+
+  const msg = joinLines([
+    `🔁 PV Report — Dibuka Ulang${from ? ` (dari ${from})` : ''}`,
+    SEP,
+    line('PV', pv?.pv_number || '-'),
+    line('Voucher', pv?.voucher_number || '-'),
+    SEP,
+    `🔗 Tinjau: ${url}`
+  ]);
+
+  return sendToAdmins(msg, {
+    clientId: `pv:reopen:${pv?.pv_number}:${Date.now()}`
+  });
+}
+
+/** ReturnLoan (Pengembalian Alat) — update Draft & reopen */
+async function notifyReturnLoanUpdatedToAdmins(doc) {
+  const url = mkUrl(PATHS.admin.returnLoan, { loan: doc?.loan_number });
+  const items = Array.isArray(doc?.returned_items) ? doc.returned_items : [];
+
+  const lost = countBy(items, 'condition_new', 'Hilang');
+  const broken = countBy(items, 'condition_new', 'Rusak');
+  const good = countBy(items, 'condition_new', 'Baik');
+  const maint = countBy(items, 'condition_new', 'Maintenance');
+
+  const msg = joinLines([
+    `✏️ Pengembalian Alat — Diperbarui (Draft)`,
+    SEP,
+    line('No. Peminjaman', doc?.loan_number || '-'),
+    line('Tgl Lapor', fmtDate(doc?.report_date)),
+    line('Rencana Kembali', fmtDate(doc?.return_date)),
+    line('Total Baris', `${items.length} item`),
+    '• Kondisi:',
+    `  - Baik       : ${good}`,
+    `  - Rusak      : ${broken}`,
+    `  - Maintenance: ${maint}`,
+    `  - Hilang     : ${lost}`,
+    SEP,
+    summarizeItems(items, {
+      title: 'Ringkasan Item Pengembalian',
+      nameKey: 'product_code',
+      qtyKey: 'quantity',
+      max: 5
+    }),
+    SEP,
+    `🔗 Tinjau: ${url}`
+  ]);
+
+  return sendToAdmins(msg, {
+    clientId: `return:update:${doc?._id}:${doc?.updatedAt?.getTime?.()}`
+  });
+}
+
+async function notifyReturnLoanReopenedToAdmins(doc) {
+  const url = mkUrl(PATHS.admin.returnLoan, { loan: doc?.loan_number });
+
+  const msg = joinLines([
+    `🔁 Pengembalian Alat — Dibuka Ulang ke Draft`,
+    SEP,
+    line('No. Peminjaman', doc?.loan_number || '-'),
+    SEP,
+    `🔗 Tinjau: ${url}`
+  ]);
+
+  return sendToAdmins(msg, {
+    clientId: `return:reopen:${doc?._id}:${Date.now()}`
+  });
+}
+
 /* ===================== EXPORTS ===================== */
 
 module.exports = {
@@ -476,12 +687,22 @@ module.exports = {
   sendDmToUser,
   sendToAdmins,
 
-  // notifications
+  // existing notifications
   notifyLoanCreatedToAdmins,
   notifyLoanReviewedToBorrower,
   notifyReturnFinalizedToAdmins,
   notifyERCreatedToAdmins,
   notifyERReviewedToEmployee,
   notifyPVBatchCreatedToAdmins,
-  notifyPVReviewedToEmployee
+  notifyPVReviewedToEmployee,
+
+  // NEW: update & reopen
+  notifyERUpdatedToAdmins,
+  notifyERReopenedToAdmins,
+  notifyLoanUpdatedToAdmins,
+  notifyLoanReopenedToAdmins,
+  notifyPVUpdatedToAdmins,
+  notifyPVReopenedToAdmins,
+  notifyReturnLoanUpdatedToAdmins,
+  notifyReturnLoanReopenedToAdmins
 };

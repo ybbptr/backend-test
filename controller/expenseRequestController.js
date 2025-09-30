@@ -11,7 +11,9 @@ const RAP = require('../model/rapModel');
 
 const {
   notifyERCreatedToAdmins,
-  notifyERReviewedToEmployee
+  notifyERReviewedToEmployee,
+  notifyERUpdatedToAdmins,
+  notifyERReopenedToAdmins
 } = require('../services/chatBot');
 
 /* ================= Helpers ================= */
@@ -515,6 +517,7 @@ const updateExpenseRequest = asyncHandler(async (req, res) => {
     await er.save({ session });
     await session.commitTransaction();
 
+    safeNotify(notifyERUpdatedToAdmins(er));
     res.status(200).json({
       message: 'Pengajuan biaya berhasil diperbarui',
       data: er
@@ -682,6 +685,7 @@ const reopenExpenseRequest = asyncHandler(async (req, res) => {
       await er.save({ session });
       await session.commitTransaction();
 
+      safeNotify(notifyERReopenedToAdmins(er, { from: prev }));
       return res
         .status(200)
         .json({ message: 'Pengajuan dibuka ulang (Diproses)', data: er });
@@ -728,6 +732,7 @@ const reopenExpenseRequest = asyncHandler(async (req, res) => {
     await er.save({ session });
     await session.commitTransaction();
 
+    safeNotify(notifyERReopenedToAdmins(er, { from: 'Disetujui' }));
     res.status(200).json({
       message: 'Pengajuan dibuka ulang dari Disetujui (Diproses)',
       data: er

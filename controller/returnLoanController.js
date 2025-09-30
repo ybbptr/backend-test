@@ -19,7 +19,11 @@ const { applyAdjustment } = require('../utils/stockAdjustment');
 const { uploadBuffer, deleteFile, getFileUrl } = require('../utils/wasabi');
 const formatDate = require('../utils/formatDate');
 
-const { notifyReturnFinalizedToAdmins } = require('../services/chatBot');
+const {
+  notifyReturnFinalizedToAdmins,
+  notifyReturnLoanUpdatedToAdmins,
+  notifyReturnLoanReopenedToAdmins
+} = require('../services/chatBot');
 
 const VALID_CONDS = ['Baik', 'Rusak', 'Maintenance', 'Hilang'];
 
@@ -677,6 +681,8 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
     await doc.save({ session });
 
     await session.commitTransaction();
+
+    safeNotify(notifyReturnLoanUpdatedToAdmins(doc));
     res.status(200).json(doc);
   } catch (err) {
     await session.abortTransaction();
@@ -942,6 +948,8 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
     await doc.save({ session });
 
     await session.commitTransaction();
+
+    safeNotify(notifyReturnLoanReopenedToAdmins(doc));
     res.status(200).json({
       message: 'ReturnLoan dibuka ulang (Draft)',
       id: doc._id

@@ -17,7 +17,9 @@ const formatDate = require('../utils/formatDate');
 
 const {
   notifyPVBatchCreatedToAdmins,
-  notifyPVReviewedToEmployee
+  notifyPVReviewedToEmployee,
+  notifyPVUpdatedToAdmins,
+  notifyPVReopenedToAdmins
 } = require('../services/chatBot');
 
 /* ========================= Utils & Guards ========================= */
@@ -779,6 +781,8 @@ const updatePVReport = asyncHandler(async (req, res) => {
     );
 
     await session.commitTransaction();
+
+    safeNotify(notifyPVUpdatedToAdmins(pv));
     res.status(200).json(pv);
   } catch (err) {
     await session.abortTransaction();
@@ -926,6 +930,8 @@ const reopenPVReport = asyncHandler(async (req, res) => {
       );
 
       await session.commitTransaction();
+
+      safeNotify(notifyPVReopenedToAdmins(pv, { from: 'Ditolak' }));
       return res.status(200).json(pv);
     }
 
@@ -950,6 +956,8 @@ const reopenPVReport = asyncHandler(async (req, res) => {
     await recomputeCompletionFlag(pv.voucher_number, session);
 
     await session.commitTransaction();
+
+    safeNotify(notifyPVReopenedToAdmins(pv, { from: 'Disetujui' }));
     res.status(200).json(pv);
   } catch (err) {
     await session.abortTransaction();

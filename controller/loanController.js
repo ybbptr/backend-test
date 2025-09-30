@@ -18,7 +18,9 @@ const { applyAdjustment } = require('../utils/stockAdjustment');
 
 const {
   notifyLoanCreatedToAdmins,
-  notifyLoanReviewedToBorrower
+  notifyLoanReviewedToBorrower,
+  notifyLoanUpdatedToAdmins,
+  notifyLoanReopenedToAdmins
 } = require('../services/chatBot');
 
 /* ========================= Helpers ========================= */
@@ -282,6 +284,7 @@ const updateLoan = asyncHandler(async (req, res) => {
     await loan.save({ session });
     await session.commitTransaction();
 
+    safeNotify(notifyLoanUpdatedToAdmins(loan));
     res.status(200).json(loan);
   } catch (err) {
     await session.abortTransaction();
@@ -485,6 +488,7 @@ const reopenLoan = asyncHandler(async (req, res) => {
       await loan.save({ session });
 
       await session.commitTransaction();
+      safeNotify(notifyLoanReopenedToAdmins(loan, { from: 'Ditolak' }));
       return res.status(200).json({
         message: 'Pengajuan peminjaman alat dibuka ulang (Diproses)',
         id: loan._id
@@ -548,6 +552,8 @@ const reopenLoan = asyncHandler(async (req, res) => {
     await loan.save({ session });
 
     await session.commitTransaction();
+
+    safeNotify(notifyLoanReopenedToAdmins(loan, { from: 'Disetujui' }));
     res.status(200).json({
       message: 'Loan dibuka ulang dari Disetujui (Diproses)',
       id: loan._id

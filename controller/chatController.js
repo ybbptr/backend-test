@@ -810,7 +810,6 @@ const getConversationLinks = asyncHandler(async (req, res) => {
   res.json({ items: withLinks, nextCursor, hasMore });
 });
 
-// DELETE /chat/conversations/:id
 const deleteConversation = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const { id } = req.params;
@@ -863,6 +862,211 @@ const deleteConversation = asyncHandler(async (req, res) => {
   throwError('Mode tidak valid. Gunakan soft atau hard.', 400);
 });
 
+const getMessagesAround = asyncHandler(async (req, res) => {
+  const actor = await resolveChatActor(req);
+  const { id } = req.params;
+  const { messageId, before = 30, after = 10 } = req.query;
+
+  const beforeN = Math.max(0, Math.min(Number(before) || 30, 200));
+  const afterN = Math.max(0, Math.min(Number(after) || 10, 200));
+
+  if (!isValidId(id)) return throwError('conversationId tidak valid', 400);
+  if (!isValidId(messageId)) return throwError('messageId tidak valid', 400);
+
+  const conv = await Conversation.findOne({
+    _id: id,
+    'members.user': asId(actor.userId)
+  }).select('_id');
+  if (!conv) return throwError('Tidak boleh akses percakapan ini', 403);
+
+  const anchor = await Message.findOne({
+    _id: messageId,
+    conversation: id,
+    $or: [{ deletedAt: { $exists: false } }, { deletedAt: null }]
+  })
+    .select('_id sender type text attachments createdAt deletedAt')
+    .populate({ path: 'sender', select: 'name email role' });
+
+  if (!anchor) return throwError('Pesan tidak ditemukan / sudah dihapus', 404);
+
+  const qBefore = {
+    conversation: conv._id,
+    $or: [
+      { createdAt: { $lt: anchor.createdAt } },
+      { createdAt: anchor.createdAt, _id: { $lt: anchor._id } }
+    ]
+  };
+  const rowsBefore = await Message.find(qBefore)
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(beforeN)
+    .select('text sender createdAt attachments deletedAt type')
+    .populate({ path: 'sender', select: 'name email role' })
+    .lean();
+
+  const qAfter = {
+    conversation: conv._id,
+    $or: [
+      { createdAt: { $gt: anchor.createdAt } },
+      { createdAt: anchor.createdAt, _id: { $gt: anchor._id } }
+    ]
+  };
+  const rowsAfter = await Message.find(qAfter)
+    .sort({ createdAt: 1, _id: 1 })
+    .limit(afterN)
+    .select('text sender createdAt attachments deletedAt type')
+    .populate({ path: 'sender', select: 'name email role' })
+    .lean();
+
+  const items = [...rowsBefore.reverse(), anchor.toObject(), ...rowsAfter];
+
+  const senders = [];
+  for (const m of items) if (m.sender) senders.push(m.sender);
+  const empMap = await buildEmpNameMapFromUsers(senders);
+  for (const m of items)
+    if (m.sender) m.sender.name = pickDisplayNameWithEmp(m.sender, empMap);
+
+  const oldest = items[0];
+  const newest = items[items.length - 1];
+
+  const hasMoreBack = rowsBefore.length === beforeN;
+  const hasMoreFwd = rowsAfter.length === afterN;
+
+  const cursors = {
+    back:
+      hasMoreBack && oldest ? makeCursor(oldest.createdAt, oldest._id) : null, // untuk load lebih lama (dir=back)
+    forward:
+      hasMoreFwd && newest ? makeCursor(newest.createdAt, newest._id) : null // untuk load lebih baru (dir=fwd)
+  };
+
+  res.json({
+    items,
+    anchorId: String(anchor._id),
+    cursors,
+    hasMoreBack,
+    hasMoreForward: hasMoreFwd
+  });
+});
+
+// GET /chat/conversations/:id/search?q=keyword&limit=50&cursor=
+const searchMessagesInConversation = asyncHandler(async (req, res) => {
+  const actor = await resolveChatActor(req);
+  const { id } = req.params;
+  const { q, limit = 50, cursor } = req.query;
+  const lim = Math.max(1, Math.min(Number(limit) || 50, 100));
+
+  if (!q || !q.trim()) throwError('Query pencarian wajib diisi', 400);
+
+  // cek membership
+  const conv = await Conversation.findOne({
+    _id: id,
+    'members.user': asId(actor.userId)
+  }).select('_id');
+  if (!conv) throwError('Tidak boleh akses percakapan ini', 403);
+
+  const find = {
+    conversation: conv._id,
+    text: { $regex: q, $options: 'i' }
+  };
+
+  if (cursor) {
+    const c = readCursor(cursor);
+    if (c?.date && c?.id) {
+      find.$or = [
+        { createdAt: { $lt: c.date } },
+        { createdAt: c.date, _id: { $lt: asId(c.id) } }
+      ];
+    }
+  }
+
+  const rows = await Message.find(find)
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(lim + 1)
+    .select('text sender createdAt attachments type')
+    .populate({ path: 'sender', select: 'name email role' })
+    .lean();
+
+  const hasMore = rows.length > lim;
+  const items = hasMore ? rows.slice(0, lim) : rows;
+
+  const last = items[items.length - 1];
+  const nextCursor =
+    hasMore && last ? makeCursor(last.createdAt, last._id) : null;
+
+  res.json({ items, nextCursor, hasMore });
+});
+
+// GET /chat/search?q=keyword&limit=50&cursor=
+const searchMessagesGlobal = asyncHandler(async (req, res) => {
+  const actor = await resolveChatActor(req);
+  const { q, limit = 50, cursor } = req.query;
+  const lim = Math.max(1, Math.min(Number(limit) || 50, 100));
+
+  if (!q || !q.trim()) throwError('Query pencarian wajib diisi', 400);
+
+  // cari semua conversation yg user ikuti
+  const myConvs = await Conversation.find({
+    'members.user': actor.userId
+  }).select('_id title type members');
+
+  if (!myConvs.length)
+    return res.json({ items: [], nextCursor: null, hasMore: false });
+
+  const convIds = myConvs.map((c) => c._id);
+
+  const find = {
+    conversation: { $in: convIds },
+    text: { $regex: q, $options: 'i' }
+  };
+
+  if (cursor) {
+    const c = readCursor(cursor);
+    if (c?.date && c?.id) {
+      find.$or = [
+        { createdAt: { $lt: c.date } },
+        { createdAt: c.date, _id: { $lt: asId(c.id) } }
+      ];
+    }
+  }
+
+  const rows = await Message.find(find)
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(lim + 1)
+    .select('text sender createdAt conversation type')
+    .populate({ path: 'sender', select: 'name email role' })
+    .lean();
+
+  const hasMore = rows.length > lim;
+  const items = hasMore ? rows.slice(0, lim) : rows;
+
+  const convMap = new Map(myConvs.map((c) => [String(c._id), c]));
+  const grouped = {};
+  for (const m of items) {
+    const cid = String(m.conversation);
+    if (!grouped[cid]) {
+      const conv = convMap.get(cid);
+      grouped[cid] = {
+        conversationId: cid,
+        title: conv?.title || 'Tanpa Nama',
+        type: conv?.type,
+        messages: []
+      };
+    }
+    grouped[cid].messages.push({
+      id: String(m._id),
+      text: m.text,
+      type: m.type,
+      createdAt: m.createdAt,
+      sender: m.sender
+    });
+  }
+
+  const last = items[items.length - 1];
+  const nextCursor =
+    hasMore && last ? makeCursor(last.createdAt, last._id) : null;
+
+  res.json({ items: Object.values(grouped), nextCursor, hasMore });
+});
+
 module.exports = {
   listConversations,
   openCustomerChat,
@@ -870,10 +1074,13 @@ module.exports = {
   updateMembers,
   updateConversation,
   createConversation,
+  searchMessagesInConversation,
+  searchMessagesGlobal,
   getContacts,
   getConversationMedia,
   getConversationLinks,
   deleteConversation,
+  getMessagesAround,
   // pins
   pinMessage,
   unpinMessage,
