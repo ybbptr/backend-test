@@ -7,12 +7,20 @@ const User = require('../model/userModel');
 const Employee = require('../model/employeeModel');
 const { chatEmit } = require('./chatEmit'); // DB + socket emitter
 
-/* ===================== ENV & CONSTANTS ===================== */
-
 const FE_URL = process.env.APP_URL || 'http://localhost:5173';
 const BOT_USER_ID = process.env.BOT_USER_ID || ''; // ObjectId string milik user bot
 const FALLBACK_ADMIN_DM =
   String(process.env.FALLBACK_ADMIN_DM || 'false') === 'true';
+
+const BOT_MSG_TTL = process.env.BOT_MSG_TTL || '7d'; // '0' = nonaktif, contoh lain: '7h'
+function parseTtl(str) {
+  const m = String(str).match(/^(\d+)\s*([dh])$/i);
+  if (!m) return 0;
+  const n = Number(m[1]);
+  return m[2].toLowerCase() === 'h' ? n * 3600_000 : n * 24 * 3600_000;
+}
+const ttlMs = parseTtl(BOT_MSG_TTL);
+const buildExpiresAt = () => (ttlMs > 0 ? new Date(Date.now() + ttlMs) : null);
 
 const PATHS = {
   employee: {
@@ -189,7 +197,7 @@ async function getAdminIds() {
 }
 
 async function getOrCreateAdminGroup() {
-  const title = 'Internal Admin';
+  const title = '📣 Pemberitahuan Operasional';
   let conv = await Conversation.findOne({ type: 'group', title });
   if (conv) return conv;
 
@@ -219,7 +227,8 @@ async function sendDmToUser(userOrEmployeeId, text, { clientId = null } = {}) {
     senderId: String(botId),
     text,
     type: 'text',
-    clientId
+    clientId,
+    expireAt: buildExpiresAt()
   });
 }
 
@@ -240,13 +249,10 @@ async function sendToAdmins(text, { clientId = null } = {}) {
     senderId: String(botId),
     text,
     type: 'text',
-    clientId
+    clientId,
+    expireAt: buildExpiresAt()
   });
 }
-
-/* =========================================================
- * ============== DOMAIN NOTIFICATIONS (detailed) ===========
- * =======================================================*/
 
 /** PENGAJUAN ALAT */
 // Karyawan → Admin (pengajuan dibuat)
