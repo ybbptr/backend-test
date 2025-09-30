@@ -349,8 +349,6 @@ const updateMembers = asyncHandler(async (req, res) => {
   res.json(conv);
 });
 
-/* ========== GET MESSAGES (paging) ========== */
-// GET /chat/conversations/:id/messages
 const getMessages = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const { id } = req.params;
@@ -374,6 +372,7 @@ const getMessages = asyncHandler(async (req, res) => {
           { createdAt: c.date, _id: { $lt: asId(c.id) } }
         ];
       } else {
+        // ambil yang LEBIH BARU dari anchor
         find.$or = [
           { createdAt: { $gt: c.date } },
           { createdAt: c.date, _id: { $gt: asId(c.id) } }
@@ -382,8 +381,10 @@ const getMessages = asyncHandler(async (req, res) => {
     }
   }
 
+  // sort sesuai arah fetch
   const sort =
     dir === 'back' ? { createdAt: -1, _id: -1 } : { createdAt: 1, _id: 1 };
+
   const rows = await Message.find(find)
     .sort(sort)
     .limit(lim + 1)
@@ -393,9 +394,11 @@ const getMessages = asyncHandler(async (req, res) => {
 
   const hasMore = rows.length > lim;
   const items = hasMore ? rows.slice(0, lim) : rows;
+
+  // untuk dir=back kita balikin urut lama→baru
   const normalized = dir === 'back' ? items.reverse() : items;
 
-  // Override nama karyawan pada sender
+  // override nama karyawan pada sender (pakai Employee)
   const senders = [];
   for (const m of normalized) if (m.sender) senders.push(m.sender);
   const empMap = await buildEmpNameMapFromUsers(senders);
@@ -405,9 +408,15 @@ const getMessages = asyncHandler(async (req, res) => {
     }
   }
 
-  const last = normalized[normalized.length - 1];
-  const nextCursor =
-    hasMore && last ? makeCursor(last.createdAt, last._id) : null;
+  // === KUNCI PERBAIKAN: pakai anchor yang benar ===
+  // - dir=back  : anchor = item PALING LAMA di halaman (index 0 setelah reverse)
+  // - dir=forward: anchor = item PALING BARU di halaman (index terakhir)
+  let anchor = null;
+  if (hasMore && normalized.length) {
+    anchor = dir === 'back' ? normalized[0] : normalized[normalized.length - 1];
+  }
+
+  const nextCursor = anchor ? makeCursor(anchor.createdAt, anchor._id) : null;
 
   res.json({ items: normalized, nextCursor, hasMore });
 });
