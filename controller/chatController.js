@@ -481,6 +481,12 @@ const getContacts = asyncHandler(async (req, res) => {
     .select('_id role email name')
     .lean();
 
+  // Ambil semua bot
+  const bots = await User.find({ role: 'bot' })
+    .select('_id role email name')
+    .lean();
+
+  // Format karyawan
   const empContacts = employees.map((e) => ({
     userId: e.user?._id,
     id: String(e._id),
@@ -489,6 +495,7 @@ const getContacts = asyncHandler(async (req, res) => {
     email: e.user?.email || null
   }));
 
+  // Format admin
   const adminContacts = admins.map((a) => ({
     userId: a._id,
     id: String(a._id),
@@ -497,7 +504,16 @@ const getContacts = asyncHandler(async (req, res) => {
     email: a.email
   }));
 
-  const contacts = [...empContacts, ...adminContacts];
+  const botContacts = bots.map((b) => ({
+    userId: b._id,
+    id: String(b._id),
+    name: b.name || 'Soilab Bot',
+    role: b.role,
+    email: b.email || null
+  }));
+
+  const contacts = [...empContacts, ...adminContacts, ...botContacts];
+
   res.json({ contacts });
 });
 
