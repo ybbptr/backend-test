@@ -66,7 +66,10 @@ ConversationSchema.index(
   }
 );
 
-/* Hook: set memberKey direct + TTL customer */
+ConversationSchema.index({ 'members.user': 1, lastMessageAt: -1 });
+
+ConversationSchema.index({ title: 'text' });
+
 ConversationSchema.pre('validate', function (next) {
   if (this.type === 'direct') {
     const ids = (this.members || []).map((m) => String(m.user)).sort();

@@ -27,11 +27,11 @@ const MessageSchema = new Schema(
     text: { type: String, trim: true, default: '' },
     attachments: { type: [AttachmentSchema], default: [] },
 
-    clientId: { type: String, default: null }, // id dari FE (anti-dobel)
+    clientId: { type: String, default: null },
     editedAt: { type: Date, default: null },
     deletedAt: { type: Date, default: null },
 
-    expireAt: { type: Date, default: null } // TTL sinkron untuk customer
+    expireAt: { type: Date, default: null }
   },
   { timestamps: true }
 );
@@ -54,7 +54,9 @@ MessageSchema.index(
   }
 );
 
-/* Sinkron TTL jika conversation=customer */
+MessageSchema.index({ conversation: 1, createdAt: -1, _id: -1 });
+MessageSchema.index({ text: 'text' });
+
 MessageSchema.pre('validate', async function (next) {
   try {
     if (this.expireAt || !this.conversation) return next();

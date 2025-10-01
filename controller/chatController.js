@@ -24,7 +24,35 @@ const readCursor = (cur) => {
   }
 };
 
-/* ================== Helpers: nama karyawan dari Employee ================== */
+function guessConvTitle(conv, myUserId) {
+  const t = conv?.title?.trim();
+  if (t) return t;
+  if (conv?.type === 'direct') {
+    const other = (conv?.members || [])
+      .map((m) => m.user)
+      .find((u) => String(u?._id || u) !== String(myUserId));
+    return other?.name || 'Tanpa Nama';
+  }
+  return 'Tanpa Nama';
+}
+
+function makeSnippet(text = '', q = '') {
+  if (!text) return '';
+  const idx = text.toLowerCase().indexOf(String(q).toLowerCase());
+  if (idx < 0) return text.slice(0, 120);
+  const start = Math.max(0, idx - 20);
+  const end = Math.min(text.length, idx + q.length + 80);
+  return (
+    (start > 0 ? '…' : '') +
+    text.slice(start, end) +
+    (end < text.length ? '…' : '')
+  );
+}
+
+function escapeRegex(s = '') {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 const getUid = (u) => String((u && (u._id || u.id || u)) || '');
 async function buildEmpNameMapFromUsers(users = []) {
   const ids = new Set();
@@ -963,7 +991,6 @@ const getMessagesAround = asyncHandler(async (req, res) => {
   });
 });
 
-// GET /chat/conversations/:id/search?q=keyword&limit=50&cursor=
 const searchMessagesInConversation = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const { id } = req.params;
@@ -972,18 +999,20 @@ const searchMessagesInConversation = asyncHandler(async (req, res) => {
 
   if (!q || !q.trim()) throwError('Query pencarian wajib diisi', 400);
 
-  // cek membership
   const conv = await Conversation.findOne({
     _id: id,
     'members.user': asId(actor.userId)
   }).select('_id');
   if (!conv) throwError('Tidak boleh akses percakapan ini', 403);
 
-  const find = {
-    conversation: conv._id,
-    text: { $regex: q, $options: 'i' }
-  };
+  const re = new RegExp(escapeRegex(q), 'i');
 
+  const total = await Message.countDocuments({
+    conversation: conv._id,
+    text: { $regex: re }
+  });
+
+  const find = { conversation: conv._id, text: { $regex: re } };
   if (cursor) {
     const c = readCursor(cursor);
     if (c?.date && c?.id) {
@@ -1002,38 +1031,88 @@ const searchMessagesInConversation = asyncHandler(async (req, res) => {
     .lean();
 
   const hasMore = rows.length > lim;
-  const items = hasMore ? rows.slice(0, lim) : rows;
+  const items = (hasMore ? rows.slice(0, lim) : rows).map((m) => ({
+    ...m,
+    highlight: makeSnippet(m.text, q)
+  }));
 
   const last = items[items.length - 1];
   const nextCursor =
     hasMore && last ? makeCursor(last.createdAt, last._id) : null;
 
-  res.json({ items, nextCursor, hasMore });
+  // BARU: totals + alias total (biar FE gampang)
+  res.json({
+    totals: { messages: total },
+    total,
+    items,
+    nextCursor,
+    hasMore
+  });
 });
 
-// GET /chat/search?q=keyword&limit=50&cursor=
+// GET /chat/search?q=keyword&limit=50&cursor=&conv_limit=10&per_conv=3
 const searchMessagesGlobal = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
-  const { q, limit = 50, cursor } = req.query;
+  const { q, limit = 50, cursor, conv_limit = 10, per_conv = 3 } = req.query;
   const lim = Math.max(1, Math.min(Number(limit) || 50, 100));
 
   if (!q || !q.trim()) throwError('Query pencarian wajib diisi', 400);
+  const re = new RegExp(escapeRegex(q), 'i');
 
-  // cari semua conversation yg user ikuti
   const myConvs = await Conversation.find({
     'members.user': actor.userId
-  }).select('_id title type members');
+  })
+    .select('_id title type updatedAt members')
+    .populate({ path: 'members.user', select: 'name email' })
+    .lean();
 
-  if (!myConvs.length)
-    return res.json({ items: [], nextCursor: null, hasMore: false });
+  if (!myConvs.length) {
+    return res.json({
+      totals: { messages: 0, conversations: 0 },
+      totalMessages: 0,
+      totalConversations: 0,
+      convHits: [],
+      items: [],
+      nextCursor: null,
+      hasMore: false
+    });
+  }
 
   const convIds = myConvs.map((c) => c._id);
+  const convById = new Map(myConvs.map((c) => [String(c._id), c]));
+
+  const convHits = [];
+  for (const c of myConvs) {
+    const title = guessConvTitle(c, actor.userId);
+    const nameMatch = (c.members || []).some(
+      (m) =>
+        String(m?.user?._id || m?.user) !== String(actor.userId) &&
+        re.test(m?.user?.name || '')
+    );
+    if (re.test(title) || nameMatch) {
+      convHits.push({
+        conversationId: String(c._id),
+        title,
+        type: c.type,
+        updatedAt: c.updatedAt
+      });
+    }
+  }
+  convHits.sort(
+    (a, b) => (b.updatedAt?.getTime() || 0) - (a.updatedAt?.getTime() || 0)
+  );
+  const topConvHits = convHits.slice(0, Math.max(1, Number(conv_limit) || 10));
+  const totalConvHits = convHits.length;
+
+  const totalMessageHits = await Message.countDocuments({
+    conversation: { $in: convIds },
+    text: { $regex: re }
+  });
 
   const find = {
     conversation: { $in: convIds },
-    text: { $regex: q, $options: 'i' }
+    text: { $regex: re }
   };
-
   if (cursor) {
     const c = readCursor(cursor);
     if (c?.date && c?.id) {
@@ -1047,40 +1126,54 @@ const searchMessagesGlobal = asyncHandler(async (req, res) => {
   const rows = await Message.find(find)
     .sort({ createdAt: -1, _id: -1 })
     .limit(lim + 1)
-    .select('text sender createdAt conversation type')
+    .select('_id text sender createdAt conversation type')
     .populate({ path: 'sender', select: 'name email role' })
     .lean();
 
   const hasMore = rows.length > lim;
-  const items = hasMore ? rows.slice(0, lim) : rows;
+  const pageRows = hasMore ? rows.slice(0, lim) : rows;
 
-  const convMap = new Map(myConvs.map((c) => [String(c._id), c]));
-  const grouped = {};
-  for (const m of items) {
+  const perConvMax = Math.max(1, Math.min(Number(per_conv) || 3, 10));
+  const groups = new Map();
+  for (const m of pageRows) {
     const cid = String(m.conversation);
-    if (!grouped[cid]) {
-      const conv = convMap.get(cid);
-      grouped[cid] = {
+    if (!groups.has(cid)) {
+      const conv = convById.get(cid);
+      groups.set(cid, {
         conversationId: cid,
-        title: conv?.title || 'Tanpa Nama',
+        title: guessConvTitle(conv, actor.userId),
         type: conv?.type,
         messages: []
-      };
+      });
     }
-    grouped[cid].messages.push({
-      id: String(m._id),
-      text: m.text,
-      type: m.type,
-      createdAt: m.createdAt,
-      sender: m.sender
-    });
+    const g = groups.get(cid);
+    if (g.messages.length < perConvMax) {
+      g.messages.push({
+        id: String(m._id),
+        text: m.text,
+        type: m.type,
+        createdAt: m.createdAt,
+        sender: m.sender,
+        highlight: makeSnippet(m.text, q)
+      });
+    }
   }
+  const items = Array.from(groups.values());
 
-  const last = items[items.length - 1];
+  const last = pageRows[pageRows.length - 1];
   const nextCursor =
     hasMore && last ? makeCursor(last.createdAt, last._id) : null;
 
-  res.json({ items: Object.values(grouped), nextCursor, hasMore });
+  res.json({
+    totals: { messages: totalMessageHits, conversations: totalConvHits },
+    total: totalMessageHits,
+    totalMessages: totalMessageHits,
+    totalConversations: totalConvHits,
+    convHits: topConvHits,
+    items,
+    nextCursor,
+    hasMore
+  });
 });
 
 module.exports = {
