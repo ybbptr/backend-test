@@ -243,9 +243,9 @@ const createConversation = asyncHandler(async (req, res) => {
   });
 
   // Populate supaya FE langsung dapet data lengkap
-  conv = await conv
-    .populate({ path: 'members.user', select: 'name email role' })
-    .execPopulate();
+  // Populate supaya FE langsung dapet data lengkap
+  await conv.populate({ path: 'members.user', select: 'name email role' });
+  conv = conv.toObject(); // opsional: biar plain object
 
   // Emit realtime ke semua member
   if (global.io) {

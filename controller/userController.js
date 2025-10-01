@@ -753,7 +753,9 @@ const loginUser = asyncHandler(async (req, res) => {
 });
 
 const getCurrentUser = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user.id);
+  const user = await User.findById(req.user.id).select(
+    'name phone role email updatedAt'
+  );
   if (!user) return throwError('User tidak ditemukan!', 404);
   res.status(200).json(user);
 });
