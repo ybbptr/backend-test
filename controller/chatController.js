@@ -564,14 +564,15 @@ function canManagePin(conv, reqRole, userId) {
   return false;
 }
 
-// POST /chat/conversations/:id/pin  { messageId }
 const pinMessage = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const { id } = req.params;
-  const { messageId } = req.body || {};
+  const { messageId, clientId } = req.body || {};
 
   if (!isValidId(id)) throwError('conversationId tidak valid', 400);
-  if (!isValidId(messageId)) throwError('messageId tidak valid', 400);
+  if (!messageId && !clientId) {
+    throwError('Harus kirim messageId atau clientId', 400);
+  }
 
   const conv = await Conversation.findOne({
     _id: id,
@@ -583,14 +584,28 @@ const pinMessage = asyncHandler(async (req, res) => {
     throwError('Tidak punya izin untuk pin pesan', 403);
   }
 
-  const msg = await Message.findOne({
-    _id: messageId,
-    conversation: id,
-    $or: [{ deletedAt: { $exists: false } }, { deletedAt: null }]
-  })
-    .select('_id sender type text attachments createdAt')
-    .populate({ path: 'sender', select: 'name email role' })
-    .lean();
+  // cari pesan
+  let msg = null;
+  if (messageId) {
+    msg = await Message.findOne({
+      _id: messageId,
+      conversation: id,
+      $or: [{ deletedAt: { $exists: false } }, { deletedAt: null }]
+    })
+      .select('_id sender type text attachments createdAt clientId')
+      .populate({ path: 'sender', select: 'name email role' })
+      .lean();
+  } else if (clientId) {
+    msg = await Message.findOne({
+      conversation: id,
+      clientId,
+      $or: [{ deletedAt: { $exists: false } }, { deletedAt: null }]
+    })
+      .select('_id sender type text attachments createdAt clientId')
+      .populate({ path: 'sender', select: 'name email role' })
+      .lean();
+  }
+
   if (!msg) throwError('Pesan tidak ditemukan / tidak bisa dipin', 404);
 
   const already = (conv.pinnedMessages || []).some(
@@ -605,11 +620,10 @@ const pinMessage = asyncHandler(async (req, res) => {
     await conv.save();
   }
 
-  // Override nama karyawan (sender & pinnedBy)
   const pinnedByUserLike = {
     _id: actor.userId,
     role: req.user.role,
-    name: actor.name || null
+    name: req.user.name || null
   };
   const empMap = await buildEmpNameMapFromUsers([msg.sender, pinnedByUserLike]);
 
@@ -626,7 +640,6 @@ const pinMessage = asyncHandler(async (req, res) => {
     createdAt: msg.createdAt
   };
 
-  // Broadcast via socket
   try {
     const nsp = global.io?.of('/chat');
     nsp?.to(String(id)).emit('chat:pin', {
@@ -904,6 +917,53 @@ const deleteConversation = asyncHandler(async (req, res) => {
   }
 
   throwError('Mode tidak valid. Gunakan soft atau hard.', 400);
+});
+
+const deleteMessage = asyncHandler(async (req, res) => {
+  const actor = await resolveChatActor(req);
+  const { id } = req.params;
+
+  if (!isValidId(id)) throwError('messageId tidak valid', 400);
+
+  const msg = await Message.findById(id)
+    .populate('conversation', 'members')
+    .lean();
+
+  if (!msg) throwError('Pesan tidak ditemukan', 404);
+
+  const conv = msg.conversation;
+  const isMember = conv.members.some(
+    (m) => String(m.user) === String(actor.userId)
+  );
+  if (!isMember) throwError('Bukan anggota percakapan', 403);
+
+  if (
+    String(msg.sender) !== String(actor.userId) &&
+    String(req.user.role || '').toLowerCase() !== 'admin'
+  ) {
+    throwError('Tidak punya izin menghapus pesan ini', 403);
+  }
+
+  const allKeys = (msg.attachments || []).map((a) => a.key).filter(Boolean);
+  if (allKeys.length > 0) {
+    await Promise.allSettled(allKeys.map((key) => deleteFile(key)));
+  }
+
+  await Message.deleteOne({ _id: msg._id });
+
+  try {
+    const nsp = global.io?.of('/chat');
+    nsp?.to(String(conv._id)).emit('chat:delete', {
+      conversationId: String(conv._id),
+      messageId: String(msg._id),
+      mode: 'hard'
+    });
+  } catch {}
+
+  res.json({
+    ok: true,
+    deleted: { messageId: String(msg._id), attachments: allKeys.length }
+  });
 });
 
 const getMessagesAround = asyncHandler(async (req, res) => {
@@ -1189,6 +1249,7 @@ module.exports = {
   getConversationMedia,
   getConversationLinks,
   deleteConversation,
+  deleteMessage,
   getMessagesAround,
   // pins
   pinMessage,
