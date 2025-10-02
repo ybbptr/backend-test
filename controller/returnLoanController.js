@@ -1,4 +1,3 @@
-// controllers/returnLoanController.js
 const asyncHandler = require('express-async-handler');
 const mongoose = require('mongoose');
 const path = require('path');
@@ -141,16 +140,68 @@ function parseReturnedItemsFromRequest(req) {
 function decideItemStatus(totalQty, totalReturned, totalLost) {
   const used = totalReturned + totalLost;
 
-  if (used <= 0) return 'Dipinjam'; // belum ada yang balik/hilang
-  if (used < totalQty) return 'Dipinjam'; // sebagian aja → masih dianggap dipinjam
+  if (used <= 0) return 'Dipinjam';
+  if (used < totalQty) return 'Dipinjam';
   if (used >= totalQty) {
-    if (totalReturned > 0 && totalLost === 0) return 'Dikembalikan'; // semua balik normal
-    if (totalReturned === 0 && totalLost > 0) return 'Hilang'; // semua hilang
+    if (totalReturned > 0 && totalLost === 0) return 'Dikembalikan';
+    if (totalReturned === 0 && totalLost > 0) return 'Hilang';
     return 'Selesai';
   }
 }
 
-// Akumulasi semua ReturnLoan FINAL ("Dikembalikan") untuk loan_number (per borrowed_item id)
+const joinNonEmpty = (parts, sep = ' / ') => parts.filter(Boolean).join(sep);
+
+function productLabel(inv) {
+  const brand = inv?.product?.brand || inv?.brand || 'Item';
+  const code = inv?.product?.product_code || inv?.product_code || '';
+  return code ? `${brand} (${code})` : brand;
+}
+function whLabelFromDoc(wh) {
+  if (!wh) return 'Gudang';
+  const code = wh.warehouse_code || '';
+  const name = wh.warehouse_name || '';
+  return code ? `${code} — ${name || 'Gudang'}` : name || 'Gudang';
+}
+function shelfLabelFromDoc(shelf) {
+  if (!shelf) return null;
+  const code = shelf.shelf_code || '';
+  const name = shelf.shelf_name || '';
+  return code ? `${code} — ${name || ''}`.trim() : name || null;
+}
+async function resolveWarehouseLabel(idOrDoc, session) {
+  if (!idOrDoc) return 'Gudang';
+  if (
+    typeof idOrDoc === 'object' &&
+    (idOrDoc.warehouse_name || idOrDoc.warehouse_code)
+  ) {
+    return whLabelFromDoc(idOrDoc);
+  }
+  const row = await Warehouse.findById(idOrDoc)
+    .select('warehouse_name warehouse_code')
+    .session(session)
+    .lean();
+  return whLabelFromDoc(row);
+}
+async function resolveShelfLabel(idOrDoc, session) {
+  if (!idOrDoc) return null;
+  if (
+    typeof idOrDoc === 'object' &&
+    (idOrDoc.shelf_name || idOrDoc.shelf_code)
+  ) {
+    return shelfLabelFromDoc(idOrDoc);
+  }
+  const row = await Shelf.findById(idOrDoc)
+    .select('shelf_name shelf_code')
+    .session(session)
+    .lean();
+  return shelfLabelFromDoc(row);
+}
+async function resolveWhShelfLabel(warehouse, shelf, session) {
+  const wh = await resolveWarehouseLabel(warehouse, session);
+  const sh = await resolveShelfLabel(shelf, session);
+  return joinNonEmpty([wh, sh]);
+}
+
 async function buildReturnedMap(loan_number, { session } = {}) {
   const agg = ReturnLoan.aggregate([
     { $match: { loan_number, status: 'Dikembalikan' } },
@@ -281,7 +332,7 @@ async function validateReturnPayloadAndSisa({
       throwError(
         `Stok yang dikembalikan kelebihan untuk barang ${
           it.product_code || ''
-        }. Stok yang harus dikembalikan tersisa : ${available} .`,
+        }. Sisa yang harus dikembalikan: ${available}.`,
         400
       );
     }
@@ -380,13 +431,18 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
   for (const ret of doc.returned_items || []) {
     const inv = await Inventory.findById(ret.inventory)
       .populate('product', 'product_code brand')
-      .populate('warehouse', 'warehouse_name')
-      .populate('shelf', 'shelf_name')
+      .populate('warehouse', 'warehouse_name warehouse_code')
+      .populate('shelf', 'shelf_name shelf_code')
       .session(session);
     if (!inv) throwError('Inventory tidak ditemukan', 404);
 
     const circItem = circulation.borrowed_items.id(ret._id);
     if (!circItem) throwError('Item tidak ditemukan di sirkulasi', 404);
+
+    const prodLabel = productLabel(inv);
+    const fromWhLabel = whLabelFromDoc(inv.warehouse);
+    const fromShelfLabel = shelfLabelFromDoc(inv.shelf);
+    const fromLabel = joinNonEmpty([fromWhLabel, fromShelfLabel]);
 
     if (ret.condition_new === 'Hilang') {
       hasLost = true;
@@ -396,9 +452,11 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
         bucket: 'ON_LOAN',
         delta: -ret.quantity,
         reason_code: 'MARK_LOST',
-        reason_note: `Barang hilang (${ret.quantity} ${
-          inv.product?.brand || 'item'
-        }) dari pinjaman ${loan.loan_number}`,
+        reason_note: `Tandai hilang ${
+          ret.quantity
+        } ${prodLabel} dari pinjaman ${
+          loan.loan_number
+        } (peminjam: ${borrowerName}). Lokasi asal: ${fromLabel || '-'}`,
         actor,
         correlation: {
           loan_id: loan._id,
@@ -430,9 +488,9 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
         bucket: 'ON_LOAN',
         delta: -ret.quantity,
         reason_code: 'RETURN_IN',
-        reason_note: `Mengembalikan ${ret.quantity} ${
-          inv.product?.brand || 'item'
-        } dari pinjaman ${loan.loan_number}`,
+        reason_note: `Pengembalian ${ret.quantity} ${prodLabel} dari pinjaman ${
+          loan.loan_number
+        } oleh ${borrowerName} (dari ${fromLabel || '-'}).`,
         actor,
         correlation: {
           loan_id: loan._id,
@@ -452,9 +510,11 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
           bucket: 'ON_HAND',
           delta: +ret.quantity,
           reason_code: 'RETURN_IN',
-          reason_note: `Dikembalikan ke ${
-            inv.warehouse?.warehouse_name || 'Gudang'
-          }${inv.shelf?.shelf_name ? ' / ' + inv.shelf.shelf_name : ''}`,
+          reason_note: `Masuk ke ${
+            fromLabel || 'Gudang'
+          } (kondisi: ${targetCond}) dari pengembalian pinjaman ${
+            loan.loan_number
+          }.`,
           actor,
           correlation: {
             loan_id: loan._id,
@@ -476,6 +536,12 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
           condition: targetCond
         }).session(session);
 
+        const targetLabel = await resolveWhShelfLabel(
+          targetWarehouse,
+          targetShelf,
+          session
+        );
+
         if (target) {
           target.on_hand += ret.quantity;
           target.last_in_at = new Date();
@@ -486,11 +552,11 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
             bucket: 'ON_HAND',
             delta: +ret.quantity,
             reason_code: 'RETURN_IN',
-            reason_note: `Dikembalikan ke ${
-              target.warehouse?.warehouse_name || 'Gudang'
-            }${
-              target.shelf?.shelf_name ? ' / ' + target.shelf.shelf_name : ''
-            }`,
+            reason_note: `Masuk ke ${
+              targetLabel || 'Gudang'
+            } (kondisi: ${targetCond}) dari pengembalian pinjaman ${
+              loan.loan_number
+            }.`,
             actor,
             correlation: {
               loan_id: loan._id,
@@ -520,9 +586,11 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
             bucket: 'ON_HAND',
             delta: +ret.quantity,
             reason_code: 'RETURN_IN',
-            reason_note: `Dikembalikan ke ${targetWarehouse || 'Gudang'}${
-              targetShelf ? ' / ' + targetShelf : ''
-            }`,
+            reason_note: `Masuk ke ${
+              targetLabel || 'Gudang'
+            } (kondisi: ${targetCond}) dari pengembalian pinjaman ${
+              loan.loan_number
+            }.`,
             actor,
             correlation: {
               loan_id: loan._id,
@@ -582,9 +650,6 @@ async function finalizeReturnLoanCore(session, { loan, doc, actor }) {
   return { hasLost };
 }
 
-/* ========================= Controllers ========================= */
-
-/** CREATE Draft */
 const createReturnLoan = asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -616,7 +681,6 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
 
     const items = parseReturnedItemsFromRequest(req);
 
-    // ⬅️ perbaikan: validasi sisa pakai FINAL + DRAFT lain (exclude draft ini sendiri)
     await validateReturnPayloadAndSisa({
       session,
       loan_number: doc.loan_number,
@@ -692,7 +756,6 @@ const updateReturnLoan = asyncHandler(async (req, res) => {
   }
 });
 
-/** FINALIZE by ID (Draft → Dikembalikan) */
 const finalizeReturnLoanById = asyncHandler(async (req, res) => {
   const { id } = req.params;
   ensureObjectId(id);
@@ -728,7 +791,6 @@ const finalizeReturnLoanById = asyncHandler(async (req, res) => {
   }
 });
 
-/** ONE-SHOT FINALIZE (Create Draft + Finalize dalam satu transaksi) */
 const finalizeReturnLoanOneShot = asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -740,7 +802,7 @@ const finalizeReturnLoanOneShot = asyncHandler(async (req, res) => {
     });
 
     const actor = await resolveActor(req, session);
-    const result = await finalizeReturnLoanCore(session, { loan, doc, actor });
+    await finalizeReturnLoanCore(session, { loan, doc, actor });
 
     await session.commitTransaction();
     safeNotify(notifyReturnFinalizedToAdmins(doc));
@@ -784,15 +846,22 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
     const actor = await resolveActor(req, session);
 
     for (const item of doc.returned_items || []) {
-      const sourceInv = await Inventory.findById(item.inventory).session(
-        session
-      );
+      const sourceInv = await Inventory.findById(item.inventory)
+        .populate('product', 'product_code brand')
+        .populate('warehouse', 'warehouse_name warehouse_code')
+        .populate('shelf', 'shelf_name shelf_code')
+        .session(session);
       if (!sourceInv) continue;
+
+      const prodLabel = productLabel(sourceInv);
+      const fromWhLabel = whLabelFromDoc(sourceInv.warehouse);
+      const fromShelfLabel = shelfLabelFromDoc(sourceInv.shelf);
+      const fromLabel = joinNonEmpty([fromWhLabel, fromShelfLabel]);
 
       const circItem = circulation.borrowed_items.id(item._id);
 
       if (item.condition_new === 'Hilang') {
-        // Revert "mark lost" → kembalikan ke ON_LOAN (snapshot & ledger)
+        // Revert "mark lost" → kembalikan ke ON_LOAN
         sourceInv.on_loan += item.quantity;
         await sourceInv.save({ session });
 
@@ -801,7 +870,11 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
           bucket: 'ON_LOAN',
           delta: +item.quantity,
           reason_code: 'REVERT_MARK_LOST',
-          reason_note: `Buka ulang data pengembalian, ${loan.loan_number}`,
+          reason_note: `Buka ulang pengembalian: batal tandai hilang ${
+            item.quantity
+          } ${prodLabel} (pinjaman ${loan.loan_number}). Lokasi asal: ${
+            fromLabel || '-'
+          }`,
           actor,
           correlation: {
             loan_id: loan._id,
@@ -820,7 +893,7 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
           String(targetShelf || '') === String(sourceInv.shelf || '') &&
           targetCond === sourceInv.condition;
 
-        // 1) Kembalikan ON_LOAN di sumber (snapshot & ledger)
+        // 1) Kembalikan ON_LOAN di sumber
         sourceInv.on_loan += item.quantity;
         await sourceInv.save({ session });
 
@@ -829,7 +902,7 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
           bucket: 'ON_LOAN',
           delta: +item.quantity,
           reason_code: 'REVERT_RETURN',
-          reason_note: `Buka ulang data pengembalian, ${loan.loan_number}`,
+          reason_note: `Buka ulang pengembalian ${item.quantity} ${prodLabel} (pinjaman ${loan.loan_number}).`,
           actor,
           correlation: {
             loan_id: loan._id,
@@ -838,9 +911,8 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
           }
         });
 
-        // 2) Turunkan ON_HAND dari lokasi yang dituju saat finalisasi
+        // 2) Turunkan ON_HAND dari lokasi tujuan saat finalisasi
         if (sameIdentity) {
-          // Semula ditaruh di inventory yang sama
           if (sourceInv.on_hand - item.quantity < 0) {
             throwError(
               'Rollback gagal: stok terkini menjadi negatif pada sumber.',
@@ -856,7 +928,11 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
             bucket: 'ON_HAND',
             delta: -item.quantity,
             reason_code: 'REVERT_RETURN',
-            reason_note: `Buka ulang data pengembalian, ${loan.loan_number}`,
+            reason_note: `Kurangi dari ${
+              fromLabel || 'Gudang'
+            } (kondisi: ${targetCond}) karena buka ulang pengembalian pinjaman ${
+              loan.loan_number
+            }.`,
             actor,
             correlation: {
               loan_id: loan._id,
@@ -865,7 +941,6 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
             }
           });
         } else {
-          // Semula ditaruh di inventory target (warehouse_return/shelf_return/condition_new)
           let targetInv = await Inventory.findOne({
             product: sourceInv.product,
             warehouse: targetWarehouse,
@@ -886,17 +961,26 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
             );
           }
 
+          const targetLabel = await resolveWhShelfLabel(
+            targetWarehouse,
+            targetShelf,
+            session
+          );
+
           targetInv.on_hand -= item.quantity;
           targetInv.last_out_at = new Date();
           await targetInv.save({ session });
 
-          // Ledger ON_HAND -qty ke inventory target (bukan sumber)
           await applyAdjustment(session, {
             inventoryId: targetInv._id,
             bucket: 'ON_HAND',
             delta: -item.quantity,
             reason_code: 'REVERT_RETURN',
-            reason_note: `Buka ulang data pengembalian, ${loan.loan_number}`,
+            reason_note: `Kurangi dari ${
+              targetLabel || 'Gudang'
+            } (kondisi: ${targetCond}) karena buka ulang pengembalian pinjaman ${
+              loan.loan_number
+            }.`,
             actor,
             correlation: {
               loan_id: loan._id,
@@ -905,7 +989,6 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
             }
           });
 
-          // Bila target kosong total, boleh dibersihkan
           if ((targetInv.on_hand || 0) <= 0 && (targetInv.on_loan || 0) <= 0) {
             await Inventory.deleteOne({ _id: targetInv._id }).session(session);
           }
@@ -917,7 +1000,6 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
       }
     }
 
-    // Bersihkan log/ledger batch ini
     await ProductCirculation.deleteMany({ return_loan_id: doc._id }).session(
       session
     );
@@ -925,10 +1007,8 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
       'correlation.return_loan_id': doc._id
     }).session(session);
 
-    // Recompute sirkulasi & loan
     await recomputeCirculationAndLoan({ session, loan, circulation });
 
-    // Tetap lock loan jika masih ada batch final lain
     const stillFinal = await ReturnLoan.exists({
       loan_number: loan.loan_number,
       status: 'Dikembalikan',
@@ -941,7 +1021,6 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
       { session }
     );
 
-    // Set batch ini kembali Draft
     doc.status = 'Draft';
     doc.loan_locked = false;
     doc.needs_review = false;
@@ -962,7 +1041,6 @@ const reopenReturnLoan = asyncHandler(async (req, res) => {
   }
 });
 
-/** DELETE (hanya Draft) */
 const deleteReturnLoan = asyncHandler(async (req, res) => {
   const { id } = req.params;
   ensureObjectId(id);
@@ -997,8 +1075,6 @@ const deleteReturnLoan = asyncHandler(async (req, res) => {
     session.endSession();
   }
 });
-
-/* ========================= Read: List & Detail ========================= */
 
 const getAllReturnLoan = asyncHandler(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
@@ -1120,9 +1196,13 @@ const getAllReturnLoan = asyncHandler(async (req, res) => {
         project: it.project?._id,
         project_name: it.project?.project_name,
         warehouse_return: it.warehouse_return?._id,
-        warehouse_name: it.warehouse_return?.warehouse_name,
+        warehouse_name: it.warehouse_return?.warehouse_code
+          ? `${it.warehouse_return.warehouse_code} — ${it.warehouse_return.warehouse_name}`
+          : it.warehouse_return?.warehouse_name,
         shelf_return: it.shelf_return?._id,
-        shelf_name: it.shelf_return?.shelf_name,
+        shelf_name: it.shelf_return?.shelf_code
+          ? `${it.shelf_return.shelf_code} — ${it.shelf_return.shelf_name}`
+          : it.shelf_return?.shelf_name,
         proof_image: it.proof_image || null
       }))
     };
@@ -1212,7 +1292,6 @@ const getReturnLoan = asyncHandler(async (req, res) => {
   });
 });
 
-/** FE: nomor loan milik karyawan yang masih ada sisa */
 const getMyLoanNumbers = asyncHandler(async (req, res) => {
   const me = await Employee.findOne({ user: req.user.id })
     .select('_id name')
@@ -1323,17 +1402,6 @@ const getReturnForm = asyncHandler(async (req, res) => {
     borrower: loan.borrower,
     position: loan.position || loan.borrower?.position || null,
     inventory_manager: loan.inventory_manager,
-    // ringkasan progress
-    // progress: {
-    //   total_borrowed: totalBorrowed,
-    //   used_final: totalUsedFinal,
-    //   reserved_draft: totalReservedDraft,
-    //   available_for_new_batch: Math.max(
-    //     totalBorrowed - totalUsedFinal - totalReservedDraft,
-    //     0
-    //   )
-    // },
-    // progress_label: `${totalUsedFinal}+${totalReservedDraft}/${totalBorrowed}`,
     items
   });
 });
