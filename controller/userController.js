@@ -902,9 +902,10 @@ const refreshToken = asyncHandler(async (req, res) => {
 
   const remember = !!payload.remember;
   const refreshCookieOpts = remember
-    ? { ...baseCookie, maxAge: 7 * 24 * 60 * 60 * 1000 } // persistent 7d
-    : { ...baseCookie }; // session
+    ? { ...baseCookie, maxAge: 7 * 24 * 60 * 60 * 1000 }
+    : { ...baseCookie };
 
+  // === 1) PREV diterima, tapi UPGRADE client ke CURRENT tanpa rotasi
   if (matchPrev) {
     const newAccessToken = jwt.sign(
       { sub: user._id.toString(), role: user.role, name: user.name },
@@ -912,10 +913,8 @@ const refreshToken = asyncHandler(async (req, res) => {
       { expiresIn: '30m' }
     );
 
-    console.log('[rt][out-prev]', {
-      setAccessCookie: true,
-      setRefreshCookie: true, // kirim ulang cookie yang sama (opsional)
-      note: 'using prev; no rotation'
+    console.log('[rt][out-prev-upgrade]', {
+      note: 'matchPrev → upgrade client to CURRENT; no rotation'
     });
 
     return res
@@ -923,10 +922,13 @@ const refreshToken = asyncHandler(async (req, res) => {
         ...baseCookie,
         maxAge: 30 * 60 * 1000
       })
-      .cookie('refreshToken', token, refreshCookieOpts) // tetap pakai token prev
-      .json({ message: 'Access token refreshed (prev accepted)' });
+      .cookie('refreshToken', user.refreshToken, refreshCookieOpts) // ← set CURRENT dari DB
+      .json({
+        message: 'Access token refreshed (prev accepted, upgraded to current)'
+      });
   }
 
+  // === 2) CURRENT → ROTATE secara atomik
   const newAccessToken = jwt.sign(
     { sub: user._id.toString(), role: user.role, name: user.name },
     process.env.ACCESS_TOKEN_SECRET,
@@ -945,16 +947,21 @@ const refreshToken = asyncHandler(async (req, res) => {
   );
 
   if (upd.modifiedCount === 0) {
+    // Sudah di-rotate oleh request lain → ambil CURRENT terbaru & kirim
+    const latest = await User.findById(user._id).select(
+      'refreshToken prevRefreshToken'
+    );
     console.log('[rt][out-race]', {
-      info: 'already rotated by another request → treat as prev'
+      info: 'already rotated by another request → send latest CURRENT'
     });
+
     return res
       .cookie('accessToken', newAccessToken, {
         ...baseCookie,
         maxAge: 30 * 60 * 1000
       })
-      .cookie('refreshToken', token, refreshCookieOpts)
-      .json({ message: 'Access token refreshed (race-safe)' });
+      .cookie('refreshToken', latest.refreshToken || token, refreshCookieOpts) // fallback ke token lama kalau perlu
+      .json({ message: 'Access token refreshed (race-safe upgraded)' });
   }
 
   console.log('[rt][out-rotate]', {
