@@ -921,13 +921,22 @@ const deleteConversation = asyncHandler(async (req, res) => {
 
 const deleteMessage = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
-  const { id } = req.params;
+  const { id: messageId } = req.params;
+  const { clientId } = req.body || {};
 
-  if (!isValidId(id)) throwError('messageId tidak valid', 400);
+  let msg = null;
 
-  const msg = await Message.findById(id)
-    .populate('conversation', 'members')
-    .lean();
+  if (messageId && isValidId(messageId)) {
+    msg = await Message.findById(messageId)
+      .populate('conversation', 'members')
+      .lean();
+  }
+
+  if (!msg && clientId) {
+    msg = await Message.findOne({ clientId })
+      .populate('conversation', 'members')
+      .lean();
+  }
 
   if (!msg) throwError('Pesan tidak ditemukan', 404);
 
@@ -944,25 +953,33 @@ const deleteMessage = asyncHandler(async (req, res) => {
     throwError('Tidak punya izin menghapus pesan ini', 403);
   }
 
+  // hapus attachment kalau ada
   const allKeys = (msg.attachments || []).map((a) => a.key).filter(Boolean);
   if (allKeys.length > 0) {
     await Promise.allSettled(allKeys.map((key) => deleteFile(key)));
   }
 
+  // hard delete
   await Message.deleteOne({ _id: msg._id });
 
+  // broadcast realtime
   try {
     const nsp = global.io?.of('/chat');
     nsp?.to(String(conv._id)).emit('chat:delete', {
       conversationId: String(conv._id),
       messageId: String(msg._id),
+      clientId: msg.clientId || clientId || null,
       mode: 'hard'
     });
   } catch {}
 
   res.json({
     ok: true,
-    deleted: { messageId: String(msg._id), attachments: allKeys.length }
+    deleted: {
+      messageId: String(msg._id),
+      clientId: msg.clientId || clientId || null,
+      attachments: allKeys.length
+    }
   });
 });
 
