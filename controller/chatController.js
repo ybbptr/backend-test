@@ -969,7 +969,7 @@ const deleteMessage = asyncHandler(async (req, res) => {
 const getMessagesAround = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const { id } = req.params;
-  const { messageId, before = 30, after = 10 } = req.query;
+  const { messageId, before = 50, after = 50 } = req.query;
 
   const beforeN = Math.max(0, Math.min(Number(before) || 30, 200));
   const afterN = Math.max(0, Math.min(Number(after) || 10, 200));

@@ -834,6 +834,7 @@ const logoutUser = asyncHandler(async (req, res) => {
 const refreshToken = asyncHandler(async (req, res) => {
   const hasCookieHeader = !!req.headers.cookie;
   const token = req.cookies?.refreshToken;
+
   console.log('[rt][in]', {
     url: req.originalUrl,
     hasCookieHeader,
@@ -851,87 +852,13 @@ const refreshToken = asyncHandler(async (req, res) => {
     return res.status(401).json({ message: 'No refresh token' });
   }
 
+  let payload;
   try {
-    const payload = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
+    payload = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
     console.log('[rt] jwt ok', {
       sub: payload?.sub,
       remember: !!payload?.remember
     });
-
-    const user = await User.findById(payload.sub).select(
-      '+refreshToken +prevRefreshToken role name'
-    );
-    if (!user) {
-      console.log('[rt] user not found', { sub: payload?.sub });
-      return res
-        .clearCookie('accessToken', { ...baseCookie })
-        .clearCookie('refreshToken', { ...baseCookie })
-        .status(401)
-        .json({ message: 'Refresh token invalid' });
-    }
-
-    const matchCurrent = user.refreshToken === token;
-    const matchPrev = user.prevRefreshToken === token;
-
-    console.log('[rt] db match', {
-      matchCurrent,
-      matchPrev,
-      dbCurrent: user.refreshToken ? '<present>' : '<null>',
-      dbPrev: user.prevRefreshToken ? '<present>' : '<null>',
-      providedLen: token.length
-    });
-
-    if (!matchCurrent && !matchPrev) {
-      console.log('[rt] token not found in DB (invalid)');
-      return res
-        .clearCookie('accessToken', { ...baseCookie })
-        .clearCookie('refreshToken', { ...baseCookie })
-        .status(401)
-        .json({ message: 'Refresh token invalid' });
-    }
-
-    const remember = !!payload.remember;
-
-    const newAccessToken = jwt.sign(
-      { sub: user._id.toString(), role: user.role, name: user.name },
-      process.env.ACCESS_TOKEN_SECRET,
-      { expiresIn: '30m' }
-    );
-
-    const newRefreshToken = jwt.sign(
-      { sub: user._id.toString(), role: user.role, name: user.name, remember },
-      process.env.REFRESH_TOKEN_SECRET,
-      { expiresIn: '7d' }
-    );
-
-    await User.findByIdAndUpdate(user._id, {
-      prevRefreshToken: user.refreshToken,
-      refreshToken: newRefreshToken
-    });
-
-    const refreshCookieOpts = remember
-      ? { ...baseCookie, maxAge: 7 * 24 * 60 * 60 * 1000 } // persistent 7d
-      : { ...baseCookie };
-
-    console.log('[rt][out]', {
-      setAccessCookie: true,
-      setRefreshCookie: true,
-      accessTTLmin: 30,
-      refreshTTL: remember ? '7d (persistent)' : 'session',
-      cookieCfg: {
-        sameSite: baseCookie.sameSite,
-        secure: baseCookie.secure,
-        path: baseCookie.path
-      }
-    });
-
-    return res
-      .cookie('accessToken', newAccessToken, {
-        ...baseCookie,
-        maxAge: 30 * 60 * 1000
-      })
-      .cookie('refreshToken', newRefreshToken, refreshCookieOpts)
-      .json({ message: 'Access token berhasil di refresh' });
   } catch (e) {
     console.log('[rt] verify error', e?.message || e);
     return res
@@ -940,6 +867,110 @@ const refreshToken = asyncHandler(async (req, res) => {
       .status(401)
       .json({ message: 'Refresh token invalid/expired' });
   }
+
+  const user = await User.findById(payload.sub).select(
+    '+refreshToken +prevRefreshToken role name'
+  );
+  if (!user) {
+    console.log('[rt] user not found', { sub: payload?.sub });
+    return res
+      .clearCookie('accessToken', { ...baseCookie })
+      .clearCookie('refreshToken', { ...baseCookie })
+      .status(401)
+      .json({ message: 'Refresh token invalid' });
+  }
+
+  const matchCurrent = user.refreshToken === token;
+  const matchPrev = user.prevRefreshToken === token;
+
+  console.log('[rt] db match', {
+    matchCurrent,
+    matchPrev,
+    dbCurrent: user.refreshToken ? '<present>' : '<null>',
+    dbPrev: user.prevRefreshToken ? '<present>' : '<null>',
+    providedLen: token.length
+  });
+
+  if (!matchCurrent && !matchPrev) {
+    console.log('[rt] token not found in DB (invalid)');
+    return res
+      .clearCookie('accessToken', { ...baseCookie })
+      .clearCookie('refreshToken', { ...baseCookie })
+      .status(401)
+      .json({ message: 'Refresh token invalid' });
+  }
+
+  const remember = !!payload.remember;
+  const refreshCookieOpts = remember
+    ? { ...baseCookie, maxAge: 7 * 24 * 60 * 60 * 1000 } // persistent 7d
+    : { ...baseCookie }; // session
+
+  if (matchPrev) {
+    const newAccessToken = jwt.sign(
+      { sub: user._id.toString(), role: user.role, name: user.name },
+      process.env.ACCESS_TOKEN_SECRET,
+      { expiresIn: '30m' }
+    );
+
+    console.log('[rt][out-prev]', {
+      setAccessCookie: true,
+      setRefreshCookie: true, // kirim ulang cookie yang sama (opsional)
+      note: 'using prev; no rotation'
+    });
+
+    return res
+      .cookie('accessToken', newAccessToken, {
+        ...baseCookie,
+        maxAge: 30 * 60 * 1000
+      })
+      .cookie('refreshToken', token, refreshCookieOpts) // tetap pakai token prev
+      .json({ message: 'Access token refreshed (prev accepted)' });
+  }
+
+  const newAccessToken = jwt.sign(
+    { sub: user._id.toString(), role: user.role, name: user.name },
+    process.env.ACCESS_TOKEN_SECRET,
+    { expiresIn: '30m' }
+  );
+
+  const newRefreshToken = jwt.sign(
+    { sub: user._id.toString(), role: user.role, name: user.name, remember },
+    process.env.REFRESH_TOKEN_SECRET,
+    { expiresIn: '7d' }
+  );
+
+  const upd = await User.updateOne(
+    { _id: user._id, refreshToken: token }, // precondition atomik
+    { $set: { prevRefreshToken: token, refreshToken: newRefreshToken } }
+  );
+
+  if (upd.modifiedCount === 0) {
+    console.log('[rt][out-race]', {
+      info: 'already rotated by another request → treat as prev'
+    });
+    return res
+      .cookie('accessToken', newAccessToken, {
+        ...baseCookie,
+        maxAge: 30 * 60 * 1000
+      })
+      .cookie('refreshToken', token, refreshCookieOpts)
+      .json({ message: 'Access token refreshed (race-safe)' });
+  }
+
+  console.log('[rt][out-rotate]', {
+    setAccessCookie: true,
+    setRefreshCookie: true,
+    accessTTLmin: 30,
+    refreshTTL: remember ? '7d (persistent)' : 'session'
+  });
+
+  return res
+    .cookie('accessToken', newAccessToken, {
+      ...baseCookie,
+      maxAge: 30 * 60 * 1000
+    })
+    .cookie('refreshToken', newRefreshToken, refreshCookieOpts)
+    .json({ message: 'Access token berhasil di refresh' });
 });
 
 const deleteTestAccount = asyncHandler(async (req, res) => {
