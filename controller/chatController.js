@@ -94,10 +94,8 @@ function pickDisplayNameWithEmp(userDoc, empMap) {
  * - lastMessage & lastMessageAt (respect hideBefore jika user pernah soft-delete)
  */
 async function buildConvViewForViewer(convDoc, viewerUserId) {
-  // Pastikan populated
   await convDoc.populate({ path: 'members.user', select: 'name email role' });
 
-  // Emp name map dari semua member
   const allUsers = (convDoc.members || []).map((m) => m.user).filter(Boolean);
   const empMap = await buildEmpNameMapFromUsers(allUsers);
 
@@ -150,20 +148,31 @@ async function buildConvViewForViewer(convDoc, viewerUserId) {
     displayTitle = displayTitle || 'Tanpa Nama';
   }
 
+  const idStr = String(convDoc._id);
+
   return {
-    _id: convDoc._id,
+    _id: idStr,
+    id: idStr,
     type: convDoc.type,
     title: convDoc.title || null,
     displayTitle,
+    name: displayTitle,
     members: decoratedMembers.map((m) => ({
-      user: m.user,
+      user: m.user
+        ? {
+            _id: String(m.user._id),
+            name: m.user.name,
+            email: m.user.email,
+            role: m.user.role
+          }
+        : null,
       role: m.role,
       lastReadAt: m.lastReadAt || null,
       pinned: !!m.pinned,
       deletedAt: m.deletedAt || null,
       displayName: m.displayName
     })),
-    createdBy: convDoc.createdBy,
+    createdBy: String(convDoc.createdBy || ''),
     createdAt: convDoc.createdAt,
     updatedAt: convDoc.updatedAt,
     expireAt: convDoc.expireAt || null,
@@ -172,8 +181,15 @@ async function buildConvViewForViewer(convDoc, viewerUserId) {
     lastMessage: last
       ? {
           id: String(last._id),
-          conversationId: String(last.conversation || convDoc._id),
-          sender: last.sender || null,
+          conversationId: idStr,
+          sender: last.sender
+            ? {
+                _id: String(last.sender._id),
+                role: last.sender.role,
+                name: last.sender.name,
+                email: last.sender.email
+              }
+            : null,
           type: last.type,
           text: last.text,
           attachments: last.attachments || [],
@@ -649,18 +665,18 @@ const openCustomerChat = asyncHandler(async (req, res) => {
       ]
     });
 
-    // Emit conv:new untuk admin & customer dengan payload yang sudah dihias
     await conv.populate({ path: 'members.user', select: 'name email role' });
     await emitConvNewForAllMembers(conv);
   } else {
-    // Untuk jaga-jaga, kirimkan conv:new juga ke admin agar muncul realtime jika belum ada
     await conv.populate({ path: 'members.user', select: 'name email role' });
     await emitConvNewForAllMembers(conv);
   }
 
-  // Balas ke caller (customer) dengan payload yang sudah dihias + compat conversationId
   const viewForCustomer = await buildConvViewForViewer(conv, userId);
-  res.json({ conversationId: conv._id, conversation: viewForCustomer });
+  res.json({
+    conversationId: String(conv._id),
+    conversation: viewForCustomer
+  });
 });
 
 const getContacts = asyncHandler(async (req, res) => {
