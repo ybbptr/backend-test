@@ -13,9 +13,6 @@ const { copyObject, deleteFile } = require('../../utils/wasabi');
 const ACCESS_COOKIE_NAME = process.env.ACCESS_COOKIE_NAME || 'accessToken';
 const ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET;
 
-const log = (...args) =>
-  process.env.NODE_ENV !== 'production' && console.log('[socket]', ...args);
-
 const ackOk = (ack, payload = {}) =>
   typeof ack === 'function' && ack({ ok: true, ...payload });
 const ackErr = (ack, e, code = 'ERROR') =>
@@ -124,7 +121,7 @@ async function promoteAttachments(convType, attachments = []) {
   return promoted;
 }
 
-/* ================== JOIN ROOMS ================== */
+/* ================== ROOMS ================== */
 async function joinUserRooms(socket, actor) {
   const convs = await Conversation.find({ 'members.user': actor.userId })
     .select('_id')
@@ -134,6 +131,26 @@ async function joinUserRooms(socket, actor) {
   const roleLower = String(actor.role || '').toLowerCase();
   if (roleLower === 'karyawan') socket.join('role:employee');
   if (roleLower === 'admin') socket.join('role:admin');
+}
+
+/* ================== CONVERSATION LAST MESSAGE REFRESH ================== */
+async function refreshConvLastMessage(convId) {
+  const last = await Message.findOne({ conversation: convId })
+    .sort({ createdAt: -1, _id: -1 })
+    .select('_id createdAt')
+    .lean();
+
+  if (last) {
+    await Conversation.updateOne(
+      { _id: convId },
+      { $set: { lastMessage: last._id, lastMessageAt: last.createdAt } }
+    );
+  } else {
+    await Conversation.updateOne(
+      { _id: convId },
+      { $unset: { lastMessage: 1, lastMessageAt: 1 } }
+    );
+  }
 }
 
 /* ================== CONNECTION HANDLER ================== */
@@ -149,7 +166,7 @@ async function onConnection(nsp, socket) {
     const name = actor.name || user.name || 'User';
     const role = actor.role;
 
-    // Presence
+    // Presence init
     const { first } = markOnline(nsp, uid, socket.id);
     socket.emit('presence:init', {
       me: { userId: uid, name, role },
@@ -159,8 +176,6 @@ async function onConnection(nsp, socket) {
       socket.broadcast.emit('user:online', { userId: uid, name, role });
     }
 
-    log('connected:', uid, role);
-
     await joinUserRooms(socket, actor);
 
     /* =============== EVENTS =============== */
@@ -169,7 +184,7 @@ async function onConnection(nsp, socket) {
       ackOk(ack, { online: presenceSnapshot(nsp) });
     });
 
-    // Kirim pesan
+    // === Kirim pesan ===
     socket.on('chat:send', async (payload, ack) => {
       try {
         const {
@@ -200,6 +215,12 @@ async function onConnection(nsp, socket) {
           if (dup) {
             const dto = mapMessage(dup);
             nsp.to(String(conversationId)).emit('chat:new', dto);
+            // sentuh sidebar
+            nsp.to(String(conversationId)).emit('conv:touch', {
+              conversationId: String(conversationId),
+              lastMessageAt: dup.createdAt,
+              lastMessage: dto
+            });
             return ackOk(ack, { message: dto });
           }
         }
@@ -222,15 +243,27 @@ async function onConnection(nsp, socket) {
           clientId
         });
 
+        // update last message
         conv.lastMessage = msg._id;
         conv.lastMessageAt = msg.createdAt;
         await conv.save();
 
         const dto = mapMessage(msg);
 
+        // Broadcast pesan baru
         nsp.to(String(conversationId)).emit('chat:new', dto);
+
+        // Sentuh sidebar/list supaya naik & revive dari soft-delete
+        nsp.to(String(conversationId)).emit('conv:touch', {
+          conversationId: String(conversationId),
+          lastMessageAt: msg.createdAt,
+          lastMessage: dto
+        });
+
+        // Ack ke pengirim
         ackOk(ack, { message: dto });
 
+        // Auto delivered
         nsp.to(String(conversationId)).emit('chat:delivered', {
           conversationId: String(conversationId),
           messageIds: [String(msg._id)],
@@ -241,7 +274,7 @@ async function onConnection(nsp, socket) {
       }
     });
 
-    // Delivered manual dari FE
+    // === Delivered manual dari FE ===
     socket.on('chat:delivered', async ({ conversationId, messageIds }) => {
       try {
         if (!conversationId || !isValidId(conversationId)) return;
@@ -261,11 +294,11 @@ async function onConnection(nsp, socket) {
           at
         });
       } catch (e) {
-        log('chat:delivered error', e.message);
+        // ignore
       }
     });
 
-    // Typing indikator
+    // === Typing indikator ===
     socket.on('chat:typing', ({ conversationId, isTyping }) => {
       if (!conversationId || !isValidId(conversationId)) return;
       socket.to(String(conversationId)).emit('chat:typing', {
@@ -276,7 +309,7 @@ async function onConnection(nsp, socket) {
       });
     });
 
-    // Read receipt
+    // === Read receipt ===
     socket.on('chat:read', async ({ conversationId }) => {
       try {
         if (!conversationId || !isValidId(conversationId)) return;
@@ -302,8 +335,8 @@ async function onConnection(nsp, socket) {
       } catch (_) {}
     });
 
-    // Delete message
-    socket.on('chat:delete', async ({ messageId }, ack) => {
+    // === Delete message (mode: 'soft' | 'hard') ===
+    socket.on('chat:delete', async ({ messageId, mode = 'hard' }, ack) => {
       try {
         if (!messageId || !isValidId(messageId)) {
           throw new Error('messageId tidak valid');
@@ -330,24 +363,49 @@ async function onConnection(nsp, socket) {
         if (!isSender && !canManage)
           throw new Error('Tidak punya izin menghapus');
 
-        const files = Array.isArray(msg.attachments) ? msg.attachments : [];
-        if (files.length) {
-          await Promise.allSettled(files.map((f) => deleteFile(f.key)));
+        const modeLower = String(mode || 'hard').toLowerCase();
+        if (!['soft', 'hard'].includes(modeLower)) {
+          throw new Error('Mode tidak valid. Gunakan soft atau hard');
         }
 
-        msg.deletedAt = new Date();
-        msg.text = '';
-        msg.attachments = [];
-        await msg.save();
+        if (modeLower === 'soft') {
+          // Soft delete: tandai & kosongkan konten
+          msg.deletedAt = new Date();
+          msg.text = '';
+          msg.attachments = [];
+          await msg.save();
 
-        nsp.to(String(conv._id)).emit('chat:deleted', {
+          nsp.to(String(conv._id)).emit('chat:delete', {
+            conversationId: String(conv._id),
+            messageId: String(msg._id),
+            mode: 'soft',
+            by: String(actor.userId),
+            at: msg.deletedAt
+          });
+
+          return ackOk(ack, { messageId: String(msg._id), mode: 'soft' });
+        }
+
+        // Hard delete: hapus file & dokumen
+        const files = Array.isArray(msg.attachments) ? msg.attachments : [];
+        if (files.length) {
+          await Promise.allSettled(
+            files.map((f) => f?.key && deleteFile(f.key)).filter(Boolean)
+          );
+        }
+
+        await Message.deleteOne({ _id: msg._id });
+
+        // Refresh last message untuk sidebar
+        await refreshConvLastMessage(conv._id);
+
+        nsp.to(String(conv._id)).emit('chat:delete', {
           conversationId: String(conv._id),
           messageId: String(msg._id),
-          by: String(actor.userId),
-          at: msg.deletedAt
+          mode: 'hard'
         });
 
-        ackOk(ack, { messageId: String(msg._id) });
+        return ackOk(ack, { messageId: String(msg._id), mode: 'hard' });
       } catch (e) {
         ackErr(ack, e);
       }
@@ -380,7 +438,6 @@ async function onConnection(nsp, socket) {
       if (last) {
         socket.broadcast.emit('user:offline', { userId: uid });
       }
-      log('disconnected:', uid);
     });
   } catch (e) {
     try {
