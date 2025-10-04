@@ -150,11 +150,16 @@ async function buildConvViewForViewer(convDoc, viewerUserId) {
 
   const idStr = String(convDoc._id);
 
+  const computedTitle =
+    convDoc.type === 'group'
+      ? convDoc.title?.trim() || 'Tanpa Nama'
+      : displayTitle || 'Tanpa Nama';
+
   return {
     _id: idStr,
-    id: idStr,
+    id: idStr, // alias
     type: convDoc.type,
-    title: convDoc.title || null,
+    title: computedTitle,
     displayTitle,
     name: displayTitle,
     members: decoratedMembers.map((m) => ({
@@ -317,14 +322,12 @@ const listConversations = asyncHandler(async (req, res) => {
   const hasMore = rows.length > lim;
   const items = hasMore ? rows.slice(0, lim) : rows;
 
-  // Populate members.user untuk dapat role/email → displayName
   await Conversation.populate(items, {
     path: 'members.user',
     select: 'name email role',
     options: { retainNullValues: true }
   });
 
-  // Ambil user docs untuk sender lastMessage (kalau ada)
   const senderIds = items
     .map((c) => c.lastMessage?.sender)
     .filter(Boolean)
@@ -336,16 +339,42 @@ const listConversations = asyncHandler(async (req, res) => {
     : [];
   const senderMap = new Map(senderDocs.map((u) => [String(u._id), u]));
 
-  // Siapkan empMap (nama karyawan)
   const allUsers = [];
   for (const c of items) {
-    for (const m of c.members || []) if (m.user) allUsers.push(m.user);
-    const su = senderMap.get(String(c.lastMessage?.sender));
-    if (su) allUsers.push(su);
+    c.members = (c.members || []).map((m) => {
+      const u = m.user;
+      return { ...m, displayName: pickDisplayNameWithEmp(u, empMap) };
+    });
+
+    if (c.lastMessage?.sender) {
+      const su = senderMap.get(String(c.lastMessage.sender));
+      if (su) {
+        c.lastMessage.sender = {
+          _id: su._id,
+          role: su.role,
+          name: pickDisplayNameWithEmp(su, empMap),
+          email: su.email
+        };
+      }
+    }
+
+    if (c.type !== 'group') {
+      const others = (c.members || []).filter(
+        (m) => String(m.user?._id || m.user) !== myId
+      );
+      const other = others[0];
+      c.displayTitle =
+        other?.displayName ||
+        pickDisplayNameWithEmp(other?.user, empMap) ||
+        'Tanpa Nama';
+
+      c.title = c.displayTitle;
+    } else {
+      c.title = c.title?.trim() || 'Tanpa Nama';
+    }
   }
   const empMap = await buildEmpNameMapFromUsers(allUsers);
 
-  // Tambahkan displayName & displayTitle + normalisasi lastMessage.sender
   const myId = String(actor.userId);
   for (const c of items) {
     c.members = (c.members || []).map((m) => {
@@ -672,10 +701,9 @@ const openCustomerChat = asyncHandler(async (req, res) => {
     await emitConvNewForAllMembers(conv);
   }
 
-  const viewForCustomer = await buildConvViewForViewer(conv, userId);
   res.json({
     conversationId: String(conv._id),
-    conversation: viewForCustomer
+    conversation: await buildConvViewForViewer(conv, userId)
   });
 });
 
