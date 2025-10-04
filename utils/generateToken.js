@@ -1,5 +1,4 @@
-// utils/generateTokens.js
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID } = require('crypto');
 const Session = require('../model/sessionModel');
 const {
   hash,
@@ -11,7 +10,7 @@ const generateTokens = async (
   user,
   { remember = false, ua = '', ip = '' } = {}
 ) => {
-  const sid = uuidv4();
+  const sid = randomUUID();
 
   const refreshToken = issueRefreshToken(
     { _id: user._id, role: user.role, name: user.name },

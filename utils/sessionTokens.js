@@ -1,4 +1,3 @@
-// utils/authTokens.js
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 
