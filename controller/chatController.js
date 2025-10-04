@@ -192,6 +192,13 @@ async function emitConvNewForAllMembers(convDoc) {
     for (const m of convDoc.members || []) {
       const viewerId = String(m.user);
       const view = await buildConvViewForViewer(convDoc, viewerId);
+
+      console.log('[conv:new] ->', viewerId, {
+        id: view.id,
+        type: view.type,
+        title: view.title,
+        displayTitle: view.displayTitle
+      });
       nsp.to(viewerId).emit('conv:new', view);
     }
   } catch {}
