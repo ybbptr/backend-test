@@ -85,8 +85,6 @@ function pickDisplayNameWithEmp(userDoc, empMap) {
   return userDoc.name || userDoc.email || 'Tanpa Nama';
 }
 
-/* ========= LIST CONVERSATIONS (hide-before) ========= */
-// GET /chat/conversations?type=&q=&limit=30&cursor=
 const listConversations = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const roleLower = String(req.user.role || '').toLowerCase();
@@ -277,8 +275,6 @@ const listConversations = asyncHandler(async (req, res) => {
   res.json({ items, nextCursor, hasMore });
 });
 
-/* ========= CREATE CONVERSATION ========= */
-// POST /chat/conversations
 const createConversation = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const roleLower = String(req.user.role || '').toLowerCase();
@@ -348,8 +344,6 @@ const createConversation = asyncHandler(async (req, res) => {
   res.status(201).json(conv);
 });
 
-/* ========= UPDATE CONVERSATION (rename) ========= */
-// PATCH /chat/conversations/:id
 const updateConversation = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const { id } = req.params;
@@ -378,8 +372,6 @@ const updateConversation = asyncHandler(async (req, res) => {
   res.json(conv);
 });
 
-/* ========= UPDATE MEMBERS ========= */
-// PATCH /chat/conversations/:id/members
 const updateMembers = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const { id } = req.params;
@@ -439,8 +431,6 @@ const updateMembers = asyncHandler(async (req, res) => {
   res.json(conv);
 });
 
-/* ========= GET MESSAGES (hide-before + cursor) ========= */
-// GET /chat/conversations/:id/messages?limit=&cursor=&dir=back|forward
 const getMessages = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const { id } = req.params;
@@ -512,7 +502,6 @@ const getMessages = asyncHandler(async (req, res) => {
   res.json({ items: normalized, nextCursor, hasMore });
 });
 
-/* ========= OPEN CUSTOMER CHAT (TTL 24h) ========= */
 const openCustomerChat = asyncHandler(async (req, res) => {
   if (String(req.user.role || '').toLowerCase() !== 'user') {
     throwError('Hanya customer yang bisa membuka chat ini', 403);
@@ -549,8 +538,6 @@ const openCustomerChat = asyncHandler(async (req, res) => {
   res.json({ conversationId: conv._id });
 });
 
-/* ========= CONTACTS ========= */
-// GET /chat/contacts
 const getContacts = asyncHandler(async (req, res) => {
   const role = String(req.user.role || '').toLowerCase();
   const myUserId = req.user.id;
@@ -601,7 +588,6 @@ const getContacts = asyncHandler(async (req, res) => {
   res.json({ contacts });
 });
 
-/* ========= PINS (GLOBAL) ========= */
 function canManagePin(conv, reqRole, userId) {
   const roleLower = String(reqRole || '').toLowerCase();
   if (conv.type === 'group') {
@@ -619,7 +605,6 @@ function canManagePin(conv, reqRole, userId) {
   return false;
 }
 
-// POST /chat/conversations/:id/pin
 const pinMessage = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const { id } = req.params;
@@ -717,7 +702,6 @@ const pinMessage = asyncHandler(async (req, res) => {
     .json({ ok: true, pinned: { messageId: String(msg._id) } });
 });
 
-// DELETE /chat/conversations/:id/pin/:messageId
 const unpinMessage = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const { id, messageId } = req.params;
@@ -754,7 +738,6 @@ const unpinMessage = asyncHandler(async (req, res) => {
     .json({ ok: true, unpinned: { messageId: String(messageId) } });
 });
 
-// GET /chat/conversations/:id/pins (hormati hide-before)
 const listPinnedMessages = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const { id } = req.params;
@@ -824,8 +807,6 @@ const listPinnedMessages = asyncHandler(async (req, res) => {
   return res.status(200).json({ items });
 });
 
-/* ========= MEDIA ========= */
-// GET /chat/conversations/:id/media?type=all|image|file&limit=&cursor=
 const getConversationMedia = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const { id } = req.params;
@@ -882,10 +863,8 @@ const getConversationMedia = asyncHandler(async (req, res) => {
   res.json({ items, nextCursor, hasMore });
 });
 
-/* ========= LINKS ========= */
 const URL_REGEX = /(https?:\/\/[^\s]+)/gi;
 
-// GET /chat/conversations/:id/links?limit=&cursor=
 const getConversationLinks = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const { id } = req.params;
@@ -953,8 +932,6 @@ const getConversationLinks = asyncHandler(async (req, res) => {
   res.json({ items: withLinks, nextCursor, hasMore });
 });
 
-/* ========= SOFT/HARD DELETE CONVERSATION ========= */
-// DELETE /chat/conversations/:id?mode=soft|hard
 const deleteConversation = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const { id } = req.params;
@@ -1006,8 +983,6 @@ const deleteConversation = asyncHandler(async (req, res) => {
   throwError('Mode tidak valid. Gunakan soft atau hard.', 400);
 });
 
-/* ========= DELETE MESSAGE (hard) ========= */
-// DELETE /chat/messages/:id
 const deleteMessage = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const { id: messageId } = req.params;
@@ -1017,7 +992,7 @@ const deleteMessage = asyncHandler(async (req, res) => {
 
   if (messageId && isValidId(messageId)) {
     msg = await Message.findById(messageId)
-      .populate('conversation', 'members')
+      .populate('conversation', 'members') // _id tetap ikut
       .lean();
   }
 
@@ -1042,7 +1017,6 @@ const deleteMessage = asyncHandler(async (req, res) => {
     throwError('Tidak punya izin menghapus pesan ini', 403);
   }
 
-  // hapus attachment kalau ada (Wasabi)
   const allKeys = (msg.attachments || []).map((a) => a.key).filter(Boolean);
   if (allKeys.length > 0) {
     await Promise.allSettled(allKeys.map((key) => deleteFile(key)));
@@ -1050,14 +1024,53 @@ const deleteMessage = asyncHandler(async (req, res) => {
 
   await Message.deleteOne({ _id: msg._id });
 
+  const last = await Message.findOne({ conversation: conv._id })
+    .sort({ createdAt: -1, _id: -1 })
+    .select('_id createdAt conversation sender type text attachments')
+    .lean();
+
+  if (last) {
+    await Conversation.updateOne(
+      { _id: conv._id },
+      { $set: { lastMessage: last._id, lastMessageAt: last.createdAt } }
+    );
+  } else {
+    await Conversation.updateOne(
+      { _id: conv._id },
+      { $unset: { lastMessage: 1, lastMessageAt: 1 } }
+    );
+  }
+
+  // siapkan payload conv:touch
+  const touchPayload = {
+    conversationId: String(conv._id),
+    lastMessageAt: last?.createdAt || null,
+    lastMessage: last
+      ? {
+          id: String(last._id),
+          conversationId: String(last.conversation),
+          sender: String(last.sender),
+          type: last.type,
+          text: last.text,
+          attachments: last.attachments || [],
+          createdAt: last.createdAt
+        }
+      : null
+  };
+
   try {
     const nsp = global.io?.of('/chat');
+
     nsp?.to(String(conv._id)).emit('chat:delete', {
       conversationId: String(conv._id),
       messageId: String(msg._id),
-      clientId: msg.clientId || clientId || null,
       mode: 'hard'
     });
+
+    nsp?.to(String(conv._id)).emit('conv:touch', touchPayload);
+    for (const m of conv.members) {
+      nsp?.to(String(m.user)).emit('conv:touch', touchPayload);
+    }
   } catch {}
 
   res.json({
@@ -1070,8 +1083,6 @@ const deleteMessage = asyncHandler(async (req, res) => {
   });
 });
 
-/* ========= GET MESSAGES AROUND (hormati hide-before) ========= */
-// GET /chat/conversations/:id/messages/around?messageId=&before=50&after=50
 const getMessagesAround = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const { id } = req.params;
@@ -1168,8 +1179,6 @@ const getMessagesAround = asyncHandler(async (req, res) => {
   });
 });
 
-/* ========= SEARCH IN-CONVERSATION ========= */
-// GET /chat/conversations/:id/search?q=&limit=&cursor=
 const searchMessagesInConversation = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const { id } = req.params;
@@ -1240,8 +1249,6 @@ const searchMessagesInConversation = asyncHandler(async (req, res) => {
   });
 });
 
-/* ========= GLOBAL SEARCH (hormati hide-before per conversation) ========= */
-// GET /chat/search?q=keyword&limit=50&cursor=&conv_limit=10&per_conv=3
 const searchMessagesGlobal = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const { q, limit = 50, cursor, conv_limit = 10, per_conv = 3 } = req.query;

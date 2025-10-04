@@ -128,16 +128,19 @@ async function joinUserRooms(socket, actor) {
     .lean();
   convs.forEach((c) => socket.join(String(c._id)));
 
+  // personal room (untuk conv:new & conv:touch global)
+  socket.join(String(actor.userId));
+
   const roleLower = String(actor.role || '').toLowerCase();
   if (roleLower === 'karyawan') socket.join('role:employee');
   if (roleLower === 'admin') socket.join('role:admin');
 }
 
-/* ================== CONVERSATION LAST MESSAGE REFRESH ================== */
+/* ================== LAST MESSAGE REFRESH ================== */
 async function refreshConvLastMessage(convId) {
   const last = await Message.findOne({ conversation: convId })
     .sort({ createdAt: -1, _id: -1 })
-    .select('_id createdAt')
+    .select('_id createdAt conversation sender type text attachments')
     .lean();
 
   if (last) {
@@ -151,6 +154,8 @@ async function refreshConvLastMessage(convId) {
       { $unset: { lastMessage: 1, lastMessageAt: 1 } }
     );
   }
+
+  return last || null; // balikin buat conv:touch
 }
 
 /* ================== CONNECTION HANDLER ================== */
@@ -166,7 +171,6 @@ async function onConnection(nsp, socket) {
     const name = actor.name || user.name || 'User';
     const role = actor.role;
 
-    // Presence init
     const { first } = markOnline(nsp, uid, socket.id);
     socket.emit('presence:init', {
       me: { userId: uid, name, role },
@@ -214,13 +218,22 @@ async function onConnection(nsp, socket) {
           }).lean();
           if (dup) {
             const dto = mapMessage(dup);
+
+            // broadcast ke room percakapan
             nsp.to(String(conversationId)).emit('chat:new', dto);
-            // sentuh sidebar
-            nsp.to(String(conversationId)).emit('conv:touch', {
+
+            // sentuh sidebar: room percakapan + personal rooms
+            const memberIds = (conv.members || []).map((m) => String(m.user));
+            const touchPayload = {
               conversationId: String(conversationId),
               lastMessageAt: dup.createdAt,
               lastMessage: dto
-            });
+            };
+            nsp.to(String(conversationId)).emit('conv:touch', touchPayload);
+            memberIds.forEach((id) =>
+              nsp.to(id).emit('conv:touch', touchPayload)
+            );
+
             return ackOk(ack, { message: dto });
           }
         }
@@ -250,20 +263,23 @@ async function onConnection(nsp, socket) {
 
         const dto = mapMessage(msg);
 
-        // Broadcast pesan baru
+        // broadcast ke room percakapan
         nsp.to(String(conversationId)).emit('chat:new', dto);
 
-        // Sentuh sidebar/list supaya naik & revive dari soft-delete
-        nsp.to(String(conversationId)).emit('conv:touch', {
+        // sentuh sidebar (revive & naikkan) → ke room percakapan + personal rooms
+        const memberIds = (conv.members || []).map((m) => String(m.user));
+        const touchPayload = {
           conversationId: String(conversationId),
           lastMessageAt: msg.createdAt,
           lastMessage: dto
-        });
+        };
+        nsp.to(String(conversationId)).emit('conv:touch', touchPayload);
+        memberIds.forEach((id) => nsp.to(id).emit('conv:touch', touchPayload));
 
-        // Ack ke pengirim
+        // ack ke pengirim
         ackOk(ack, { message: dto });
 
-        // Auto delivered
+        // delivered
         nsp.to(String(conversationId)).emit('chat:delivered', {
           conversationId: String(conversationId),
           messageIds: [String(msg._id)],
@@ -274,7 +290,7 @@ async function onConnection(nsp, socket) {
       }
     });
 
-    // === Delivered manual dari FE ===
+    // Delivered manual dari FE
     socket.on('chat:delivered', async ({ conversationId, messageIds }) => {
       try {
         if (!conversationId || !isValidId(conversationId)) return;
@@ -293,12 +309,10 @@ async function onConnection(nsp, socket) {
           messageIds: messageIds.map(String),
           at
         });
-      } catch (e) {
-        // ignore
-      }
+      } catch {}
     });
 
-    // === Typing indikator ===
+    // Typing indikator
     socket.on('chat:typing', ({ conversationId, isTyping }) => {
       if (!conversationId || !isValidId(conversationId)) return;
       socket.to(String(conversationId)).emit('chat:typing', {
@@ -309,7 +323,7 @@ async function onConnection(nsp, socket) {
       });
     });
 
-    // === Read receipt ===
+    // Read receipt
     socket.on('chat:read', async ({ conversationId }) => {
       try {
         if (!conversationId || !isValidId(conversationId)) return;
@@ -332,10 +346,10 @@ async function onConnection(nsp, socket) {
           userId: String(actor.userId),
           at
         });
-      } catch (_) {}
+      } catch {}
     });
 
-    // === Delete message (mode: 'soft' | 'hard') ===
+    // Delete message (mode: 'soft' | 'hard')
     socket.on('chat:delete', async ({ messageId, mode = 'hard' }, ack) => {
       try {
         if (!messageId || !isValidId(messageId)) {
@@ -386,7 +400,6 @@ async function onConnection(nsp, socket) {
           return ackOk(ack, { messageId: String(msg._id), mode: 'soft' });
         }
 
-        // Hard delete: hapus file & dokumen
         const files = Array.isArray(msg.attachments) ? msg.attachments : [];
         if (files.length) {
           await Promise.allSettled(
@@ -396,14 +409,32 @@ async function onConnection(nsp, socket) {
 
         await Message.deleteOne({ _id: msg._id });
 
-        // Refresh last message untuk sidebar
-        await refreshConvLastMessage(conv._id);
+        const last = await refreshConvLastMessage(conv._id);
+        const touchPayload = {
+          conversationId: String(conv._id),
+          lastMessageAt: last?.createdAt || null,
+          lastMessage: last
+            ? {
+                id: String(last._id),
+                conversationId: String(last.conversation),
+                sender: String(last.sender),
+                type: last.type,
+                text: last.text,
+                attachments: last.attachments || [],
+                createdAt: last.createdAt
+              }
+            : null
+        };
 
         nsp.to(String(conv._id)).emit('chat:delete', {
           conversationId: String(conv._id),
           messageId: String(msg._id),
           mode: 'hard'
         });
+
+        const memberIds = (conv.members || []).map((m) => String(m.user));
+        nsp.to(String(conv._id)).emit('conv:touch', touchPayload);
+        memberIds.forEach((id) => nsp.to(id).emit('conv:touch', touchPayload));
 
         return ackOk(ack, { messageId: String(msg._id), mode: 'hard' });
       } catch (e) {
