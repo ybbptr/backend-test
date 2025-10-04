@@ -71,9 +71,9 @@ async function buildEmpNameMapFromUsers(users = []) {
   return new Map(emps.map((e) => [String(e.user), e.name]));
 }
 
-function pickDisplayNameWithEmp(userDoc, empMap) {
+function pickDisplayNameWithEmp(userDoc, empMap = new Map()) {
   if (!userDoc) return 'Tanpa Nama';
-  const uid = getUid(userDoc);
+  const uid = String(userDoc._id || userDoc.id || userDoc) || '';
   const role = String(userDoc.role || '').toLowerCase();
 
   if (role === 'karyawan') {
@@ -85,25 +85,16 @@ function pickDisplayNameWithEmp(userDoc, empMap) {
   return userDoc.name || userDoc.email || 'Tanpa Nama';
 }
 
-/* ========= NEW: Normalizer untuk payload conv:new ========= */
-
-/**
- * Populate members.user lalu dekorasi:
- * - members[].displayName (pakai Employee.name untuk karyawan)
- * - displayTitle yang spesifik untuk viewer
- * - lastMessage & lastMessageAt (respect hideBefore jika user pernah soft-delete)
- */
 async function buildConvViewForViewer(convDoc, viewerUserId) {
   await convDoc.populate({ path: 'members.user', select: 'name email role' });
 
   const allUsers = (convDoc.members || []).map((m) => m.user).filter(Boolean);
   const empMap = await buildEmpNameMapFromUsers(allUsers);
 
-  // Tambah displayName ke setiap member
   const decoratedMembers = (convDoc.members || []).map((m) => {
     const u = m.user;
     return {
-      ...(m.toObject?.() ?? m),
+      ...(typeof m.toObject === 'function' ? m.toObject() : m),
       user: u
         ? { _id: u._id, name: u.name, email: u.email, role: u.role }
         : null,
@@ -111,13 +102,11 @@ async function buildConvViewForViewer(convDoc, viewerUserId) {
     };
   });
 
-  // Hitung hideBefore viewer (untuk lastVisible)
   const me = decoratedMembers.find(
     (m) => String(m.user?._id || m.user) === String(viewerUserId)
   );
   const hideBefore = me?.deletedAt ? new Date(me.deletedAt) : new Date(0);
 
-  // Ambil last message setelah hideBefore
   let last = await Message.findOne({
     conversation: convDoc._id,
     createdAt: { $gt: hideBefore }
@@ -127,17 +116,15 @@ async function buildConvViewForViewer(convDoc, viewerUserId) {
     .populate({ path: 'sender', select: 'name email role' })
     .lean();
 
-  // Bila ada sender, juga hias namanya (dengan empMap yang sama sudah cukup)
   if (last?.sender) {
     last.sender = {
-      _id: last.sender._id,
+      _id: String(last.sender._id),
       role: last.sender.role,
       name: pickDisplayNameWithEmp(last.sender, empMap),
       email: last.sender.email
     };
   }
 
-  // displayTitle viewer-specific
   let displayTitle = convDoc.title?.trim() || null;
   if (convDoc.type !== 'group') {
     const other = decoratedMembers.find(
@@ -148,16 +135,16 @@ async function buildConvViewForViewer(convDoc, viewerUserId) {
     displayTitle = displayTitle || 'Tanpa Nama';
   }
 
-  const idStr = String(convDoc._id);
-
   const computedTitle =
     convDoc.type === 'group'
       ? convDoc.title?.trim() || 'Tanpa Nama'
       : displayTitle || 'Tanpa Nama';
 
+  const idStr = String(convDoc._id);
+
   return {
     _id: idStr,
-    id: idStr, // alias
+    id: idStr,
     type: convDoc.type,
     title: computedTitle,
     displayTitle,
@@ -187,14 +174,7 @@ async function buildConvViewForViewer(convDoc, viewerUserId) {
       ? {
           id: String(last._id),
           conversationId: idStr,
-          sender: last.sender
-            ? {
-                _id: String(last.sender._id),
-                role: last.sender.role,
-                name: last.sender.name,
-                email: last.sender.email
-              }
-            : null,
+          sender: last.sender || null,
           type: last.type,
           text: last.text,
           attachments: last.attachments || [],
@@ -204,9 +184,6 @@ async function buildConvViewForViewer(convDoc, viewerUserId) {
   };
 }
 
-/**
- * Emit conv:new ke setiap anggota dengan payload yang sudah viewer-specific.
- */
 async function emitConvNewForAllMembers(convDoc) {
   try {
     const nsp = global.io?.of('/chat');
@@ -341,39 +318,11 @@ const listConversations = asyncHandler(async (req, res) => {
 
   const allUsers = [];
   for (const c of items) {
-    c.members = (c.members || []).map((m) => {
-      const u = m.user;
-      return { ...m, displayName: pickDisplayNameWithEmp(u, empMap) };
-    });
-
-    if (c.lastMessage?.sender) {
-      const su = senderMap.get(String(c.lastMessage.sender));
-      if (su) {
-        c.lastMessage.sender = {
-          _id: su._id,
-          role: su.role,
-          name: pickDisplayNameWithEmp(su, empMap),
-          email: su.email
-        };
-      }
-    }
-
-    if (c.type !== 'group') {
-      const others = (c.members || []).filter(
-        (m) => String(m.user?._id || m.user) !== myId
-      );
-      const other = others[0];
-      c.displayTitle =
-        other?.displayName ||
-        pickDisplayNameWithEmp(other?.user, empMap) ||
-        'Tanpa Nama';
-
-      c.title = c.displayTitle;
-    } else {
-      c.title = c.title?.trim() || 'Tanpa Nama';
-    }
+    for (const m of c.members || []) if (m.user) allUsers.push(m.user);
+    const su = senderMap.get(String(c.lastMessage?.sender));
+    if (su) allUsers.push(su);
   }
-  const empMap = await buildEmpNameMapFromUsers(allUsers);
+  const empMap = await buildEmpNameMapFromUsers(allUsers); // <-- BUAT DULU
 
   const myId = String(actor.userId);
   for (const c of items) {
@@ -395,18 +344,20 @@ const listConversations = asyncHandler(async (req, res) => {
     }
 
     if (c.type !== 'group') {
-      const others = (c.members || []).filter(
+      const other = (c.members || []).find(
         (m) => String(m.user?._id || m.user) !== myId
       );
-      const other = others[0];
       c.displayTitle =
         other?.displayName ||
         pickDisplayNameWithEmp(other?.user, empMap) ||
         'Tanpa Nama';
+
+      c.title = c.displayTitle; // sinkron utk FE lama
+    } else {
+      c.title = c.title?.trim() || 'Tanpa Nama';
     }
   }
 
-  // Unread counter: cutoff = max(lastReadAt, deletedAt)
   await Promise.all(
     items.map(async (c) => {
       const me = (c.members || []).find(
