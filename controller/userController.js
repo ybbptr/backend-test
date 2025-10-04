@@ -5,9 +5,16 @@ const jwt = require('jsonwebtoken');
 
 const OtpChallenge = require('../model/otpChallengeModel');
 const User = require('../model/userModel');
+const Session = require('../model/sessionModel');
 const PendingRegistration = require('../model/pendingRegistrationModel');
+
 const throwError = require('../utils/throwError');
 const generateTokens = require('../utils/generateToken');
+const {
+  hash,
+  issueAccessToken,
+  issueRefreshToken
+} = require('../utils/sessionTokens');
 
 const { generateOtp, hashOtp, verifyOtp, CODE_LEN } = require('../utils/otp');
 const { sendOtpEmail } = require('../utils/mailer');
@@ -683,75 +690,6 @@ const resetPasswordWithToken = asyncHandler(async (req, res) => {
 //     .json({ message: 'Daftar akun berhasil', role: user.role });
 // });
 
-const loginUser = asyncHandler(async (req, res) => {
-  const { email, password } = req.body;
-  const remember = parseRemember(req);
-  console.log('[LOGIN][payload]', {
-    bodyKeys: Object.keys(req.body || {}),
-    queryKeys: Object.keys(req.query || {}),
-    rememberRaw:
-      req.body?.remember ??
-      req.body?.rememberMe ??
-      req.body?.remember_me ??
-      req.query?.remember ??
-      req.query?.rememberMe ??
-      req.query?.remember_me,
-    rememberParsed: remember
-  });
-
-  const user = await User.findOne({ email }).select('+password');
-  if (!user) throwError('Email tidak ditemukan', 401);
-  if (user.role === 'bot') {
-    return throwError('Akun bot tidak bisa login', 403);
-  }
-  const isValid = await bcrypt.compare(password, user.password);
-  if (!isValid) throwError('Password invalid', 401);
-
-  const { accessToken, refreshToken } = await generateTokens(user, {
-    remember
-  });
-
-  const refreshCookieOpts = remember
-    ? { ...baseCookie, maxAge: 7 * 24 * 60 * 60 * 1000 } // persistent 7d
-    : { ...baseCookie }; // session cookie (tanpa maxAge)
-
-  console.log('[LOGIN] issuing cookies', {
-    remember,
-    accessMaxAgeMs: 30 * 60 * 1000,
-    refreshPersistent: !!refreshCookieOpts.maxAge,
-    baseCookie: {
-      sameSite: baseCookie.sameSite,
-      secure: baseCookie.secure,
-      path: baseCookie.path
-    }
-  });
-
-  res.cookie('accessToken', accessToken, {
-    ...baseCookie,
-    maxAge: 30 * 60 * 1000
-  });
-  res.cookie('refreshToken', refreshToken, refreshCookieOpts);
-  return res.json({
-    message: 'Login berhasil',
-    role: user.role,
-    accessExpiresInSec: 1800
-  });
-
-  // res.clearCookie('refreshToken', { ...baseCookie });
-  // res.clearCookie('accessToken', { ...baseCookie });
-  // res
-  //   .cookie('accessToken', accessToken, {
-  //     ...baseCookie,
-  //     maxAge: 30 * 60 * 1000
-  //   })
-  //   .cookie('refreshToken', refreshToken, refreshCookieOpts)
-  //   .json({
-  //     message: 'Login berhasil',
-  //     role: user.role,
-  //     accessExpiresInSec: 1800
-  //   });
-});
-
 const getCurrentUser = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user.id).select(
     'name phone role email updatedAt'
@@ -805,19 +743,85 @@ const updatePassword = asyncHandler(async (req, res) => {
   res.status(200).json({ message: 'Password berhasil diganti!' });
 });
 
+const loginUser = asyncHandler(async (req, res) => {
+  const { email, password } = req.body;
+  const remember = parseRemember(req);
+
+  console.log('[LOGIN][payload]', {
+    bodyKeys: Object.keys(req.body || {}),
+    queryKeys: Object.keys(req.query || {}),
+    rememberRaw:
+      req.body?.remember ??
+      req.body?.rememberMe ??
+      req.body?.remember_me ??
+      req.query?.remember ??
+      req.query?.rememberMe ??
+      req.query?.remember_me,
+    rememberParsed: remember
+  });
+
+  const user = await User.findOne({ email }).select('+password');
+  if (!user) throwError('Email tidak ditemukan', 401);
+  if (user.role === 'bot') return throwError('Akun bot tidak bisa login', 403);
+
+  const isValid = await bcrypt.compare(password, user.password);
+  if (!isValid) throwError('Password invalid', 401);
+
+  // === Perubahan: generateTokens sekarang bikin Session + RT ber-sid
+  const { accessToken, refreshToken } = await generateTokens(user, {
+    remember,
+    ua: req.headers['user-agent'] || '',
+    ip: req.ip || ''
+  });
+
+  const refreshCookieOpts = remember
+    ? { ...baseCookie, maxAge: 7 * 24 * 60 * 60 * 1000 } // persistent 7d
+    : { ...baseCookie }; // session cookie
+
+  console.log('[LOGIN] issuing cookies', {
+    remember,
+    accessMaxAgeMs: 30 * 60 * 1000,
+    refreshPersistent: !!refreshCookieOpts.maxAge,
+    baseCookie: {
+      sameSite: baseCookie.sameSite,
+      secure: baseCookie.secure,
+      path: baseCookie.path
+    }
+  });
+
+  res.cookie('accessToken', accessToken, {
+    ...baseCookie,
+    maxAge: 30 * 60 * 1000
+  });
+  res.cookie('refreshToken', refreshToken, refreshCookieOpts);
+
+  return res.json({
+    message: 'Login berhasil',
+    role: user.role,
+    accessExpiresInSec: 1800
+  });
+});
+
 const logoutUser = asyncHandler(async (req, res) => {
   try {
     const token = req.cookies?.refreshToken;
     if (token) {
       try {
         const payload = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
-        await User.findByIdAndUpdate(payload.sub, {
-          refreshToken: null,
-          prevRefreshToken: null
-        });
+        if (payload?.sid) {
+          await Session.updateOne(
+            { sid: payload.sid, userId: payload.sub },
+            { $set: { revokedAt: new Date() } }
+          );
+        } else {
+          // legacy: bersihkan field di User
+          await User.findByIdAndUpdate(payload.sub, {
+            refreshToken: null,
+            prevRefreshToken: null
+          });
+        }
       } catch (_) {}
     }
-
     res
       .clearCookie('accessToken', { ...baseCookie })
       .clearCookie('refreshToken', { ...baseCookie })
@@ -857,7 +861,8 @@ const refreshToken = asyncHandler(async (req, res) => {
     payload = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
     console.log('[rt] jwt ok', {
       sub: payload?.sub,
-      remember: !!payload?.remember
+      remember: !!payload?.remember,
+      sid: payload?.sid || '<none>'
     });
   } catch (e) {
     console.log('[rt] verify error', e?.message || e);
@@ -868,11 +873,84 @@ const refreshToken = asyncHandler(async (req, res) => {
       .json({ message: 'Refresh token invalid/expired' });
   }
 
+  const remember = !!payload.remember;
+  const refreshCookieOpts = remember
+    ? { ...baseCookie, maxAge: 7 * 24 * 60 * 60 * 1000 }
+    : { ...baseCookie };
+
+  if (payload.sid) {
+    const session = await Session.findOne({
+      sid: payload.sid,
+      userId: payload.sub
+    });
+    if (!session || session.revokedAt) {
+      console.log('[rt] session missing/revoked');
+      return res
+        .clearCookie('accessToken', { ...baseCookie })
+        .clearCookie('refreshToken', { ...baseCookie })
+        .status(401)
+        .json({ message: 'Refresh token invalid' });
+    }
+    if (session.expiresAt && session.expiresAt.getTime() < Date.now()) {
+      console.log('[rt] session expired');
+      return res
+        .clearCookie('accessToken', { ...baseCookie })
+        .clearCookie('refreshToken', { ...baseCookie })
+        .status(401)
+        .json({ message: 'Session expired' });
+    }
+
+    const presented = hash(token);
+    const matchCurrent = presented === session.currentRtHash;
+    const matchPrev = presented === session.prevRtHash;
+
+    if (!matchCurrent && !matchPrev) {
+      console.log('[rt] mismatch → revoke session');
+      session.revokedAt = new Date();
+      await session.save();
+      return res
+        .clearCookie('accessToken', { ...baseCookie })
+        .clearCookie('refreshToken', { ...baseCookie })
+        .status(401)
+        .json({ message: 'Refresh token invalid (mismatch)' });
+    }
+
+    // ROTATE dalam sesi ini saja
+    const newRt = issueRefreshToken(
+      { sub: payload.sub, role: payload.role, name: payload.name },
+      session.sid,
+      session.remember
+    );
+    session.prevRtHash = session.currentRtHash;
+    session.currentRtHash = hash(newRt);
+    session.replacedAt = new Date();
+    // sliding window 7 hari (sesuai sebelumnya)
+    session.expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000);
+    await session.save();
+
+    const newAt = issueAccessToken({
+      sub: payload.sub,
+      role: payload.role,
+      name: payload.name
+    });
+
+    console.log('[rt][out-rotate-per-session]', {
+      setAccessCookie: true,
+      setRefreshCookie: true
+    });
+
+    return res
+      .cookie('accessToken', newAt, { ...baseCookie, maxAge: 30 * 60 * 1000 })
+      .cookie('refreshToken', newRt, refreshCookieOpts)
+      .json({ message: 'Access token refreshed (per-session)' });
+  }
+
+  // ======== LEGACY FALLBACK: tidak ada sid → pakai flow lamamu ========
   const user = await User.findById(payload.sub).select(
     '+refreshToken +prevRefreshToken role name'
   );
   if (!user) {
-    console.log('[rt] user not found', { sub: payload?.sub });
+    console.log('[rt][legacy] user not found', { sub: payload?.sub });
     return res
       .clearCookie('accessToken', { ...baseCookie })
       .clearCookie('refreshToken', { ...baseCookie })
@@ -883,7 +961,7 @@ const refreshToken = asyncHandler(async (req, res) => {
   const matchCurrent = user.refreshToken === token;
   const matchPrev = user.prevRefreshToken === token;
 
-  console.log('[rt] db match', {
+  console.log('[rt][legacy] db match', {
     matchCurrent,
     matchPrev,
     dbCurrent: user.refreshToken ? '<present>' : '<null>',
@@ -892,7 +970,7 @@ const refreshToken = asyncHandler(async (req, res) => {
   });
 
   if (!matchCurrent && !matchPrev) {
-    console.log('[rt] token not found in DB (invalid)');
+    console.log('[rt][legacy] token not found in DB (invalid)');
     return res
       .clearCookie('accessToken', { ...baseCookie })
       .clearCookie('refreshToken', { ...baseCookie })
@@ -900,83 +978,61 @@ const refreshToken = asyncHandler(async (req, res) => {
       .json({ message: 'Refresh token invalid' });
   }
 
-  const remember = !!payload.remember;
-  const refreshCookieOpts = remember
-    ? { ...baseCookie, maxAge: 7 * 24 * 60 * 60 * 1000 }
-    : { ...baseCookie };
-
-  // === 1) PREV diterima, tapi UPGRADE client ke CURRENT tanpa rotasi
   if (matchPrev) {
-    const newAccessToken = jwt.sign(
-      { sub: user._id.toString(), role: user.role, name: user.name },
-      process.env.ACCESS_TOKEN_SECRET,
-      { expiresIn: '30m' }
-    );
-
-    console.log('[rt][out-prev-upgrade]', {
+    const newAt = issueAccessToken({
+      _id: user._id,
+      role: user.role,
+      name: user.name
+    });
+    console.log('[rt][legacy-out-prev-upgrade]', {
       note: 'matchPrev → upgrade client to CURRENT; no rotation'
     });
-
     return res
-      .cookie('accessToken', newAccessToken, {
-        ...baseCookie,
-        maxAge: 30 * 60 * 1000
-      })
-      .cookie('refreshToken', user.refreshToken, refreshCookieOpts) // ← set CURRENT dari DB
+      .cookie('accessToken', newAt, { ...baseCookie, maxAge: 30 * 60 * 1000 })
+      .cookie('refreshToken', user.refreshToken, refreshCookieOpts)
       .json({
         message: 'Access token refreshed (prev accepted, upgraded to current)'
       });
   }
 
-  // === 2) CURRENT → ROTATE secara atomik
-  const newAccessToken = jwt.sign(
-    { sub: user._id.toString(), role: user.role, name: user.name },
-    process.env.ACCESS_TOKEN_SECRET,
-    { expiresIn: '30m' }
-  );
-
-  const newRefreshToken = jwt.sign(
+  // CURRENT → ROTATE (legacy)
+  const newAt = issueAccessToken({
+    _id: user._id,
+    role: user.role,
+    name: user.name
+  });
+  const newRt = jwt.sign(
     { sub: user._id.toString(), role: user.role, name: user.name, remember },
     process.env.REFRESH_TOKEN_SECRET,
     { expiresIn: '7d' }
   );
 
   const upd = await User.updateOne(
-    { _id: user._id, refreshToken: token }, // precondition atomik
-    { $set: { prevRefreshToken: token, refreshToken: newRefreshToken } }
+    { _id: user._id, refreshToken: token },
+    { $set: { prevRefreshToken: token, refreshToken: newRt } }
   );
 
   if (upd.modifiedCount === 0) {
-    // Sudah di-rotate oleh request lain → ambil CURRENT terbaru & kirim
     const latest = await User.findById(user._id).select(
       'refreshToken prevRefreshToken'
     );
-    console.log('[rt][out-race]', {
+    console.log('[rt][legacy-out-race]', {
       info: 'already rotated by another request → send latest CURRENT'
     });
-
     return res
-      .cookie('accessToken', newAccessToken, {
-        ...baseCookie,
-        maxAge: 30 * 60 * 1000
-      })
-      .cookie('refreshToken', latest.refreshToken || token, refreshCookieOpts) // fallback ke token lama kalau perlu
+      .cookie('accessToken', newAt, { ...baseCookie, maxAge: 30 * 60 * 1000 })
+      .cookie('refreshToken', latest.refreshToken || token, refreshCookieOpts)
       .json({ message: 'Access token refreshed (race-safe upgraded)' });
   }
 
-  console.log('[rt][out-rotate]', {
+  console.log('[rt][legacy-out-rotate]', {
     setAccessCookie: true,
-    setRefreshCookie: true,
-    accessTTLmin: 30,
-    refreshTTL: remember ? '7d (persistent)' : 'session'
+    setRefreshCookie: true
   });
 
   return res
-    .cookie('accessToken', newAccessToken, {
-      ...baseCookie,
-      maxAge: 30 * 60 * 1000
-    })
-    .cookie('refreshToken', newRefreshToken, refreshCookieOpts)
+    .cookie('accessToken', newAt, { ...baseCookie, maxAge: 30 * 60 * 1000 })
+    .cookie('refreshToken', newRt, refreshCookieOpts)
     .json({ message: 'Access token berhasil di refresh' });
 });
 
