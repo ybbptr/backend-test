@@ -85,6 +85,122 @@ function pickDisplayNameWithEmp(userDoc, empMap) {
   return userDoc.name || userDoc.email || 'Tanpa Nama';
 }
 
+/* ========= NEW: Normalizer untuk payload conv:new ========= */
+
+/**
+ * Populate members.user lalu dekorasi:
+ * - members[].displayName (pakai Employee.name untuk karyawan)
+ * - displayTitle yang spesifik untuk viewer
+ * - lastMessage & lastMessageAt (respect hideBefore jika user pernah soft-delete)
+ */
+async function buildConvViewForViewer(convDoc, viewerUserId) {
+  // Pastikan populated
+  await convDoc.populate({ path: 'members.user', select: 'name email role' });
+
+  // Emp name map dari semua member
+  const allUsers = (convDoc.members || []).map((m) => m.user).filter(Boolean);
+  const empMap = await buildEmpNameMapFromUsers(allUsers);
+
+  // Tambah displayName ke setiap member
+  const decoratedMembers = (convDoc.members || []).map((m) => {
+    const u = m.user;
+    return {
+      ...(m.toObject?.() ?? m),
+      user: u
+        ? { _id: u._id, name: u.name, email: u.email, role: u.role }
+        : null,
+      displayName: u ? pickDisplayNameWithEmp(u, empMap) : 'Tanpa Nama'
+    };
+  });
+
+  // Hitung hideBefore viewer (untuk lastVisible)
+  const me = decoratedMembers.find(
+    (m) => String(m.user?._id || m.user) === String(viewerUserId)
+  );
+  const hideBefore = me?.deletedAt ? new Date(me.deletedAt) : new Date(0);
+
+  // Ambil last message setelah hideBefore
+  let last = await Message.findOne({
+    conversation: convDoc._id,
+    createdAt: { $gt: hideBefore }
+  })
+    .sort({ createdAt: -1, _id: -1 })
+    .select('_id text attachments sender createdAt type conversation')
+    .populate({ path: 'sender', select: 'name email role' })
+    .lean();
+
+  // Bila ada sender, juga hias namanya (dengan empMap yang sama sudah cukup)
+  if (last?.sender) {
+    last.sender = {
+      _id: last.sender._id,
+      role: last.sender.role,
+      name: pickDisplayNameWithEmp(last.sender, empMap),
+      email: last.sender.email
+    };
+  }
+
+  // displayTitle viewer-specific
+  let displayTitle = convDoc.title?.trim() || null;
+  if (convDoc.type !== 'group') {
+    const other = decoratedMembers.find(
+      (m) => String(m.user?._id || m.user) !== String(viewerUserId)
+    );
+    displayTitle = other?.displayName || displayTitle || 'Tanpa Nama';
+  } else {
+    displayTitle = displayTitle || 'Tanpa Nama';
+  }
+
+  return {
+    _id: convDoc._id,
+    type: convDoc.type,
+    title: convDoc.title || null,
+    displayTitle,
+    members: decoratedMembers.map((m) => ({
+      user: m.user,
+      role: m.role,
+      lastReadAt: m.lastReadAt || null,
+      pinned: !!m.pinned,
+      deletedAt: m.deletedAt || null,
+      displayName: m.displayName
+    })),
+    createdBy: convDoc.createdBy,
+    createdAt: convDoc.createdAt,
+    updatedAt: convDoc.updatedAt,
+    expireAt: convDoc.expireAt || null,
+    pinnedMessages: convDoc.pinnedMessages || [],
+    lastMessageAt: last?.createdAt || null,
+    lastMessage: last
+      ? {
+          id: String(last._id),
+          conversationId: String(last.conversation || convDoc._id),
+          sender: last.sender || null,
+          type: last.type,
+          text: last.text,
+          attachments: last.attachments || [],
+          createdAt: last.createdAt
+        }
+      : null
+  };
+}
+
+/**
+ * Emit conv:new ke setiap anggota dengan payload yang sudah viewer-specific.
+ */
+async function emitConvNewForAllMembers(convDoc) {
+  try {
+    const nsp = global.io?.of('/chat');
+    if (!nsp) return;
+
+    for (const m of convDoc.members || []) {
+      const viewerId = String(m.user);
+      const view = await buildConvViewForViewer(convDoc, viewerId);
+      nsp.to(viewerId).emit('conv:new', view);
+    }
+  } catch {}
+}
+
+/* ========= CONTROLLERS ========= */
+
 const listConversations = asyncHandler(async (req, res) => {
   const actor = await resolveChatActor(req);
   const roleLower = String(req.user.role || '').toLowerCase();
@@ -302,8 +418,16 @@ const createConversation = asyncHandler(async (req, res) => {
     const existing = await Conversation.findOne({
       type: 'direct',
       memberKey: `${a}:${b}`
-    }).lean();
-    if (existing) return res.status(200).json(existing);
+    });
+    if (existing) {
+      // Kirim realtime payload yang sudah dihias (viewer-specific) dan balas untuk pemanggil
+      await emitConvNewForAllMembers(existing);
+      const viewForCreator = await buildConvViewForViewer(
+        existing,
+        actor.userId
+      );
+      return res.status(200).json(viewForCreator);
+    }
   }
 
   if (type === 'group') {
@@ -331,17 +455,13 @@ const createConversation = asyncHandler(async (req, res) => {
     members
   });
 
+  // Emit ke semua anggota dengan payload yang sudah viewer-specific
   await conv.populate({ path: 'members.user', select: 'name email role' });
-  conv = conv.toObject();
+  await emitConvNewForAllMembers(conv);
 
-  if (global.io) {
-    const nsp = global.io.of('/chat');
-    for (const m of members) {
-      nsp.to(String(m.user)).emit('conv:new', conv);
-    }
-  }
-
-  res.status(201).json(conv);
+  // Kembalikan payload yang sudah dihias untuk pembuat
+  const viewForCreator = await buildConvViewForViewer(conv, actor.userId);
+  res.status(201).json(viewForCreator);
 });
 
 const updateConversation = asyncHandler(async (req, res) => {
@@ -529,13 +649,18 @@ const openCustomerChat = asyncHandler(async (req, res) => {
       ]
     });
 
-    if (global.io) {
-      const nsp = global.io.of('/chat');
-      nsp.to(String(adminUser._id)).emit('conv:new', conv);
-    }
+    // Emit conv:new untuk admin & customer dengan payload yang sudah dihias
+    await conv.populate({ path: 'members.user', select: 'name email role' });
+    await emitConvNewForAllMembers(conv);
+  } else {
+    // Untuk jaga-jaga, kirimkan conv:new juga ke admin agar muncul realtime jika belum ada
+    await conv.populate({ path: 'members.user', select: 'name email role' });
+    await emitConvNewForAllMembers(conv);
   }
 
-  res.json({ conversationId: conv._id });
+  // Balas ke caller (customer) dengan payload yang sudah dihias + compat conversationId
+  const viewForCustomer = await buildConvViewForViewer(conv, userId);
+  res.json({ conversationId: conv._id, conversation: viewForCustomer });
 });
 
 const getContacts = asyncHandler(async (req, res) => {
@@ -952,7 +1077,7 @@ const deleteConversation = asyncHandler(async (req, res) => {
   if (mode === 'hard') {
     if (
       !['owner', 'admin'].includes(me.role) &&
-      String(actor.role).toLowerCase() !== 'admin'
+      String(req.user.role || '').toLowerCase() !== 'admin'
     ) {
       throwError('Tidak punya izin menghapus percakapan global', 403);
     }
@@ -1276,7 +1401,6 @@ const searchMessagesGlobal = asyncHandler(async (req, res) => {
     });
   }
 
-  // conv hits berdasarkan judul / nama lawan bicara
   const convHits = [];
   for (const c of myConvs) {
     const title = guessConvTitle(c, actor.userId);
@@ -1300,7 +1424,6 @@ const searchMessagesGlobal = asyncHandler(async (req, res) => {
   const topConvHits = convHits.slice(0, Math.max(1, Number(conv_limit) || 10));
   const totalConvHits = convHits.length;
 
-  // Siapkan OR conditions: (conversation=X AND createdAt > hb)
   const orConds = myConvs.map((c) => {
     const me = (c.members || []).find(
       (m) => String(m.user?._id || m.user) === String(actor.userId)
